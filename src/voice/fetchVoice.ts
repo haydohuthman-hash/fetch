@@ -1,4 +1,13 @@
+import { fetchApiAbsoluteUrl } from '../lib/fetchApiBase'
 import { voiceFlowDebug, voiceFlowFallbackText } from './voiceFlowDebug'
+import { patchVoiceSourceDebug } from './voiceSourceDebug'
+
+function voiceDevLog(...args: unknown[]) {
+  if (import.meta.env.DEV) console.log(...args)
+}
+function voiceDevWarn(...args: unknown[]) {
+  if (import.meta.env.DEV) console.warn(...args)
+}
 
 /** Legacy scan pipeline service hint (voice copy only). */
 export type FetchServiceId = 'pickup' | 'moving' | 'junk'
@@ -37,7 +46,6 @@ export type SpeakLineOptions = {
  * Jarvis-like when paired with measured `voice_settings` below. Override via VITE_ELEVENLABS_VOICE_ID.
  */
 const DEFAULT_VOICE_ID = 'onwK4e9ZLuTAKqWW03F9'
-const DEFAULT_VOICE_API_BASE = 'http://127.0.0.1:8787'
 
 function resolvedVoiceId(): string {
   return import.meta.env.VITE_ELEVENLABS_VOICE_ID?.trim() ?? DEFAULT_VOICE_ID
@@ -414,29 +422,17 @@ function stopCurrentPlayback() {
 /**
  * When ElevenLabs is unavailable or `HTMLAudioElement.play()` is blocked, use the OS voice.
  * Prefers en-GB with a measured rate/pitch as a rough Jarvis-style fallback.
+ * Only call after ElevenLabs fetch or HTML audio playback has definitively failed.
  */
-function speakWithBrowserTTS(text: string): Promise<void> {
+function speakWithBrowserTTS(text: string, browserFallbackReason: string): Promise<void> {
+  voiceDevWarn('[FetchVoice] using browser fallback', { reason: browserFallbackReason })
+  patchVoiceSourceDebug({
+    active: { kind: 'browser_fallback', reason: browserFallbackReason },
+  })
   return new Promise((resolve, reject) => {
     const synth = window.speechSynthesis
     if (!synth) {
       const err = new Error('speechSynthesis unavailable')
-      // #region agent log
-      fetch('http://127.0.0.1:7246/ingest/130c5824-fd41-46de-a33e-be771fe2ae27', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Debug-Session-Id': 'afe72a',
-        },
-        body: JSON.stringify({
-          sessionId: 'afe72a',
-          hypothesisId: 'H_browser_tts',
-          location: 'fetchVoice.ts:speakWithBrowserTTS',
-          message: 'no_synth',
-          data: { textLen: text.length },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {})
-      // #endregion
       voiceFlowDebug('playback_failed', { reason: 'no_speechSynthesis' })
       voiceFlowFallbackText(text, err.message)
       reject(err)
@@ -465,23 +461,6 @@ function speakWithBrowserTTS(text: string): Promise<void> {
         stopBrowserLipShim()
         speechAmpSmoothed = 0
         setSpeechPlaying(false)
-        // #region agent log
-        fetch('http://127.0.0.1:7246/ingest/130c5824-fd41-46de-a33e-be771fe2ae27', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Debug-Session-Id': 'afe72a',
-          },
-          body: JSON.stringify({
-            sessionId: 'afe72a',
-            hypothesisId: 'H_browser_tts',
-            location: 'fetchVoice.ts:speakWithBrowserTTS',
-            message: 'utterance_failed',
-            data: { error: err.message, textLen: text.length },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {})
-        // #endregion
         voiceFlowDebug('playback_failed', { reason: 'browser_tts', error: err.message })
         voiceFlowFallbackText(text, err.message)
         reject(err)
@@ -511,7 +490,7 @@ function speakWithBrowserTTS(text: string): Promise<void> {
       }
       u.onend = () => settleOk()
       u.onerror = (ev) => {
-        const se = ev as any
+        const se = ev as SpeechSynthesisErrorEvent
         settleErr(new Error(se.error ?? 'utterance_error'))
       }
       try {
@@ -535,15 +514,41 @@ function speakWithBrowserTTS(text: string): Promise<void> {
   })
 }
 
-async function fetchElevenLabsSpeech(text: string): Promise<Blob | null> {
-  const apiBase = import.meta.env.VITE_VOICE_API_BASE?.trim() || DEFAULT_VOICE_API_BASE
+/**
+ * Tries your server TTS proxy first (keeps the ElevenLabs key off the client), then optional
+ * direct ElevenLabs when `VITE_ELEVENLABS_API_KEY` is set in the build.
+ * Proxy URL matches chat/booking: `VITE_VOICE_API_BASE` → else `fetchApiAbsoluteUrl('/api/voice/tts')`.
+ */
+async function fetchElevenLabsSpeechDetailed(
+  text: string,
+): Promise<{ blob: Blob | null; failureSummary: string }> {
   const voiceId = resolvedVoiceId()
-  if (!text) return null
+  if (!text.trim()) {
+    return { blob: null, failureSummary: 'empty text' }
+  }
 
+  const voiceBaseOverride = import.meta.env.VITE_VOICE_API_BASE?.trim()
+  const ttsUrl = voiceBaseOverride
+    ? `${voiceBaseOverride.replace(/\/$/, '')}/api/voice/tts`
+    : fetchApiAbsoluteUrl('/api/voice/tts')
+  const proxyRouteLabel = voiceBaseOverride
+    ? 'proxy (VITE_VOICE_API_BASE)'
+    : import.meta.env.DEV
+      ? 'proxy (dev → 127.0.0.1:8787 via fetchApiBase)'
+      : 'proxy (same-origin /api/voice/tts or VITE_FETCH_API_BASE_URL)'
+
+  let proxyError: string | null = null
+
+  voiceDevLog('[FetchVoice] attempting ElevenLabs', {
+    route: 'proxy',
+    url: ttsUrl,
+    proxyRouteLabel,
+    voiceId,
+  })
   try {
     const controller = new AbortController()
     const timeout = window.setTimeout(() => controller.abort(), VOICE_FETCH_TIMEOUT_MS)
-    const res = await fetch(`${apiBase}/api/voice/tts`, {
+    const res = await fetch(ttsUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -558,15 +563,31 @@ async function fetchElevenLabsSpeech(text: string): Promise<Blob | null> {
       window.clearTimeout(timeout)
     })
     if (res.ok) {
-      return res.blob()
+      const blob = await res.blob()
+      voiceDevLog('[FetchVoice] ElevenLabs request success', { route: 'proxy' })
+      return { blob, failureSummary: '' }
     }
-  } catch {
-    /* fall through to direct browser request */
+    const errBody = await res.text().catch(() => '')
+    proxyError = `proxy HTTP ${res.status} ${res.statusText}${errBody ? `: ${errBody.slice(0, 240)}` : ''}`
+    voiceDevWarn('[FetchVoice] ElevenLabs request failed', { route: 'proxy', detail: proxyError })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    proxyError = `proxy network/abort: ${msg}`
+    voiceDevWarn('[FetchVoice] ElevenLabs request failed', { route: 'proxy', detail: proxyError })
   }
 
   const apiKey = import.meta.env.VITE_ELEVENLABS_API_KEY?.trim()
-  if (!apiKey || !text) return null
+  if (!apiKey) {
+    const directSkip =
+      'direct route skipped: VITE_ELEVENLABS_API_KEY is missing or empty in this build (Vercel: add to env and redeploy)'
+    voiceDevWarn('[FetchVoice] ElevenLabs request failed', { route: 'direct', detail: directSkip })
+    return {
+      blob: null,
+      failureSummary: [proxyError, directSkip].filter(Boolean).join(' | '),
+    }
+  }
 
+  voiceDevLog('[FetchVoice] attempting ElevenLabs', { route: 'direct', voiceId })
   try {
     const controller = new AbortController()
     const timeout = window.setTimeout(() => controller.abort(), VOICE_FETCH_TIMEOUT_MS)
@@ -595,22 +616,48 @@ async function fetchElevenLabsSpeech(text: string): Promise<Blob | null> {
     ).finally(() => {
       window.clearTimeout(timeout)
     })
-    if (!res.ok) return null
-    return res.blob()
-  } catch {
-    return null
+    if (res.ok) {
+      const blob = await res.blob()
+      voiceDevLog('[FetchVoice] ElevenLabs request success', { route: 'direct' })
+      return { blob, failureSummary: '' }
+    }
+    const errBody = await res.text().catch(() => '')
+    const directErr = `direct HTTP ${res.status} ${res.statusText}${errBody ? `: ${errBody.slice(0, 240)}` : ''}`
+    voiceDevWarn('[FetchVoice] ElevenLabs request failed', { route: 'direct', detail: directErr })
+    return {
+      blob: null,
+      failureSummary: [proxyError, directErr].filter(Boolean).join(' | '),
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    const directErr = `direct network/abort: ${msg}`
+    voiceDevWarn('[FetchVoice] ElevenLabs request failed', { route: 'direct', detail: directErr })
+    return {
+      blob: null,
+      failureSummary: [proxyError, directErr].filter(Boolean).join(' | '),
+    }
   }
 }
 
-async function audioUrlForPhrase(phrase: string): Promise<string | null> {
+async function audioUrlForPhrase(
+  phrase: string,
+): Promise<{ url: string | null; elevenLabsFailure: string | null }> {
   const cacheKey = `${resolvedVoiceId()}::${phrase}`
   const hit = phraseBlobUrlCache.get(cacheKey)
-  if (hit) return hit
-  const blob = await fetchElevenLabsSpeech(phrase)
-  if (!blob) return null
+  if (hit) {
+    voiceDevLog('[FetchVoice] ElevenLabs request success', { route: 'cache' })
+    return { url: hit, elevenLabsFailure: null }
+  }
+  const { blob, failureSummary } = await fetchElevenLabsSpeechDetailed(phrase)
+  if (!blob) {
+    return {
+      url: null,
+      elevenLabsFailure: failureSummary || 'ElevenLabs returned no audio',
+    }
+  }
   const url = URL.createObjectURL(blob)
   phraseBlobUrlCache.set(cacheKey, url)
-  return url
+  return { url, elevenLabsFailure: null }
 }
 
 async function playPhrase(
@@ -628,16 +675,14 @@ async function playPhrase(
 ): Promise<void> {
   const text = phrase.trim()
   if (!text) {
-    // eslint-disable-next-line no-console
-    console.warn('[Fetch voice flow] playPhrase skipped (empty text)')
+    voiceDevWarn('[Fetch voice flow] playPhrase skipped (empty text)')
     return
   }
 
   const now = Date.now()
   const last = lastPlayByEvent.get(key) ?? 0
   if (now - last < debounceMs) {
-    // eslint-disable-next-line no-console
-    console.warn('[Fetch voice flow] playPhrase debounced', { key, deltaMs: now - last })
+    voiceDevWarn('[Fetch voice flow] playPhrase debounced', { key, deltaMs: now - last })
     return
   }
 
@@ -653,44 +698,56 @@ async function playPhrase(
   voiceFlowDebug('sending_request', { key, textLen: text.length })
 
   let url: string | null = null
+  let elevenLabsFailure: string | null = null
   try {
-    url = await audioUrlForPhrase(text)
+    const out = await audioUrlForPhrase(text)
+    url = out.url
+    elevenLabsFailure = out.elevenLabsFailure
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    // #region agent log
-    fetch('http://127.0.0.1:7246/ingest/130c5824-fd41-46de-a33e-be771fe2ae27', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Debug-Session-Id': 'afe72a',
-      },
-      body: JSON.stringify({
-        sessionId: 'afe72a',
-        hypothesisId: 'H_tts_url',
-        location: 'fetchVoice.ts:playPhrase',
-        message: 'audioUrlForPhrase_throw',
-        data: { error: msg, key },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {})
-    // #endregion
+    // eslint-disable-next-line no-console
+    console.error('[FetchVoice] ElevenLabs request failed', {
+      detail: `audioUrlForPhrase threw: ${msg}`,
+    })
+    patchVoiceSourceDebug({
+      lastElevenLabsError: `audioUrlForPhrase threw: ${msg}`,
+      active: { kind: 'idle' },
+    })
     voiceFlowDebug('playback_failed', { reason: 'audioUrlForPhrase', error: msg })
     voiceFlowFallbackText(text, msg)
     return
+  }
+
+  if (elevenLabsFailure) {
+    patchVoiceSourceDebug({
+      lastElevenLabsError: elevenLabsFailure,
+      active: { kind: 'idle' },
+    })
+  } else if (url) {
+    patchVoiceSourceDebug({
+      lastElevenLabsError: null,
+      active: { kind: 'elevenlabs' },
+    })
   }
 
   if (!url) {
     voiceFlowDebug('response_received', { path: 'browser_tts_only', key })
     if (skipSpeechFallback) {
       voiceFlowDebug('playback_failed', { reason: 'skipSpeechFallback_no_url' })
-      voiceFlowFallbackText(text, 'TTS unavailable (no URL, fallback disabled)')
+      voiceFlowFallbackText(
+        text,
+        elevenLabsFailure ?? 'TTS unavailable (no URL, fallback disabled)',
+      )
       return
     }
     voiceFlowDebug('attempting_playback', { path: 'browser_tts' })
     try {
-      await speakWithBrowserTTS(text)
+      await speakWithBrowserTTS(
+        text,
+        elevenLabsFailure ?? 'ElevenLabs did not return audio (see console for proxy/direct errors)',
+      )
     } catch {
-      /* fallback + playback_failed emitted inside speakWithBrowserTTS */
+      /* errors surfaced inside speakWithBrowserTTS */
     }
     return
   }
@@ -706,6 +763,7 @@ async function playPhrase(
 
   const onEnded = () => {
     if (currentAudio === audio) {
+      voiceDevLog('[FetchVoice] ElevenLabs audio playback success')
       disconnectTtsAnalyser(true)
       currentAudio = null
       setSpeechPlaying(false)
@@ -723,23 +781,11 @@ async function playPhrase(
         const mediaErr = audio.error
         const code = mediaErr?.code
         const msg = mediaErr?.message ?? `audio error code ${code ?? '?'}`
-        // #region agent log
-        fetch('http://127.0.0.1:7246/ingest/130c5824-fd41-46de-a33e-be771fe2ae27', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Debug-Session-Id': 'afe72a',
-          },
-          body: JSON.stringify({
-            sessionId: 'afe72a',
-            hypothesisId: 'H_html_audio',
-            location: 'fetchVoice.ts:playPhrase',
-            message: 'audio_element_error',
-            data: { msg, code, key },
-            timestamp: Date.now(),
-          }),
-        }).catch(() => {})
-        // #endregion
+        // eslint-disable-next-line no-console
+        console.error('[FetchVoice] ElevenLabs audio playback failed', {
+          detail: msg,
+          mediaErrorCode: code,
+        })
         voiceFlowDebug('playback_failed', { path: 'html_audio_error', error: msg })
         if (skipSpeechFallback) {
           voiceFlowFallbackText(text, msg)
@@ -747,7 +793,10 @@ async function playPhrase(
         }
         voiceFlowDebug('attempting_playback', { path: 'browser_tts_after_audio_error' })
         try {
-          await speakWithBrowserTTS(text)
+          await speakWithBrowserTTS(
+            text,
+            `ElevenLabs MP3 decode/playback error (HTMLMediaElement): ${msg}`,
+          )
         } catch {
           /* inner handler shows fallback */
         }
@@ -757,28 +806,16 @@ async function playPhrase(
   )
 
   voiceFlowDebug('attempting_playback', { path: 'html_audio' })
+  voiceDevLog('[FetchVoice] attempting ElevenLabs audio playback', { key })
   try {
     await audio.play()
     setSpeechPlaying(true)
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    // #region agent log
-    fetch('http://127.0.0.1:7246/ingest/130c5824-fd41-46de-a33e-be771fe2ae27', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Debug-Session-Id': 'afe72a',
-      },
-      body: JSON.stringify({
-        sessionId: 'afe72a',
-        hypothesisId: 'H_html_audio',
-        location: 'fetchVoice.ts:playPhrase',
-        message: 'audio_play_reject',
-        data: { error: msg, key },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {})
-    // #endregion
+    // eslint-disable-next-line no-console
+    console.error('[FetchVoice] ElevenLabs audio playback failed', {
+      detail: `audio.play() rejected: ${msg}`,
+    })
     voiceFlowDebug('playback_failed', { path: 'audio_play_throw', error: msg })
     stopCurrentPlayback()
     if (skipSpeechFallback) {
@@ -787,7 +824,10 @@ async function playPhrase(
     }
     voiceFlowDebug('attempting_playback', { path: 'browser_tts_after_play_throw' })
     try {
-      await speakWithBrowserTTS(text)
+      await speakWithBrowserTTS(
+        text,
+        `ElevenLabs audio.play() blocked or rejected: ${msg}`,
+      )
     } catch {
       /* inner handler shows fallback */
     }
@@ -797,8 +837,7 @@ async function playPhrase(
 export async function speakLine(text: string, options?: SpeakLineOptions): Promise<void> {
   const phrase = text.trim()
   if (!phrase) {
-    // eslint-disable-next-line no-console
-    console.warn('[Fetch voice flow] speakLine skipped (empty)')
+    voiceDevWarn('[Fetch voice flow] speakLine skipped (empty)')
     return
   }
   const key = options?.debounceKey?.trim() || `line:${phrase}`
@@ -808,23 +847,6 @@ export async function speakLine(text: string, options?: SpeakLineOptions): Promi
     const msg = e instanceof Error ? e.message : String(e)
     // eslint-disable-next-line no-console
     console.error('[Fetch voice flow] speakLine unexpected error', msg)
-    // #region agent log
-    fetch('http://127.0.0.1:7246/ingest/130c5824-fd41-46de-a33e-be771fe2ae27', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Debug-Session-Id': 'afe72a',
-      },
-      body: JSON.stringify({
-        sessionId: 'afe72a',
-        hypothesisId: 'H_speakLine',
-        location: 'fetchVoice.ts:speakLine',
-        message: 'unexpected_throw',
-        data: { error: msg, key },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {})
-    // #endregion
     voiceFlowDebug('playback_failed', { reason: 'speakLine_throw', error: msg })
     voiceFlowFallbackText(phrase, msg)
   }

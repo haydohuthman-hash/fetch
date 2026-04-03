@@ -20,6 +20,7 @@ export function FetchVoiceCommandFab({
   confirmationNonce = 0,
   mapAttention = 'none',
   lookAtCard = false,
+  lookDown = false,
   glowColor,
   voiceLevel,
   expression,
@@ -35,6 +36,7 @@ export function FetchVoiceCommandFab({
   confirmationNonce?: number
   mapAttention?: MapAttentionCue
   lookAtCard?: boolean
+  lookDown?: boolean
   glowColor?: { r: number; g: number; b: number }
   voiceLevel?: number
   expression?: FetchOrbExpression
@@ -124,7 +126,8 @@ export function FetchVoiceCommandFab({
           awakened={awakened}
           confirmationNonce={confirmationNonce}
           mapAttention={mapAttention}
-          lookAtCard={lookAtCard}
+          lookAtCard={lookAtCard && !lookDown}
+          lookDown={lookDown}
           glowColor={glowColor}
           size={compact ? 'sm' : 'dock'}
           ariaLive={false}

@@ -36,20 +36,45 @@ import {
   type BookingLifecycleStatus,
   type BookingState,
 } from './lib/assistant'
-import { getOrbTapLine } from './lib/orbTapLines'
+import {
+  CHAT_ERROR_NETWORK,
+  CHAT_ERROR_OPENAI_NOT_CONFIGURED,
+  postFetchAiChat,
+  type FetchAiChatMessage as ApiFetchAiChatMessage,
+} from './lib/fetchAiChat'
+import { getHowItWorksTapLine } from './lib/orbTapLines'
 import { suburbCommentaryLine } from './lib/suburbCommentary'
 import { FetchVoiceProvider, useFetchVoice } from './voice/FetchVoiceContext'
 import { primeVoicePlaybackFromUserGesture } from './voice/fetchVoice'
 import { voiceFlowDebug, voiceFlowSttError } from './voice/voiceFlowDebug'
 import { FetchVoiceCommandFab } from './components/FetchVoiceCommandFab'
 import { FetchSpeechBottomGlow } from './components/FetchHomeFloatingChrome'
+import { FetchMindHowItWorksOverlay } from './components/FetchMindHowItWorksOverlay'
 
 type AppPhase = 'splash' | 'fetch' | 'home'
 
 const INTRO_COPY = 'Fetch activated. What can I do for you today?'
-/** Spoken only on the fullscreen assistant view — keep distinct from map/home intro. */
-const FULLSCREEN_AI_INTRO_COPY =
-  "Assistant mode. I'm fully online — tap voice when you want to talk, or home to open the map and book."
+/** Spoken only on the fullscreen assistant view — pick at random (sometimes silent) so entries feel autonomous. */
+const FULLSCREEN_AI_INTRO_LINES = [
+  "Assistant mode. I'm fully online — tap voice when you want to talk, or home to open the map and book.",
+  "You're in assistant mode. Chat here, use voice, or hit home when you're ready to book.",
+  "I'm live. Type, talk, or jump to the map — whatever fits the moment.",
+  "Full assistant online. Voice button if you want to speak, or just message me.",
+  "Here and ready. Home takes you to booking; otherwise stay and we'll figure it out together.",
+  "Assistant view — I'm not going anywhere. Tap voice, type a note, or open the map when you need it.",
+  "Online in assistant mode. No rush — voice, text, or home whenever you like.",
+  "All systems go. I can listen, read, or you can switch to the map for a pickup.",
+  "Hey — assistant mode. Say something, write something, or head home to start a job.",
+  "Standing by. Use the mic, the keyboard, or home for the booking flow.",
+  "I'm awake in assistant mode. Mix of voice and typing works great.",
+  "Ready when you are. Voice for hands-free, home when you want the map.",
+] as const
+
+function pickFullscreenAiIntroLine(): string | null {
+  if (Math.random() < 0.2) return null
+  const i = Math.floor(Math.random() * FULLSCREEN_AI_INTRO_LINES.length)
+  return FULLSCREEN_AI_INTRO_LINES[i]!
+}
 const SLEEPY_COPY = "Feeling a bit sleepy. If you need anything, wake me up."
 const WAKE_COPY = 'Fetch activated. What can I do for you today?'
 
@@ -100,15 +125,10 @@ function SplashScreen() {
   return <div className="min-h-dvh bg-[#0e0f12]" />
 }
 
-const STT_RESPONSES = [
-  "I heard you. Let me think about that.",
-  "Got it. Working on it now.",
-  "Interesting. Let me process that for you.",
-  "Understood. Give me a moment.",
-  "On it. Let me figure that out.",
-]
-
 type FetchAiPhoto = { id: string; url: string; file: File }
+
+type FetchAIChatRole = 'user' | 'assistant' | 'system'
+type FetchAIChatMessage = { role: FetchAIChatRole; content: string }
 
 function FetchAIView({ onGoHome }: { onGoHome: () => void }) {
   const { speakLine, isSpeechPlaying, playUiEvent } = useFetchVoice()
@@ -123,9 +143,18 @@ function FetchAIView({ onGoHome }: { onGoHome: () => void }) {
   const recognitionRef = useRef<unknown>(null)
   /** True while an STT→TTS line is scheduled or playing — avoids clearing micPrimed before speakLine runs (mobile). */
   const sttSpeakPendingRef = useRef(false)
+  const chatAbortRef = useRef<AbortController | null>(null)
+  const convRef = useRef<FetchAIChatMessage[]>([])
+  const [chatPending, setChatPending] = useState(false)
+  const [chatError, setChatError] = useState<string | null>(null)
+  const [mindTourOpen, setMindTourOpen] = useState(false)
+  const [mindTourPulseNonce, setMindTourPulseNonce] = useState(0)
   const fetchAiMountedRef = useRef(true)
   const composerFileInputRef = useRef<HTMLInputElement>(null)
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null)
+  /** Cached device position for server-side weather (Open-Meteo); optional. */
+  const chatGeoRef = useRef<{ latitude: number; longitude: number } | null>(null)
+  const chatGeoRequestedRef = useRef(false)
 
   const revokeComposerPhotoUrls = useCallback((items: FetchAiPhoto[]) => {
     for (const p of items) {
@@ -156,6 +185,24 @@ function FetchAIView({ onGoHome }: { onGoHome: () => void }) {
   useEffect(() => {
     resizeComposerTextarea()
   }, [composerText, resizeComposerTextarea])
+
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return
+    if (chatGeoRequestedRef.current) return
+    chatGeoRequestedRef.current = true
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        chatGeoRef.current = {
+          latitude: pos.coords.latitude,
+          longitude: pos.coords.longitude,
+        }
+      },
+      () => {
+        /* denied or timeout — time-only context */
+      },
+      { enableHighAccuracy: false, maximumAge: 600_000, timeout: 10_000 },
+    )
+  }, [])
 
   const onComposerPhotosSelected = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
@@ -194,28 +241,113 @@ function FetchAIView({ onGoHome }: { onGoHome: () => void }) {
     })
   }, [])
 
+  const runFullscreenAiChat = useCallback(
+    async (userContent: string, fromStt: boolean) => {
+      const trimmed = userContent.trim()
+      if (!trimmed) return
+
+      if (fromStt) {
+        sttSpeakPendingRef.current = true
+      }
+      setChatError(null)
+
+      const userMsg: FetchAIChatMessage = { role: 'user' as const, content: trimmed }
+      const messagesForApi: FetchAIChatMessage[] = [...convRef.current, userMsg].slice(-10)
+      convRef.current = messagesForApi
+
+      chatAbortRef.current?.abort()
+      const ac = new AbortController()
+      chatAbortRef.current = ac
+      setChatPending(true)
+
+      try {
+        const geo = chatGeoRef.current
+        const { reply } = await postFetchAiChat(
+          messagesForApi as ApiFetchAiChatMessage[],
+          {
+            signal: ac.signal,
+            locale: 'en-AU',
+            context: {
+              timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+              ...(geo
+                ? { latitude: geo.latitude, longitude: geo.longitude }
+                : {}),
+            },
+          },
+        )
+        if (ac.signal.aborted) return
+        const assistantMsg: FetchAIChatMessage = {
+          role: 'assistant' as const,
+          content: reply,
+        }
+        convRef.current = [...convRef.current, assistantMsg].slice(-10)
+        setChatError(null)
+        await speakLine(reply, {
+          debounceKey: 'fetch_ai_chat',
+          debounceMs: 0,
+        })
+      } catch (e) {
+        if (ac.signal.aborted) return
+        const code = e instanceof Error ? e.message : ''
+
+        let errLine: string
+        let errUi: string
+        if (code === CHAT_ERROR_OPENAI_NOT_CONFIGURED) {
+          errUi = 'Server needs OPENAI_API_KEY for chat.'
+          errLine =
+            'The assistant is not fully set up yet. The server needs an Open A I key for chat.'
+        } else if (code === CHAT_ERROR_NETWORK) {
+          errUi = 'Cannot reach the API server. Run npm run server (port 8787).'
+          errLine =
+            "I can't reach the Fetch server. On your machine, run npm run server in another terminal, then try again."
+        } else {
+          errUi = 'Could not get a reply. Try again.'
+          errLine = "Sorry, something went wrong with that reply. Please try again."
+        }
+        setChatError(errUi)
+        await speakLine(errLine, {
+          debounceKey: 'fetch_ai_chat',
+          debounceMs: 0,
+        })
+      } finally {
+        if (chatAbortRef.current === ac) {
+          chatAbortRef.current = null
+        }
+        setChatPending(false)
+        if (fromStt) {
+          sttSpeakPendingRef.current = false
+          if (!ac.signal.aborted && fetchAiMountedRef.current) {
+            setMicPrimed(false)
+          }
+        }
+      }
+    },
+    [speakLine, postFetchAiChat],
+  )
+
   const submitComposer = useCallback(() => {
     const t = composerText.trim()
-    if (!t && composerPhotos.length === 0) return
+    const photos = composerPhotos
+    const n = photos.length
+    if (!t && n === 0) return
     playUiEvent('orb_tap')
-    const n = composerPhotos.length
-    if (t && n) {
-      speakLine(`Got it: ${t}. And ${n} photo${n > 1 ? 's' : ''}.`, {
-        debounceKey: 'fetch_ai_composer',
-        debounceMs: 800,
-      })
+    primeVoicePlaybackFromUserGesture()
+
+    let userContent: string
+    if (t && n > 0) {
+      userContent = `${t} (${n} photo${n > 1 ? 's' : ''} attached in the app.)`
     } else if (t) {
-      speakLine(`Got it: ${t}`, { debounceKey: 'fetch_ai_composer', debounceMs: 800 })
-    } else if (n) {
-      speakLine(`Received ${n} photo${n > 1 ? 's' : ''}.`, {
-        debounceKey: 'fetch_ai_photos',
-        debounceMs: 1200,
-      })
+      userContent = t
+    } else {
+      userContent = `I shared ${n} photo${n > 1 ? 's' : ''} in the chat with no message text.`
     }
+
     setComposerText('')
-    revokeComposerPhotoUrls(composerPhotos)
+    revokeComposerPhotoUrls(photos)
     setComposerPhotos([])
-  }, [composerText, composerPhotos, playUiEvent, speakLine, revokeComposerPhotoUrls])
+
+    void runFullscreenAiChat(userContent, false)
+  }, [composerText, composerPhotos, playUiEvent, revokeComposerPhotoUrls, runFullscreenAiChat])
 
   const onComposerKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -231,15 +363,13 @@ function FetchAIView({ onGoHome }: { onGoHome: () => void }) {
     const show = window.setTimeout(() => setOrbVisible(true), 200)
     const pulse = window.setTimeout(() => playUiEvent('activated'), 500)
     const speak = window.setTimeout(() => {
-      // eslint-disable-next-line no-console
-      console.log('[Fetch voice flow] intro: scheduling speakLine')
-      void speakLine(FULLSCREEN_AI_INTRO_COPY, {
-        debounceKey: 'fetch_ai_intro',
-        debounceMs: 4000,
-      }).then(() => {
-        // eslint-disable-next-line no-console
-        console.log('[Fetch voice flow] intro: speakLine promise settled')
-      })
+      const line = pickFullscreenAiIntroLine()
+      if (line) {
+        void speakLine(line, {
+          debounceKey: 'fetch_ai_intro',
+          debounceMs: 4000,
+        })
+      }
     }, 800)
     return () => {
       window.clearTimeout(show)
@@ -253,20 +383,30 @@ function FetchAIView({ onGoHome }: { onGoHome: () => void }) {
   const orbExpression: FetchOrbExpression = useMemo(() => {
     if (isSpeechPlaying) return 'speaking'
     if (orbAttentive) return 'listening'
+    if (chatPending) return 'thinking'
     return 'awake'
-  }, [isSpeechPlaying, orbAttentive])
+  }, [isSpeechPlaying, orbAttentive, chatPending])
 
+  /** Muted tints so UI halos stay subtle on near-black fullscreen void. */
   const glowColor = useMemo(() => {
-    if (orbAttentive) return { r: 60, g: 130, b: 246 }
-    return { r: 220, g: 225, b: 235 }
+    if (orbAttentive) return { r: 38, g: 82, b: 138 }
+    return { r: 34, g: 36, b: 40 }
   }, [orbAttentive])
 
   const fullscreenOrbActivity = useMemo(() => {
     if (isSpeechPlaying) return 0.96
     if (listening) return 0.96
+    if (chatPending) return 0.92
     if (micPrimed) return 0.88
-    return 0.38
-  }, [isSpeechPlaying, listening, micPrimed])
+    return 0.52
+  }, [isSpeechPlaying, listening, micPrimed, chatPending])
+
+  const fullscreenOrbScaleClass = useMemo(() => {
+    if (!orbVisible) return 'scale-[0.82]'
+    if (mindTourOpen) return 'scale-[0.94]'
+    if (orbAttentive || isSpeechPlaying) return 'scale-[1.06]'
+    return 'scale-100'
+  }, [orbVisible, mindTourOpen, orbAttentive, isSpeechPlaying])
 
   const onFullscreenVoicePointerDown = useCallback(() => {
     primeVoicePlaybackFromUserGesture()
@@ -274,6 +414,24 @@ function FetchAIView({ onGoHome }: { onGoHome: () => void }) {
     setMicPrimed(true)
     setListeningPulseNonce((n) => n + 1)
   }, [listening])
+
+  const openMindTour = useCallback(() => {
+    if (listening) return
+    primeVoicePlaybackFromUserGesture()
+    playUiEvent('orb_tap')
+    setMindTourPulseNonce((n) => n + 1)
+    setMindTourOpen(true)
+    queueMicrotask(() => {
+      void speakLine(getHowItWorksTapLine(), {
+        debounceKey: 'fetch_ai_mind_tour',
+        debounceMs: 1200,
+      })
+    })
+  }, [listening, playUiEvent, speakLine])
+
+  const closeMindTour = useCallback(() => {
+    setMindTourOpen(false)
+  }, [])
 
   const aiGlowStyle = useMemo(
     () =>
@@ -286,6 +444,10 @@ function FetchAIView({ onGoHome }: { onGoHome: () => void }) {
   const startListening = useCallback(() => {
     voiceFlowDebug('tap_detected', { source: 'fetch_ai_mic' })
     primeVoicePlaybackFromUserGesture()
+    chatAbortRef.current?.abort()
+    chatAbortRef.current = null
+    setChatPending(false)
+    setChatError(null)
     setMicPrimed(true)
     const w = window as unknown as Record<string, unknown>
     const SpeechRec = (w.SpeechRecognition ?? w.webkitSpeechRecognition) as
@@ -353,34 +515,10 @@ function FetchAIView({ onGoHome }: { onGoHome: () => void }) {
         resultCount: event.results.length,
       })
       if (!trimmed) {
-        // eslint-disable-next-line no-console
-        console.warn('[Fetch voice flow] empty transcript after STT')
         return
       }
 
-      sttSpeakPendingRef.current = true
-      const response = STT_RESPONSES[Math.floor(Math.random() * STT_RESPONSES.length)]!
-      const line = `You said: ${trimmed}. ${response}`
-      // eslint-disable-next-line no-console
-      console.log('[Fetch voice flow] scheduling speakLine after transcript (400ms)', {
-        linePreview: line.slice(0, 80),
-      })
-      window.setTimeout(() => {
-        // eslint-disable-next-line no-console
-        console.log('[Fetch voice flow] calling speakLine after STT delay')
-        void speakLine(line, {
-          debounceKey: 'stt_response',
-          debounceMs: 1500,
-        })
-          .then(() => {
-            // eslint-disable-next-line no-console
-            console.log('[Fetch voice flow] speakLine after STT settled OK')
-          })
-          .finally(() => {
-            sttSpeakPendingRef.current = false
-            if (fetchAiMountedRef.current) setMicPrimed(false)
-          })
-      }, 400)
+      void runFullscreenAiChat(trimmed, true)
     }
 
     rec.onerror = (ev) => {
@@ -409,12 +547,14 @@ function FetchAIView({ onGoHome }: { onGoHome: () => void }) {
       setMicPrimed(false)
       sttSpeakPendingRef.current = false
     }
-  }, [speakLine, playUiEvent])
+  }, [speakLine, playUiEvent, runFullscreenAiChat])
 
   useEffect(() => {
     fetchAiMountedRef.current = true
     return () => {
       fetchAiMountedRef.current = false
+      chatAbortRef.current?.abort()
+      chatAbortRef.current = null
       if (recognitionRef.current) {
         try { (recognitionRef.current as { abort: () => void }).abort() } catch { /* ignore */ }
       }
@@ -423,10 +563,10 @@ function FetchAIView({ onGoHome }: { onGoHome: () => void }) {
 
   return (
     <div
-      className="relative flex min-h-dvh min-h-[100dvh] flex-col overflow-visible bg-[#0e0f12]"
+      className="relative flex min-h-dvh min-h-[100dvh] flex-col overflow-visible bg-[#020203]"
       style={aiGlowStyle}
     >
-      <FetchSpeechBottomGlow />
+      <FetchSpeechBottomGlow variant="void" />
 
       <button
         type="button"
@@ -440,39 +580,76 @@ function FetchAIView({ onGoHome }: { onGoHome: () => void }) {
         </svg>
       </button>
 
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center overflow-visible px-6 pb-4 pt-16 sm:px-8 sm:pt-[max(4rem,env(safe-area-inset-top)+2.5rem)]">
+      <div className="flex min-h-0 flex-1 flex-col overflow-visible px-4 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-6">
         <div
           className={[
-            'origin-center transition-all duration-[700ms] ease-out',
-            /* Room for xl orb + underglow + scale without clipping */
-            'py-10 sm:py-12',
-            orbVisible ? 'opacity-100' : 'pointer-events-none opacity-0',
-            orbVisible && (orbAttentive || isSpeechPlaying)
-              ? 'scale-[1.07]'
-              : orbVisible
-                ? 'scale-100'
-                : 'scale-[0.82]',
+            'flex min-h-0 flex-1 flex-col items-center transition-all duration-700 ease-out',
+            mindTourOpen ? 'justify-start pt-1 sm:pt-2' : 'justify-center',
           ].join(' ')}
         >
-          <JarvisNeuralOrb
-            expression={orbExpression}
-            speaking={isSpeechPlaying}
-            state={isSpeechPlaying ? 'speaking' : orbAttentive ? 'listening' : 'idle'}
-            activity={fullscreenOrbActivity}
-            voiceLevel={orbAttentive ? 0.62 : 0}
-            awakened
-            confirmationNonce={listeningPulseNonce}
-            lookAtCard
-            glowColor={glowColor}
-            size="xl"
-          />
+          <div
+            className={[
+              'flex shrink-0 flex-col items-center justify-center transition-all duration-[700ms] ease-out',
+              fullscreenOrbScaleClass,
+              orbVisible ? 'opacity-100' : 'pointer-events-none opacity-0',
+            ].join(' ')}
+          >
+            <button
+              type="button"
+              onClick={openMindTour}
+              disabled={listening}
+              className="relative rounded-full border-0 bg-transparent p-0 outline-none ring-offset-2 ring-offset-[#020203] focus-visible:ring-2 focus-visible:ring-white/25 disabled:pointer-events-none disabled:opacity-60"
+              aria-label="How Fetch works"
+            >
+              <JarvisNeuralOrb
+                expression={orbExpression}
+                speaking={isSpeechPlaying}
+                state={
+                  isSpeechPlaying
+                    ? 'speaking'
+                    : orbAttentive
+                      ? 'listening'
+                      : chatPending
+                        ? 'thinking'
+                        : 'idle'
+                }
+                activity={fullscreenOrbActivity}
+                voiceLevel={orbAttentive ? 0.62 : 0}
+                awakened
+                confirmationNonce={listeningPulseNonce + mindTourPulseNonce}
+                glowColor={glowColor}
+                surface="faceOnly"
+                size="xxl"
+                lookDown={mindTourOpen}
+                autonomous
+                suspendAutonomous={
+                  listening ||
+                  micPrimed ||
+                  isSpeechPlaying ||
+                  chatPending ||
+                  mindTourOpen
+                }
+              />
+            </button>
+            {transcript ? (
+              <p className="mt-5 max-w-[18rem] text-center text-[13px] font-medium leading-snug text-fetch-muted/80">
+                "{transcript}"
+              </p>
+            ) : null}
+            {chatError ? (
+              <p className="mt-2 max-w-[18rem] text-center text-[12px] leading-snug text-red-300/85">
+                {chatError}
+              </p>
+            ) : null}
+          </div>
+          {mindTourOpen ? (
+            <FetchMindHowItWorksOverlay
+              accentRgb={glowColor}
+              onDismiss={closeMindTour}
+              autoDismissMs={5600}
+            />
+          ) : null}
         </div>
-
-        {transcript ? (
-          <p className="mt-6 max-w-[18rem] text-center text-[13px] font-medium leading-snug text-fetch-muted/80">
-            "{transcript}"
-          </p>
-        ) : null}
       </div>
 
       <input
@@ -487,7 +664,12 @@ function FetchAIView({ onGoHome }: { onGoHome: () => void }) {
       />
 
       <div className="relative z-40 mx-auto w-full max-w-[min(36rem,calc(100vw-2rem))] shrink-0 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-2">
-        <div className="fetch-ai-composer-shell w-full">
+        <div
+          className={[
+            'fetch-ai-composer-shell w-full',
+            mindTourOpen ? 'fetch-ai-composer-shell--mind-dim' : '',
+          ].join(' ')}
+        >
           {composerPhotos.length > 0 ? (
             <div className="fetch-ai-composer-attachments flex gap-2 overflow-x-auto px-3 pt-3 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {composerPhotos.map((p) => (
@@ -579,6 +761,8 @@ function HomeView({ onGoBack }: { onGoBack: () => void }) {
   const [bookingState, setBookingState] = useState<BookingState>(createInitialBookingState)
   const [mapsJsReady, setMapsJsReady] = useState(false)
   const [orbAwakened, setOrbAwakened] = useState(false)
+  const [homeMindTourOpen, setHomeMindTourOpen] = useState(false)
+  const [fabMindTourPulseNonce, setFabMindTourPulseNonce] = useState(0)
   const [cardVisible, setCardVisible] = useState(false)
   const [confirmNonce, setConfirmNonce] = useState(0)
   const [mapAttention, setMapAttention] = useState<'none' | 'pickup' | 'route' | 'driver'>(
@@ -609,6 +793,10 @@ function HomeView({ onGoBack }: { onGoBack: () => void }) {
   const bumpInteraction = useCallback(() => {
     lastInteractRef.current = Date.now()
     setIdleLong(false)
+  }, [])
+
+  const closeHomeMindTour = useCallback(() => {
+    setHomeMindTourOpen(false)
   }, [])
 
   const clearDriverFlowTimers = useCallback(() => {
@@ -1684,21 +1872,52 @@ function HomeView({ onGoBack }: { onGoBack: () => void }) {
             pulseNonce={0}
             typingActive={false}
             awakened={orbAwakened}
-            confirmationNonce={confirmNonce}
+            confirmationNonce={confirmNonce + fabMindTourPulseNonce}
             mapAttention={mapAttention}
             lookAtCard
+            lookDown={homeMindTourOpen}
             glowColor={orbGlowColor}
             onOpen={() => {
               bumpInteraction()
               setOrbAwakened(true)
-              const line = getOrbTapLine()
+              setFabMindTourPulseNonce((n) => n + 1)
+              setHomeMindTourOpen(true)
               queueMicrotask(() => {
-                speakLine(line, { debounceKey: 'orb_tap_line', debounceMs: 0 })
+                void speakLine(getHowItWorksTapLine(), {
+                  debounceKey: 'home_mind_tour',
+                  debounceMs: 1200,
+                })
               })
             }}
           />
         </div>
       </div>
+
+      {homeMindTourOpen ? (
+        <div
+          className="fixed inset-0 z-[46] flex items-center justify-center px-4 py-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]"
+          role="presentation"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/55 backdrop-blur-[2px]"
+            aria-label="Dismiss how it works"
+            onClick={closeHomeMindTour}
+          />
+          <div
+            className="relative z-[1] w-full max-w-md"
+            onClick={(e) => e.stopPropagation()}
+            role="presentation"
+          >
+            <FetchMindHowItWorksOverlay
+              layout="modal"
+              accentRgb={orbGlowColor}
+              onDismiss={closeHomeMindTour}
+              autoDismissMs={5600}
+            />
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -1715,8 +1934,20 @@ function App() {
 
   return (
     <FetchVoiceProvider>
-      <div className="flex min-h-dvh min-h-[100dvh] w-full justify-center bg-[#0e0f12]">
-        <div className="relative mx-auto min-h-dvh min-h-[100dvh] w-full max-w-[1024px] overflow-x-clip overflow-y-visible bg-[#0e0f12] shadow-[0_0_0_1px_rgba(255,255,255,0.04)]">
+      <div
+        className={[
+          'flex min-h-dvh min-h-[100dvh] w-full justify-center',
+          phase === 'fetch' ? 'bg-[#010102]' : 'bg-[#0e0f12]',
+        ].join(' ')}
+      >
+        <div
+          className={[
+            'relative mx-auto min-h-dvh min-h-[100dvh] w-full overflow-x-clip overflow-y-visible',
+            phase === 'fetch'
+              ? 'max-w-none bg-[#010102]'
+              : 'max-w-[1024px] bg-[#0e0f12] shadow-[0_0_0_1px_rgba(255,255,255,0.04)]',
+          ].join(' ')}
+        >
           {phase === 'splash' ? (
             <SplashScreen />
           ) : phase === 'fetch' ? (

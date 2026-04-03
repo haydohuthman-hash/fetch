@@ -17,11 +17,13 @@ export type {
 } from '../lib/orb/fetchOrbExpressions'
 export { expressionForFlowMoment } from '../lib/orb/fetchOrbExpressions'
 
-const SIZE_CLASS: Record<'sm' | 'md' | 'lg' | 'xl' | 'fab' | 'dock', string> = {
+const SIZE_CLASS: Record<'sm' | 'md' | 'lg' | 'xl' | 'xxl' | 'fab' | 'dock', string> = {
   sm: 'h-[3.1rem] w-[3.1rem]',
   md: 'h-[4.2rem] w-[4.2rem]',
   lg: 'h-[6.1rem] w-[6.1rem]',
   xl: 'h-[12rem] w-[12rem]',
+  /** Fullscreen assistant — larger face footprint */
+  xxl: 'h-[min(20rem,78vw)] w-[min(20rem,78vw)] sm:h-[22rem] sm:w-[22rem]',
   fab: 'h-[4.15rem] w-[4.15rem]',
   dock: 'h-[9rem] w-[9rem]',
 }
@@ -55,9 +57,20 @@ export type JarvisNeuralOrbProps = {
   mapAttention?: MapAttentionCue
   /** Shift gaze upward (e.g. toward assistant card above the orb). */
   lookAtCard?: boolean
+  /** Shift gaze downward (e.g. toward content below the face). */
+  lookDown?: boolean
   /** RGB glow color for underglow + inner warm. Defaults to soft white. */
   glowColor?: GlowRGB
   size?: keyof typeof SIZE_CLASS
+  /**
+   * `sphere` — dark glass orb (default).
+   * `faceOnly` — eyes + mouth on a transparent canvas (no black circle).
+   */
+  surface?: 'sphere' | 'faceOnly'
+  /** When true, cycles moods / wave while user is idle (not listening or speaking). */
+  autonomous?: boolean
+  /** Pause autonomous moods (e.g. mic active or TTS). */
+  suspendAutonomous?: boolean
   className?: string
   ariaLive?: boolean
 }
@@ -318,6 +331,53 @@ function drawOrbMouth(
   ctx.restore()
 }
 
+/** Side mitt + finger bumps; `waveOsc` drives rotation (e.g. `t * 7.5`). */
+function drawFetchWaveHand(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  cy: number,
+  R: number,
+  waveOsc: number,
+  glow: GlowRGB,
+  alpha: number,
+) {
+  if (alpha < 0.02) return
+  ctx.save()
+  const hx = cx + R * 0.7
+  const hy = cy + R * 0.06
+  ctx.translate(hx, hy)
+  ctx.rotate(-0.38 + Math.sin(waveOsc) * 0.5)
+  ctx.globalAlpha = clamp01(alpha)
+
+  const palmW = R * 0.24
+  const palmH = R * 0.28
+  const rr = Math.min(R * 0.06, palmW * 0.22)
+  const fill = `rgba(${glow.r},${glow.g},${glow.b},0.9)`
+  ctx.beginPath()
+  if (typeof ctx.roundRect === 'function') {
+    ctx.roundRect(-palmW * 0.32, -palmH * 0.15, palmW, palmH, rr)
+  } else {
+    ctx.rect(-palmW * 0.32, -palmH * 0.15, palmW, palmH)
+  }
+  ctx.fillStyle = fill
+  ctx.fill()
+  ctx.strokeStyle = 'rgba(255,255,255,0.32)'
+  ctx.lineWidth = Math.max(1, R * 0.011)
+  ctx.stroke()
+
+  for (let i = 0; i < 3; i += 1) {
+    const fx = palmW * 0.38 + i * R * 0.052
+    const fy = -R * 0.11 - i * R * 0.018
+    ctx.beginPath()
+    ctx.arc(fx, fy, R * 0.036, 0, Math.PI * 2)
+    ctx.fillStyle = fill
+    ctx.fill()
+    ctx.stroke()
+  }
+
+  ctx.restore()
+}
+
 export function useFetchOrbVoiceLevel(active: boolean): number {
   const [level, setLevel] = useState(0)
 
@@ -394,11 +454,24 @@ export function JarvisNeuralOrb({
   confirmationNonce = 0,
   mapAttention = 'none',
   lookAtCard = false,
+  lookDown = false,
   glowColor = DEFAULT_GLOW,
   size = 'md',
+  surface = 'sphere',
+  autonomous = false,
+  suspendAutonomous = false,
   className = '',
   ariaLive = true,
 }: JarvisNeuralOrbProps) {
+  const [autoMood, setAutoMood] = useState<FetchOrbExpression>('curious')
+  const autoMoodRef = useRef(autoMood)
+  autoMoodRef.current = autoMood
+  const autonomousEnabledRef = useRef(autonomous)
+  const suspendAutonomousRef = useRef(suspendAutonomous)
+  autonomousEnabledRef.current = autonomous
+  suspendAutonomousRef.current = suspendAutonomous
+  const waveVisualRef = useRef(0)
+
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const hostRef = useRef<HTMLDivElement>(null)
   const liftRef = useRef<HTMLDivElement>(null)
@@ -426,6 +499,8 @@ export function JarvisNeuralOrb({
   const lastExprRef = useRef<FetchOrbExpression | null>(null)
   const lookAtCardRef = useRef(lookAtCard)
   lookAtCardRef.current = lookAtCard
+  const lookDownRef = useRef(lookDown)
+  lookDownRef.current = lookDown
   const glowRef = useRef(glowColor)
   glowRef.current = glowColor
 
@@ -439,7 +514,49 @@ export function JarvisNeuralOrb({
   const effectiveExpression: FetchOrbExpression =
     expressionProp ?? expressionFromLegacyState(state, speaking)
 
-  const legacyClass = legacySphereClassFromExpression(effectiveExpression)
+  const mergedExpression: FetchOrbExpression =
+    autonomous &&
+    !suspendAutonomous &&
+    !speaking &&
+    state === 'idle' &&
+    (effectiveExpression === 'awake' || effectiveExpression === 'idle')
+      ? autoMood
+      : effectiveExpression
+
+  const legacyClass = legacySphereClassFromExpression(mergedExpression)
+
+  const autonomousTimerRef = useRef(0)
+  useEffect(() => {
+    if (!autonomous) return
+    const pool: FetchOrbExpression[] = [
+      'curious',
+      'playful',
+      'happy',
+      'content',
+      'thinking',
+      'waving',
+      'proud',
+      'excited',
+      'awake',
+    ]
+    let cancelled = false
+    const step = () => {
+      if (cancelled) return
+      setAutoMood(pool[Math.floor(Math.random() * pool.length)]!)
+      autonomousTimerRef.current = window.setTimeout(
+        step,
+        4200 + Math.random() * 7600,
+      )
+    }
+    autonomousTimerRef.current = window.setTimeout(
+      step,
+      600 + Math.random() * 1400,
+    )
+    return () => {
+      cancelled = true
+      window.clearTimeout(autonomousTimerRef.current)
+    }
+  }, [autonomous])
 
   useEffect(() => {
     if (confirmationNonce !== lastNonceRef.current && confirmationNonce > 0) {
@@ -471,13 +588,13 @@ export function JarvisNeuralOrb({
   }, [mapAttention])
 
   useEffect(() => {
-    if (effectiveExpression !== lastExprRef.current) {
-      lastExprRef.current = effectiveExpression
-      if (effectiveExpression === 'surprised') {
+    if (mergedExpression !== lastExprRef.current) {
+      lastExprRef.current = mergedExpression
+      if (mergedExpression === 'surprised') {
         blinkRef.current = 1
       }
     }
-  }, [effectiveExpression])
+  }, [mergedExpression])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -517,8 +634,16 @@ export function JarvisNeuralOrb({
       const vMic = voiceRef.current
       const t = now * 0.001
 
-      const expr =
+      const userExpr =
         expressionRef.current ?? expressionFromLegacyState(stateRef.current, speak)
+      const st = stateRef.current
+      const autoOn =
+        autonomousEnabledRef.current &&
+        !suspendAutonomousRef.current &&
+        !speak &&
+        st === 'idle' &&
+        (userExpr === 'awake' || userExpr === 'idle')
+      const expr: FetchOrbExpression = autoOn ? autoMoodRef.current : userExpr
       const targetT = resolveOrbExpressionTargets(expr)
       smoothRef.current = stepOrbFaceTargets(smoothRef.current, targetT, 0.11)
       const vis = smoothRef.current
@@ -560,6 +685,9 @@ export function JarvisNeuralOrb({
       if (expr === 'sleepy') {
         liftPx += Math.sin(t * 0.52) * 3.6 + Math.sin(t * 0.19) * 1.5
       }
+      if (autoOn) {
+        liftPx += Math.sin(t * 2.12) * 5.2 + Math.sin(t * 0.88) * 2.9
+      }
 
       shimmerPhaseRef.current += 0.014 * vis.shimmerSpeed * (0.5 + vis.shimmer)
       const speakMove = expr === 'speaking' || speak
@@ -572,73 +700,75 @@ export function JarvisNeuralOrb({
       const cx = width / 2
       const cy = height / 2
       const R = (Math.min(width, height) / 2) * 0.96 * breath
+      const gc = glowRef.current
 
       ctx.clearRect(0, 0, width, height)
 
-      ctx.save()
-      ctx.beginPath()
-      ctx.arc(cx, cy, R, 0, Math.PI * 2)
-      ctx.clip()
+      if (surface === 'sphere') {
+        ctx.save()
+        ctx.beginPath()
+        ctx.arc(cx, cy, R, 0, Math.PI * 2)
+        ctx.clip()
 
-      /* Deep matte sphere — dark center, slightly lighter edges for depth */
-      const core = ctx.createRadialGradient(
-        cx - R * 0.12,
-        cy - R * 0.22,
-        R * 0.01,
-        cx,
-        cy,
-        R * 1.0,
-      )
-      core.addColorStop(0, 'rgba(6,7,9,1)')
-      core.addColorStop(0.35, 'rgba(8,9,11,1)')
-      core.addColorStop(0.7, 'rgba(12,13,16,1)')
-      core.addColorStop(0.92, 'rgba(16,17,21,1)')
-      core.addColorStop(1, 'rgba(14,15,18,1)')
-      ctx.fillStyle = core
-      ctx.fillRect(cx - R * 1.2, cy - R * 1.2, R * 2.4, R * 2.4)
+        /* Deep matte sphere — dark center, slightly lighter edges for depth */
+        const core = ctx.createRadialGradient(
+          cx - R * 0.12,
+          cy - R * 0.22,
+          R * 0.01,
+          cx,
+          cy,
+          R * 1.0,
+        )
+        core.addColorStop(0, 'rgba(6,7,9,1)')
+        core.addColorStop(0.35, 'rgba(8,9,11,1)')
+        core.addColorStop(0.7, 'rgba(12,13,16,1)')
+        core.addColorStop(0.92, 'rgba(16,17,21,1)')
+        core.addColorStop(1, 'rgba(14,15,18,1)')
+        ctx.fillStyle = core
+        ctx.fillRect(cx - R * 1.2, cy - R * 1.2, R * 2.4, R * 2.4)
 
-      /* Soft edge falloff — fades sphere into background smoothly */
-      const edgeFade = ctx.createRadialGradient(cx, cy, R * 0.82, cx, cy, R)
-      edgeFade.addColorStop(0, 'rgba(0,0,0,0)')
-      edgeFade.addColorStop(0.6, 'rgba(0,0,0,0.05)')
-      edgeFade.addColorStop(1, 'rgba(0,0,0,0.28)')
-      ctx.fillStyle = edgeFade
-      ctx.beginPath()
-      ctx.arc(cx, cy, R, 0, Math.PI * 2)
-      ctx.fill()
+        /* Soft edge falloff — fades sphere into background smoothly */
+        const edgeFade = ctx.createRadialGradient(cx, cy, R * 0.82, cx, cy, R)
+        edgeFade.addColorStop(0, 'rgba(0,0,0,0)')
+        edgeFade.addColorStop(0.6, 'rgba(0,0,0,0.05)')
+        edgeFade.addColorStop(1, 'rgba(0,0,0,0.28)')
+        ctx.fillStyle = edgeFade
+        ctx.beginPath()
+        ctx.arc(cx, cy, R, 0, Math.PI * 2)
+        ctx.fill()
 
-      const gc = glowRef.current
-      const warmCore =
-        (0.058 + act * 0.065) * vis.innerWarm * (0.85 + vis.redAccent * 0.08)
-      const innerWarm = ctx.createRadialGradient(cx + R * 0.08, cy + R * 0.12, 0, cx, cy, R * 0.7)
-      innerWarm.addColorStop(0, `rgba(${gc.r},${gc.g},${gc.b},${warmCore})`)
-      innerWarm.addColorStop(1, 'rgba(0,0,0,0)')
-      ctx.fillStyle = innerWarm
-      ctx.globalCompositeOperation = 'lighter'
-      ctx.beginPath()
-      ctx.arc(cx, cy, R * 0.88, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.globalCompositeOperation = 'source-over'
-
-      /* Slow internal shimmer — faint wandering light inside the sphere */
-      if (vis.shimmer > 0.02) {
-        const sh = shimmerPhaseRef.current
-        const gx = cx + Math.cos(sh * 0.75) * R * 0.18
-        const gy = cy + Math.sin(sh * 0.55) * R * 0.14
-        const sg = ctx.createRadialGradient(gx, gy, 0, gx, gy, R * 0.52)
-        const amp = vis.shimmer * (0.016 + Math.sin(sh * 0.9) * 0.012)
-        sg.addColorStop(0, `rgba(255,255,255,${amp})`)
-        sg.addColorStop(0.5, `rgba(255,255,255,${amp * 0.3})`)
-        sg.addColorStop(1, 'rgba(255,255,255,0)')
-        ctx.fillStyle = sg
+        const warmCore =
+          (0.058 + act * 0.065) * vis.innerWarm * (0.85 + vis.redAccent * 0.08)
+        const innerWarm = ctx.createRadialGradient(cx + R * 0.08, cy + R * 0.12, 0, cx, cy, R * 0.7)
+        innerWarm.addColorStop(0, `rgba(${gc.r},${gc.g},${gc.b},${warmCore})`)
+        innerWarm.addColorStop(1, 'rgba(0,0,0,0)')
+        ctx.fillStyle = innerWarm
         ctx.globalCompositeOperation = 'lighter'
         ctx.beginPath()
         ctx.arc(cx, cy, R * 0.88, 0, Math.PI * 2)
         ctx.fill()
         ctx.globalCompositeOperation = 'source-over'
-      }
 
-      ctx.restore()
+        /* Slow internal shimmer — faint wandering light inside the sphere */
+        if (vis.shimmer > 0.02) {
+          const sh = shimmerPhaseRef.current
+          const gx = cx + Math.cos(sh * 0.75) * R * 0.18
+          const gy = cy + Math.sin(sh * 0.55) * R * 0.14
+          const sg = ctx.createRadialGradient(gx, gy, 0, gx, gy, R * 0.52)
+          const amp = vis.shimmer * (0.016 + Math.sin(sh * 0.9) * 0.012)
+          sg.addColorStop(0, `rgba(255,255,255,${amp})`)
+          sg.addColorStop(0.5, `rgba(255,255,255,${amp * 0.3})`)
+          sg.addColorStop(1, 'rgba(255,255,255,0)')
+          ctx.fillStyle = sg
+          ctx.globalCompositeOperation = 'lighter'
+          ctx.beginPath()
+          ctx.arc(cx, cy, R * 0.88, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.globalCompositeOperation = 'source-over'
+        }
+
+        ctx.restore()
+      }
 
       const mx = mapVecRef.current.x * mapImpulseRef.current * R * 0.85
       const my = mapVecRef.current.y * mapImpulseRef.current * R * 0.85
@@ -652,9 +782,18 @@ export function JarvisNeuralOrb({
         Math.sin(t * 0.72) * R * 0.018 + Math.sin(t * 0.28) * R * 0.009
       const microDriftY =
         Math.sin(t * 0.55 + 1.2) * R * 0.008 + Math.sin(t * 0.22) * R * 0.005
-      const faceCx = cx + swayX
-      const lookUpY = lookAtCardRef.current ? -R * 0.026 : 0
-      const gazeCardY = lookAtCardRef.current ? -R * 0.052 : 0
+      const autoSwayX = autoOn ? Math.sin(t * 1.08) * R * 0.045 : 0
+      const faceCx = cx + swayX + autoSwayX
+      const lookUpY = lookAtCardRef.current
+        ? -R * 0.026
+        : lookDownRef.current
+          ? R * 0.024
+          : 0
+      const gazeCardY = lookAtCardRef.current
+        ? -R * 0.052
+        : lookDownRef.current
+          ? R * 0.072
+          : 0
 
       const listenBoost = expr === 'listening' ? 1 + vMic * 0.08 + act * 0.03 : 1
       const spread = R * BASE_SPREAD * vis.eyeSpreadMul
@@ -759,6 +898,10 @@ export function JarvisNeuralOrb({
         lipOpen,
       )
 
+      const waveTgt = expr === 'waving' ? 1 : 0
+      waveVisualRef.current = lerp(waveVisualRef.current, waveTgt, 0.07)
+      drawFetchWaveHand(ctx, cx, cy, R, t * 7.85, gc, waveVisualRef.current)
+
       /* Confirmation pulse — soft glow bloom instead of hard ring */
       if (confirmPulseRef.current > 0.01) {
         const p = easeOutCubic(confirmPulseRef.current)
@@ -779,7 +922,7 @@ export function JarvisNeuralOrb({
       if (liftRef.current) {
         liftRef.current.style.transform = `translate3d(0, ${liftPx.toFixed(2)}px, 0)`
       }
-      if (underglowRef.current) {
+      if (underglowRef.current && surface === 'sphere') {
         const isSpeaking = expr === 'speaking' || speak
         const gMul =
           0.78 +
@@ -811,33 +954,49 @@ export function JarvisNeuralOrb({
       ro.disconnect()
       window.cancelAnimationFrame(raf)
     }
-  }, [size])
+  }, [size, surface])
 
   const dim = SIZE_CLASS[size]
 
   return (
     <div
-      className={['relative flex flex-col items-center', className].filter(Boolean).join(' ')}
+      className={[
+        'relative flex flex-col items-center',
+        autonomous && surface === 'faceOnly' ? 'fetch-jarvis-autonomous-host' : '',
+        className,
+      ]
+        .filter(Boolean)
+        .join(' ')}
       {...(ariaLive ? { 'aria-live': 'polite' as const } : {})}
     >
-      <div
-        ref={underglowRef}
-        className="fetch-assistant-face-orb__underglow pointer-events-none absolute left-1/2 top-[72%] h-[58%] w-[118%] -translate-x-1/2 rounded-[50%]"
-        aria-hidden
-      />
+      {surface === 'sphere' ? (
+        <div
+          ref={underglowRef}
+          className="fetch-assistant-face-orb__underglow pointer-events-none absolute left-1/2 top-[72%] h-[58%] w-[118%] -translate-x-1/2 rounded-[50%]"
+          aria-hidden
+        />
+      ) : (
+        <div ref={underglowRef} className="pointer-events-none absolute h-0 w-0 opacity-0" aria-hidden />
+      )}
       <div
         ref={liftRef}
         className={[
-          'fetch-assistant-face-orb fetch-jarvis-neural-sphere relative rounded-full',
+          'fetch-assistant-face-orb relative',
+          surface === 'sphere'
+            ? `fetch-jarvis-neural-sphere rounded-full fetch-jarvis-neural-sphere--${legacyClass}`
+            : `fetch-jarvis-face-only fetch-jarvis-neural-sphere--${legacyClass}`,
           dim,
-          `fetch-jarvis-neural-sphere--${legacyClass}`,
         ].join(' ')}
-        data-fetch-orb-expression={effectiveExpression}
+        data-fetch-orb-expression={mergedExpression}
         data-orb-size={size}
+        data-orb-surface={surface}
       >
         <div
           ref={hostRef}
-          className="relative z-[1] h-full w-full overflow-hidden rounded-full"
+          className={[
+            'relative z-[1] h-full w-full',
+            surface === 'sphere' ? 'overflow-hidden rounded-full' : 'overflow-visible',
+          ].join(' ')}
         >
           <canvas
             ref={canvasRef}

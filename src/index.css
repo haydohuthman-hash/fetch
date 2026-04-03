@@ -1115,6 +1115,33 @@
     drop-shadow(0 10px 40px rgba(var(--orb-glow), 0.14));
 }
 
+/* Fullscreen assistant: canvas face only (no dark orb shell) */
+.fetch-assistant-face-orb.fetch-jarvis-face-only {
+  animation: none;
+  transform-origin: center;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none;
+  background: transparent;
+  filter: drop-shadow(0 4px 18px rgba(0, 0, 0, 0.22))
+    drop-shadow(0 14px 36px rgba(var(--orb-glow), 0.18));
+}
+
+@keyframes fetch-jarvis-autonomous-breathe {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.06);
+  }
+}
+
+/* Autonomous idle: subtle host pulse (does not fight canvas transform on inner orb) */
+.fetch-jarvis-autonomous-host {
+  animation: fetch-jarvis-autonomous-breathe 4.8s ease-in-out infinite;
+}
+
 .fetch-assistant-face-orb__underglow {
   z-index: 0;
   pointer-events: none;
@@ -2842,4 +2869,127 @@ body {
   max-width: 1024px;
   min-height: 100dvh;
   margin-inline: auto;
+}
+
+/* Fullscreen Fetch AI — “mind tour” how-it-works diagram */
+.fetch-mind-tour__grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.055) 1px, transparent 1px);
+  background-size: 22px 22px;
+  mask-image: radial-gradient(ellipse 85% 75% at 50% 42%, black 0%, transparent 70%);
+}
+
+.fetch-mind-tour__frame {
+  opacity: 0;
+  animation: fetch-mind-frame-in 0.7s cubic-bezier(0.22, 0.82, 0.24, 1) forwards;
+}
+
+@keyframes fetch-mind-frame-in {
+  from {
+    opacity: 0;
+    border-color: rgba(255, 255, 255, 0);
+    transform: scale(0.96) translateY(6px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    border-color: rgba(255, 255, 255, 0.07);
+    transform: scale(1) translateY(0);
+    filter: blur(0);
+  }
+}
+
+.fetch-mind-tour__route {
+  stroke-dasharray: 292;
+  stroke-dashoffset: 292;
+  animation: fetch-mind-route-draw 1.12s cubic-bezier(0.22, 0.88, 0.24, 1) 0.32s forwards;
+}
+
+@keyframes fetch-mind-route-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.fetch-mind-tour__pin {
+  opacity: 0;
+  transform: translateY(-20px);
+  transform-box: fill-box;
+  transform-origin: center top;
+}
+
+.fetch-mind-tour__pin--a {
+  animation: fetch-mind-pin-drop 0.58s cubic-bezier(0.33, 1.24, 0.64, 1) 0.08s forwards;
+}
+
+.fetch-mind-tour__pin--b {
+  animation: fetch-mind-pin-drop 0.58s cubic-bezier(0.33, 1.24, 0.64, 1) 0.4s forwards;
+}
+
+@keyframes fetch-mind-pin-drop {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fetch-mind-tour__label {
+  opacity: 0;
+}
+
+.fetch-mind-tour__label--a {
+  animation: fetch-mind-label-in 0.5s ease 0.52s forwards;
+}
+
+.fetch-mind-tour__label--b {
+  animation: fetch-mind-label-in 0.5s ease 0.82s forwards;
+}
+
+@keyframes fetch-mind-label-in {
+  to {
+    opacity: 1;
+  }
+}
+
+.fetch-mind-tour--reduced .fetch-mind-tour__frame {
+  animation: fetch-mind-frame-in-rm 0.28s ease forwards;
+  filter: none;
+}
+
+@keyframes fetch-mind-frame-in-rm {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.fetch-mind-tour--reduced .fetch-mind-tour__route {
+  animation: none;
+  stroke-dashoffset: 0;
+}
+
+.fetch-mind-tour--reduced .fetch-mind-tour__pin {
+  animation: none;
+  opacity: 1;
+  transform: none;
+}
+
+.fetch-mind-tour--reduced .fetch-mind-tour__label,
+.fetch-mind-tour--reduced .fetch-mind-tour__label--a,
+.fetch-mind-tour--reduced .fetch-mind-tour__label--b {
+  animation: none;
+  opacity: 1;
+}
+
+.fetch-mind-tour--reduced .fetch-mind-tour__runner {
+  opacity: 0;
+}
+
+.fetch-ai-composer-shell--mind-dim {
+  opacity: 0.38;
+  pointer-events: none;
+  transition: opacity 0.45s ease;
 }

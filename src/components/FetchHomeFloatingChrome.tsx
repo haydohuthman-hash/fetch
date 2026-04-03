@@ -109,20 +109,37 @@ export function FetchHomeTopBubbleBar({ tab, onTab, unreadCount }: FetchHomeTopB
   )
 }
 
-/** Full-width bottom red wash while Fetch voice (TTS) is playing — wave motion via CSS. */
-export function FetchSpeechBottomGlow() {
+/** Full-width bottom wash while Fetch voice (TTS) is playing — wave motion via CSS. */
+export function FetchSpeechBottomGlow({
+  variant = 'standard',
+}: {
+  /** `void` — dimmer, shorter band for fullscreen assistant (black-void look). */
+  variant?: 'standard' | 'void'
+}) {
   const { isSpeechPlaying, muted } = useFetchVoice()
   const active = isSpeechPlaying && !muted
   if (!active) return null
 
+  const isVoid = variant === 'void'
+
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 bottom-0 z-[30] h-[min(52vh,460px)] overflow-hidden"
+      className={[
+        'pointer-events-none fixed inset-x-0 bottom-0 z-[30] overflow-hidden',
+        isVoid
+          ? 'h-[min(26vh,200px)] opacity-[0.18]'
+          : 'h-[min(52vh,460px)]',
+      ].join(' ')}
       aria-hidden
     >
       <div className="fetch-fetch-speech-glow-wave-a absolute inset-0" />
       <div className="fetch-fetch-speech-glow-wave-b absolute inset-0" />
-      <div className="fetch-fetch-speech-glow-wave-c absolute inset-0 opacity-80" />
+      <div
+        className={[
+          'fetch-fetch-speech-glow-wave-c absolute inset-0',
+          isVoid ? 'opacity-40' : 'opacity-80',
+        ].join(' ')}
+      />
     </div>
   )
 }

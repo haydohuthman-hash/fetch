@@ -19,6 +19,12 @@ export type FetchOrbExpression =
   | 'proud'
   | 'sleepy'
   | 'intense'
+  /** Bouncy, slightly asymmetric — autonomous idle. */
+  | 'playful'
+  /** Greeting: bright + wave hand drawn in canvas when autonomous. */
+  | 'waving'
+  /** Calm, warm presence. */
+  | 'content'
 
 export type OrbMouthKind = 'none' | 'hint_arc' | 'speak_line' | 'flat' | 'soft_o'
 
@@ -355,6 +361,58 @@ export const ORB_EXPRESSION_PRESETS: Record<FetchOrbExpression, Partial<OrbFaceT
     glowBlurAdd: 4,
     liftPx: -8,
   },
+  playful: {
+    faceGlow: 1.02,
+    eyeOpen: 0.96,
+    eyeScaleH: 1.08,
+    eyeScaleW: 1.04,
+    upperLid: 0.03,
+    lowerLid: 0.03,
+    asymmetry: 0.1,
+    tiltY: 0.018,
+    mouthKind: 'hint_arc',
+    mouthEnergy: 0.55,
+    shimmer: 0.32,
+    shimmerSpeed: 1.25,
+    innerWarm: 0.95,
+    pupilShiftX: 0.08,
+    liftPx: -8,
+    glowOpacity: 0.92,
+    breathAmp: 0.009,
+  },
+  waving: {
+    faceGlow: 1.08,
+    eyeOpen: 1,
+    eyeScaleH: 1.1,
+    eyeScaleW: 1.05,
+    eyeSpreadMul: 1.09,
+    upperLid: 0.02,
+    lowerLid: 0.02,
+    mouthKind: 'hint_arc',
+    mouthEnergy: 0.72,
+    shimmer: 0.38,
+    innerWarm: 1.02,
+    redAccent: 1.1,
+    glowOpacity: 1,
+    glowBlurAdd: 8,
+    liftPx: -12,
+    breathAmp: 0.008,
+  },
+  content: {
+    faceGlow: 0.78,
+    eyeOpen: 0.8,
+    eyeScaleH: 0.88,
+    upperLid: 0.1,
+    lowerLid: 0.06,
+    mouthKind: 'hint_arc',
+    mouthEnergy: 0.35,
+    shimmer: 0.18,
+    innerWarm: 0.88,
+    glowOpacity: 0.72,
+    breathAmp: 0.007,
+    liftPx: -4,
+    blinkSlow: 1.2,
+  },
 }
 
 export function resolveOrbExpressionTargets(expression: FetchOrbExpression): OrbFaceTargets {
@@ -499,7 +557,11 @@ export function legacySphereClassFromExpression(e: FetchOrbExpression): string {
     case 'happy':
     case 'proud':
     case 'intense':
+    case 'waving':
+    case 'playful':
       return 'completed'
+    case 'content':
+      return 'engaged'
     case 'awake':
     case 'curious':
       /* Subtle “alive” motion; avoids `--idle` when the canvas face is alert */

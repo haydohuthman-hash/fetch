@@ -34,3 +34,7 @@ function pickRandom<T>(arr: T[]): T {
 export function getOrbTapLine(): string {
   return Math.random() < 0.5 ? pickRandom(JOKES) : pickRandom(HOW_IT_WORKS)
 }
+
+export function getHowItWorksTapLine(): string {
+  return pickRandom(HOW_IT_WORKS)
+}

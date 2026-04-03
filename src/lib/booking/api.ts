@@ -6,10 +6,9 @@ import type {
   FetchAiReviewResponse,
 } from './types'
 
-const API_ROOT = (import.meta.env.VITE_FETCH_API_BASE_URL?.trim() || 'http://127.0.0.1:8787').replace(
-  /\/$/,
-  '',
-)
+import { getFetchApiBaseUrl } from '../fetchApiBase'
+
+const API_ROOT = getFetchApiBaseUrl()
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_ROOT}${path}`, {

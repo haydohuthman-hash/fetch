@@ -68,8 +68,6 @@ export function FetchVoiceProvider({ children }: { children: React.ReactNode }) 
   const playEvent = useCallback(
     (type: VoiceEventType, options?: VoiceEventOptions) => {
       if (muted) {
-        // eslint-disable-next-line no-console
-        console.log('[Fetch voice flow] playEvent skipped (muted)', type)
         return
       }
       void playVoice(type, options)
@@ -80,8 +78,6 @@ export function FetchVoiceProvider({ children }: { children: React.ReactNode }) 
   const speakAssistantLine = useCallback(
     (text: string, options?: SpeakLineOptions) => {
       if (muted) {
-        // eslint-disable-next-line no-console
-        console.log('[Fetch voice flow] speakLine skipped (muted)', text.slice(0, 120))
         return Promise.resolve()
       }
       return speakLine(text, options)
@@ -92,8 +88,6 @@ export function FetchVoiceProvider({ children }: { children: React.ReactNode }) 
   const playUiEvent = useCallback(
     (event: UiFeedbackEvent) => {
       if (muted) {
-        // eslint-disable-next-line no-console
-        console.log('[Fetch voice flow] playUiEvent skipped (muted)', event)
         return
       }
       playUiFeedback(event)
