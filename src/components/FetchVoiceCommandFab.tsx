@@ -6,10 +6,7 @@ import {
   type MapAttentionCue,
 } from './JarvisNeuralOrb'
 import { useFetchVoice } from '../voice/FetchVoiceContext'
-<<<<<<< HEAD
 import { primeVoicePlaybackFromUserGesture } from '../voice/fetchVoice'
-=======
->>>>>>> 0a1a14a0c772938d5e08208a6af0758301c8fa69
 
 export function FetchVoiceCommandFab({
   onOpen,
@@ -100,13 +97,9 @@ export function FetchVoiceCommandFab({
     <button
       id={id}
       type="button"
-<<<<<<< HEAD
       onPointerDown={primeVoicePlaybackFromUserGesture}
       onClick={() => {
         primeVoicePlaybackFromUserGesture()
-=======
-      onClick={() => {
->>>>>>> 0a1a14a0c772938d5e08208a6af0758301c8fa69
         playUiEvent('orb_tap')
         onOpen()
       }}

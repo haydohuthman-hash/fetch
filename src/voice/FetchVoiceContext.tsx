@@ -23,11 +23,7 @@ type FetchVoiceContextValue = {
   setMuted: (next: boolean) => void
   toggleMute: () => void
   playEvent: (type: VoiceEventType, options?: VoiceEventOptions) => void
-<<<<<<< HEAD
   speakLine: (text: string, options?: SpeakLineOptions) => Promise<void>
-=======
-  speakLine: (text: string, options?: SpeakLineOptions) => void
->>>>>>> 0a1a14a0c772938d5e08208a6af0758301c8fa69
   playUiEvent: (event: UiFeedbackEvent) => void
 }
 
@@ -71,15 +67,11 @@ export function FetchVoiceProvider({ children }: { children: React.ReactNode }) 
 
   const playEvent = useCallback(
     (type: VoiceEventType, options?: VoiceEventOptions) => {
-<<<<<<< HEAD
       if (muted) {
         // eslint-disable-next-line no-console
         console.log('[Fetch voice flow] playEvent skipped (muted)', type)
         return
       }
-=======
-      if (muted) return
->>>>>>> 0a1a14a0c772938d5e08208a6af0758301c8fa69
       void playVoice(type, options)
     },
     [muted],
@@ -87,32 +79,23 @@ export function FetchVoiceProvider({ children }: { children: React.ReactNode }) 
 
   const speakAssistantLine = useCallback(
     (text: string, options?: SpeakLineOptions) => {
-<<<<<<< HEAD
       if (muted) {
         // eslint-disable-next-line no-console
         console.log('[Fetch voice flow] speakLine skipped (muted)', text.slice(0, 120))
         return Promise.resolve()
       }
       return speakLine(text, options)
-=======
-      if (muted) return
-      void speakLine(text, options)
->>>>>>> 0a1a14a0c772938d5e08208a6af0758301c8fa69
     },
     [muted],
   )
 
   const playUiEvent = useCallback(
     (event: UiFeedbackEvent) => {
-<<<<<<< HEAD
       if (muted) {
         // eslint-disable-next-line no-console
         console.log('[Fetch voice flow] playUiEvent skipped (muted)', event)
         return
       }
-=======
-      if (muted) return
->>>>>>> 0a1a14a0c772938d5e08208a6af0758301c8fa69
       playUiFeedback(event)
     },
     [muted],

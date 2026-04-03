@@ -384,7 +384,7 @@ function FetchAIView({ onGoHome }: { onGoHome: () => void }) {
     }
 
     rec.onerror = (ev) => {
-      const e = ev as SpeechRecognitionErrorEvent
+      const e = ev as any
       const code = e.error ?? 'unknown'
       voiceFlowSttError(`Speech recognition: ${code}`, { error: code })
       setListening(false)

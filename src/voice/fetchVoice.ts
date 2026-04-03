@@ -1,8 +1,5 @@
-<<<<<<< HEAD
 import { voiceFlowDebug, voiceFlowFallbackText } from './voiceFlowDebug'
 
-=======
->>>>>>> 0a1a14a0c772938d5e08208a6af0758301c8fa69
 /** Legacy scan pipeline service hint (voice copy only). */
 export type FetchServiceId = 'pickup' | 'moving' | 'junk'
 
@@ -69,7 +66,6 @@ function getAudioContextCtor(): typeof AudioContext | null {
   return w.AudioContext ?? w.webkitAudioContext ?? null
 }
 
-<<<<<<< HEAD
 /**
  * Resume/create the shared analyser context (used for TTS lip-sync). Safe to call often.
  */
@@ -134,8 +130,6 @@ export function primeVoicePlaybackFromUserGesture(): void {
   }
 }
 
-=======
->>>>>>> 0a1a14a0c772938d5e08208a6af0758301c8fa69
 function stopBrowserLipShim() {
   if (browserLipShimRaf) {
     window.cancelAnimationFrame(browserLipShimRaf)
@@ -370,16 +364,11 @@ function playBootChime() {
 
 type SpeechPlayingListener = (playing: boolean) => void
 const speechPlayingListeners = new Set<SpeechPlayingListener>()
-<<<<<<< HEAD
 /** Mirrors last broadcast value so late subscribers (e.g. after first speakLine) sync immediately. */
 let speechPlayingSnapshot = false
 
 function setSpeechPlaying(playing: boolean) {
   speechPlayingSnapshot = playing
-=======
-
-function setSpeechPlaying(playing: boolean) {
->>>>>>> 0a1a14a0c772938d5e08208a6af0758301c8fa69
   speechPlayingListeners.forEach((fn) => {
     try {
       fn(playing)
@@ -394,14 +383,11 @@ export function subscribeVoiceSpeechPlaying(
   listener: SpeechPlayingListener,
 ): () => void {
   speechPlayingListeners.add(listener)
-<<<<<<< HEAD
   try {
     listener(speechPlayingSnapshot)
   } catch {
     /* ignore */
   }
-=======
->>>>>>> 0a1a14a0c772938d5e08208a6af0758301c8fa69
   return () => speechPlayingListeners.delete(listener)
 }
 
@@ -430,7 +416,6 @@ function stopCurrentPlayback() {
  * Prefers en-GB with a measured rate/pitch as a rough Jarvis-style fallback.
  */
 function speakWithBrowserTTS(text: string): Promise<void> {
-<<<<<<< HEAD
   return new Promise((resolve, reject) => {
     const synth = window.speechSynthesis
     if (!synth) {
@@ -506,17 +491,6 @@ function speakWithBrowserTTS(text: string): Promise<void> {
       } catch {
         /* ignore */
       }
-=======
-  return new Promise((resolve) => {
-    const synth = window.speechSynthesis
-    if (!synth) {
-      resolve()
-      return
-    }
-    synth.cancel()
-
-    const run = () => {
->>>>>>> 0a1a14a0c772938d5e08208a6af0758301c8fa69
       const u = new SpeechSynthesisUtterance(text)
       u.lang = 'en-GB'
       u.rate = 0.92
@@ -535,30 +509,15 @@ function speakWithBrowserTTS(text: string): Promise<void> {
         setSpeechPlaying(true)
         startBrowserLipShim()
       }
-<<<<<<< HEAD
       u.onend = () => settleOk()
       u.onerror = (ev) => {
-        const se = ev as SpeechSynthesisErrorEvent
+        const se = ev as any
         settleErr(new Error(se.error ?? 'utterance_error'))
       }
       try {
         synth.speak(u)
       } catch (e) {
         settleErr(e instanceof Error ? e : new Error(String(e)))
-=======
-      const done = () => {
-        stopBrowserLipShim()
-        speechAmpSmoothed = 0
-        setSpeechPlaying(false)
-        resolve()
-      }
-      u.onend = done
-      u.onerror = done
-      try {
-        synth.speak(u)
-      } catch {
-        done()
->>>>>>> 0a1a14a0c772938d5e08208a6af0758301c8fa69
       }
     }
 
@@ -668,7 +627,6 @@ async function playPhrase(
   } = {},
 ): Promise<void> {
   const text = phrase.trim()
-<<<<<<< HEAD
   if (!text) {
     // eslint-disable-next-line no-console
     console.warn('[Fetch voice flow] playPhrase skipped (empty text)')
@@ -685,13 +643,6 @@ async function playPhrase(
 
   /* Reserve immediately so rapid/card-open replays don’t start parallel TTS fetches. */
   lastPlayByEvent.set(key, now)
-=======
-  if (!text) return
-
-  const now = Date.now()
-  const last = lastPlayByEvent.get(key) ?? 0
-  if (now - last < debounceMs) return
->>>>>>> 0a1a14a0c772938d5e08208a6af0758301c8fa69
 
   if (prelude) {
     await prelude()
@@ -699,7 +650,6 @@ async function playPhrase(
 
   stopCurrentPlayback()
 
-<<<<<<< HEAD
   voiceFlowDebug('sending_request', { key, textLen: text.length })
 
   let url: string | null = null
@@ -741,19 +691,10 @@ async function playPhrase(
       await speakWithBrowserTTS(text)
     } catch {
       /* fallback + playback_failed emitted inside speakWithBrowserTTS */
-=======
-  const url = await audioUrlForPhrase(text)
-  lastPlayByEvent.set(key, now)
-
-  if (!url) {
-    if (!skipSpeechFallback) {
-      await speakWithBrowserTTS(text)
->>>>>>> 0a1a14a0c772938d5e08208a6af0758301c8fa69
     }
     return
   }
 
-<<<<<<< HEAD
   voiceFlowDebug('response_received', { path: 'html_audio', key })
 
   const audio = new Audio(url)
@@ -762,12 +703,6 @@ async function playPhrase(
   currentAudio = audio
   attachTtsAnalyser(audio)
   ensureTtsAudioContextResumed()
-=======
-  const audio = new Audio(url)
-  audio.volume = 0.8
-  currentAudio = audio
-  attachTtsAnalyser(audio)
->>>>>>> 0a1a14a0c772938d5e08208a6af0758301c8fa69
 
   const onEnded = () => {
     if (currentAudio === audio) {
@@ -780,7 +715,6 @@ async function playPhrase(
   audio.addEventListener(
     'error',
     () => {
-<<<<<<< HEAD
       void (async () => {
         if (currentAudio !== audio) return
         disconnectTtsAnalyser(true)
@@ -818,18 +752,10 @@ async function playPhrase(
           /* inner handler shows fallback */
         }
       })()
-=======
-      if (currentAudio === audio) {
-        disconnectTtsAnalyser(true)
-        currentAudio = null
-        setSpeechPlaying(false)
-      }
->>>>>>> 0a1a14a0c772938d5e08208a6af0758301c8fa69
     },
     { once: true },
   )
 
-<<<<<<< HEAD
   voiceFlowDebug('attempting_playback', { path: 'html_audio' })
   try {
     await audio.play()
@@ -864,22 +790,12 @@ async function playPhrase(
       await speakWithBrowserTTS(text)
     } catch {
       /* inner handler shows fallback */
-=======
-  try {
-    await audio.play()
-    setSpeechPlaying(true)
-  } catch {
-    stopCurrentPlayback()
-    if (!skipSpeechFallback) {
-      await speakWithBrowserTTS(text)
->>>>>>> 0a1a14a0c772938d5e08208a6af0758301c8fa69
     }
   }
 }
 
 export async function speakLine(text: string, options?: SpeakLineOptions): Promise<void> {
   const phrase = text.trim()
-<<<<<<< HEAD
   if (!phrase) {
     // eslint-disable-next-line no-console
     console.warn('[Fetch voice flow] speakLine skipped (empty)')
@@ -912,11 +828,6 @@ export async function speakLine(text: string, options?: SpeakLineOptions): Promi
     voiceFlowDebug('playback_failed', { reason: 'speakLine_throw', error: msg })
     voiceFlowFallbackText(phrase, msg)
   }
-=======
-  if (!phrase) return
-  const key = options?.debounceKey?.trim() || `line:${phrase}`
-  await playPhrase(phrase, key, { debounceMs: options?.debounceMs })
->>>>>>> 0a1a14a0c772938d5e08208a6af0758301c8fa69
 }
 
 /**
