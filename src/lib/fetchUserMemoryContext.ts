@@ -1,5 +1,6 @@
 import { loadSavedAddresses } from './savedAddresses'
 import { loadSession } from './fetchUserSession'
+import { getDefaultPaymentMethod } from './paymentMethods'
 
 const MAX_LEN = 1100
 
@@ -16,9 +17,15 @@ export function buildFetchUserMemoryContext(): string {
     return `• ${a.label}: ${a.address}${n ? ` — ${n}` : ''}`
   })
 
+  const defaultCard = getDefaultPaymentMethod()
+  const cardLine = defaultCard
+    ? `Default payment on file: ${defaultCard.brand} ·••• ${defaultCard.last4} (exp ${String(defaultCard.expiryMonth).padStart(2, '0')}/${defaultCard.expiryYear}).`
+    : 'No default payment method saved yet.'
+
   const parts = [
     `User is signed in as ${u.displayName} (${u.email}).`,
     u.phone ? `Phone on file: ${u.phone}.` : null,
+    cardLine,
     addrs.length ? `Saved addresses (prefer these when the user asks for home/work or a quick pickup—always confirm before booking):\n${lines.join('\n')}` : 'No saved addresses yet.',
   ].filter(Boolean)
 

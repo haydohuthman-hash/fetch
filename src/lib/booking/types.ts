@@ -2,6 +2,7 @@ import type {
   BookingAiReview,
   BookingCoords,
   BookingDriver,
+  BookingDriverLocation,
   BookingFlowStep,
   BookingJobType,
   BookingLifecycleStatus,
@@ -111,6 +112,14 @@ export type BookingRecord = {
   accessRisk: BookingState['accessRisk']
   paymentIntent: BookingPaymentIntent | null
   matchedDriver: BookingDriver | null
+  driverLocation?: BookingDriverLocation | null
+  /** When set, this booking is tied to a driver account (demo: localStorage id). */
+  assignedDriverId?: string | null
+  /**
+   * When true, server-side demo dispatch timers do not auto-advance status;
+   * the driver dashboard drives lifecycle via PATCH status.
+   */
+  driverControlled?: boolean
   timeline: BookingTimelineEntry[]
   createdAt: number
   updatedAt: number
@@ -123,6 +132,26 @@ export type BookingNotificationRecord = {
   message: string
   createdAt: number
   isRead: boolean
+  updatedAt?: number
+}
+
+export type BookingMediaRecord = {
+  id: string
+  bookingId: string
+  urlOrLocalRef: string
+  type: string
+  createdAt: number
+  updatedAt: number
+  uploadedBy: string
+}
+
+export type MarketplaceOfferStatus = 'pending' | 'accepted' | 'declined' | 'expired'
+
+export type MarketplaceOffer = {
+  offerId: string
+  bookingId: string
+  driverId: string
+  status?: MarketplaceOfferStatus
   updatedAt?: number
 }
 
@@ -190,6 +219,7 @@ export function bookingRecordToStatePatch(record: BookingRecord): Partial<Bookin
     aiReview: record.aiReview,
     paymentIntent: record.paymentIntent,
     driver: record.matchedDriver,
+    driverLocation: record.driverLocation ?? null,
     timeline: record.timeline,
     pickupAddressText: record.pickupAddressText,
     pickupPlace: record.pickupPlace ?? null,
@@ -215,6 +245,61 @@ export function bookingRecordToStatePatch(record: BookingRecord): Partial<Bookin
     needsSpecialEquipment: record.needsSpecialEquipment,
     accessRisk: record.accessRisk,
     accessDetails: { ...record.accessDetails },
+  }
+}
+
+/**
+ * Payload for `POST /api/marketplace/bookings` after payment — server runs `reviewBookingDraft` and persists.
+ */
+export function bookingStateToConfirmedUpsertPayload(
+  state: BookingState,
+  id: string,
+): Partial<BookingRecord> & { id: string; status: 'confirmed' } {
+  return {
+    id,
+    status: 'confirmed',
+    jobType: state.jobType,
+    flowStep: state.flowStep,
+    serviceMode: state.serviceMode,
+    serviceType: state.serviceType,
+    moveContext: state.moveContext ?? null,
+    homeBedrooms: state.homeBedrooms,
+    moveSize: state.moveSize,
+    moveBuilderMode: state.moveBuilderMode ?? null,
+    activeRoom: state.activeRoom ?? null,
+    roomInventory: state.roomInventory ?? {},
+    source: state.source ?? null,
+    internalDisposalDestination: state.internalDisposalDestination ?? null,
+    pickupAddressText: state.pickupAddressText,
+    pickupPlace: state.pickupPlace ?? undefined,
+    pickupCoords: state.pickupCoords,
+    dropoffAddressText: state.dropoffAddressText,
+    dropoffPlace: state.dropoffPlace ?? undefined,
+    dropoffCoords: state.dropoffCoords,
+    route: state.route,
+    pricing: state.pricing,
+    quoteBreakdown: state.quoteBreakdown,
+    aiReview: state.aiReview,
+    detectedItems: [...state.detectedItems],
+    itemCounts: { ...state.itemCounts },
+    inventorySummary: state.inventorySummary,
+    accessDetails: { ...state.accessDetails },
+    disposalRequired: state.disposalRequired,
+    helperHours: state.helperHours,
+    helperType: state.helperType,
+    helperNotes: state.helperNotes,
+    cleaningHours: state.cleaningHours,
+    cleaningType: state.cleaningType,
+    cleaningNotes: state.cleaningNotes,
+    specialItemType: state.specialItemType,
+    isHeavyItem: state.isHeavyItem,
+    isBulky: state.isBulky,
+    needsTwoMovers: state.needsTwoMovers,
+    needsSpecialEquipment: state.needsSpecialEquipment,
+    accessRisk: state.accessRisk,
+    paymentIntent: state.paymentIntent,
+    matchedDriver: null,
+    timeline: [...state.timeline],
   }
 }
 

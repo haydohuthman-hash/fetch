@@ -23,6 +23,10 @@ export type FetchAiChatClientContext = {
   longitude?: number
   /** Signed-in user profile + saved addresses (server prepends to system context). */
   userMemory?: string
+  /** Fetch Brain only: compact local spend/mileage/activity stats (server appends to system context). */
+  brainAccountIntel?: string
+  /** Map explore sheet: vetted nearby place list for the model (server may append). */
+  nearbyExploreSummary?: string
 }
 
 /** Populated when the server resolves a driving route (Google Directions + traffic). */
@@ -38,6 +42,8 @@ export type FetchAiChatNavigation = {
   distanceMeters: number
   trafficDelaySeconds: number | null
   path: Array<{ lat: number; lng: number }>
+  /** First driving step (plain text); set client-side when refreshing routes. */
+  nextStepInstruction?: string | null
 }
 
 function parseFetchAiChatNavigation(raw: unknown): FetchAiChatNavigation | null {
@@ -67,6 +73,14 @@ function parseFetchAiChatNavigation(raw: unknown): FetchAiChatNavigation | null 
     typeof o.destinationLabel === 'string' && o.destinationLabel.trim()
       ? o.destinationLabel.trim().slice(0, 400)
       : 'Destination'
+  const nextRaw = o.nextStepInstruction
+  const nextStepInstruction =
+    typeof nextRaw === 'string' && nextRaw.trim()
+      ? nextRaw.trim().slice(0, 500)
+      : nextRaw === null
+        ? null
+        : undefined
+
   return {
     active: true,
     destinationLabel: label,
@@ -84,6 +98,7 @@ function parseFetchAiChatNavigation(raw: unknown): FetchAiChatNavigation | null 
           ? Math.max(0, Math.round(o.trafficDelaySeconds))
           : null,
     path,
+    ...(nextStepInstruction !== undefined ? { nextStepInstruction } : {}),
   }
 }
 

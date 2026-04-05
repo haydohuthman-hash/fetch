@@ -22,6 +22,8 @@ type PlacesAddressAutocompleteProps = {
   /** Seed the input when remounting (e.g. returning to landing with pickup already set). */
   initialDisplayValue?: string
   onResolved: (place: ResolvedPlace) => void
+  /** Google `.pac-container` is visible with predictions (for parent sheet snap). */
+  onSuggestionsOpenChange?: (open: boolean) => void
   className?: string
 }
 
@@ -36,11 +38,14 @@ export function PlacesAddressAutocomplete({
   autoFocus = false,
   initialDisplayValue = '',
   onResolved,
+  onSuggestionsOpenChange,
   className,
 }: PlacesAddressAutocompleteProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const onResolvedRef = useRef(onResolved)
   onResolvedRef.current = onResolved
+  const onSuggestionsOpenChangeRef = useRef(onSuggestionsOpenChange)
+  onSuggestionsOpenChangeRef.current = onSuggestionsOpenChange
 
   const { isLoaded } = useJsApiLoader({
     id: 'fetch-google-maps',
@@ -90,6 +95,57 @@ export function PlacesAddressAutocomplete({
       google.maps.event.clearInstanceListeners(ac)
     }
   }, [isLoaded, field, disabled])
+
+  useEffect(() => {
+    if (!isLoaded || disabled || !inputRef.current || !onSuggestionsOpenChange) return
+    const input = inputRef.current
+    let reported = false
+
+    const isPacOpen = (): boolean => {
+      if (document.activeElement !== input) return false
+      const lists = document.querySelectorAll('.pac-container')
+      for (let i = 0; i < lists.length; i++) {
+        const el = lists[i] as HTMLElement
+        if (el.offsetParent !== null && el.querySelector('.pac-item')) return true
+      }
+      return false
+    }
+
+    const flush = () => {
+      const open = isPacOpen()
+      if (open === reported) return
+      reported = open
+      onSuggestionsOpenChangeRef.current?.(open)
+    }
+
+    const mo = new MutationObserver(() => flush())
+    mo.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['style', 'class'],
+    })
+    const onFocus = () => queueMicrotask(flush)
+    const onBlur = () =>
+      window.setTimeout(() => {
+        if (document.activeElement === input) return
+        if (reported) {
+          reported = false
+          onSuggestionsOpenChangeRef.current?.(false)
+        }
+      }, 220)
+    const onInput = () => queueMicrotask(flush)
+    input.addEventListener('focus', onFocus)
+    input.addEventListener('blur', onBlur)
+    input.addEventListener('input', onInput)
+    return () => {
+      mo.disconnect()
+      input.removeEventListener('focus', onFocus)
+      input.removeEventListener('blur', onBlur)
+      input.removeEventListener('input', onInput)
+      if (reported) onSuggestionsOpenChangeRef.current?.(false)
+    }
+  }, [isLoaded, field, disabled, onSuggestionsOpenChange])
 
   return (
     <input

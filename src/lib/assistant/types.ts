@@ -89,6 +89,13 @@ export type BookingDriver = {
   rating?: number
 }
 
+export type BookingDriverLocation = {
+  lat: number
+  lng: number
+  heading?: number
+  updatedAt: number
+}
+
 export type BookingLifecycleStatus =
   | 'draft'
   | 'payment_required'
@@ -256,6 +263,8 @@ export type BookingState = {
   selectedPaymentMethodId: string | null
   timeline: BookingTimelineEntry[]
   driver: BookingDriver | null
+  /** Live GPS from marketplace (or null). Client may also keep server copy while polling. */
+  driverLocation: BookingDriverLocation | null
   currentQuestion: string | null
   suggestions: string[]
   /** After route confirm, user tapped Next — item / describe step is active. */
@@ -365,6 +374,7 @@ export function createInitialBookingState(): BookingState {
     selectedPaymentMethodId: null,
     timeline: [],
     driver: null,
+    driverLocation: null,
     currentQuestion: 'What type of job is this?',
     suggestions: [
       'Junk removal',

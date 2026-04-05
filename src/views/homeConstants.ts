@@ -32,7 +32,7 @@ export const LANDING_PRIMARY_SERVICES = [
   },
   {
     id: 'junk-removal',
-    label: 'Junk Removal',
+    label: 'Junk',
     jobType: 'junkRemoval' as const,
     tone: 'orange' as const,
     fetchPersonalityExample: 'Where is the junk located, Hayden?',

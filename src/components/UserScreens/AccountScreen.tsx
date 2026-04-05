@@ -24,25 +24,19 @@ export type AccountScreenProps = {
 }
 
 const shell =
-  'fetch-account-screen fetch-theme-chrome mx-auto flex min-h-dvh w-full max-w-[1024px] flex-col px-4 pb-28 pt-[max(1rem,env(safe-area-inset-top))]'
+  'fetch-account-screen fetch-account-screen--home-glow fetch-theme-chrome mx-auto flex min-h-dvh w-full max-w-[1024px] flex-col px-4 pb-28 pt-[max(1rem,env(safe-area-inset-top))]'
 
 const fieldLabel =
   'fetch-account-field-label text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40'
 
 const inputClass =
-  'fetch-account-input w-full rounded-2xl border border-white/12 bg-black/35 px-4 py-3 text-[15px] text-white placeholder:text-white/30 outline-none ring-0 focus:border-violet-400/45'
+  'fetch-account-input w-full rounded-2xl border border-white/12 bg-black/35 px-4 py-3 text-[15px] text-white placeholder:text-white/30 outline-none ring-0 focus:border-emerald-400/50'
 
 const cardClass =
-  'fetch-account-card rounded-2xl border border-white/[0.08] bg-black/35 p-4 shadow-[0_0_0_1px_rgba(139,92,246,0.06)]'
+  'fetch-account-card rounded-2xl border border-white/[0.08] bg-black/35 p-4 shadow-[0_0_0_1px_rgba(52,211,153,0.08)]'
 
-const btnPrimary =
-  'rounded-2xl bg-gradient-to-b from-violet-500 to-violet-700 px-4 py-3 text-[14px] font-semibold text-white shadow-lg shadow-violet-950/40 transition-opacity hover:opacity-95 active:opacity-90'
-
-const btnGhost =
-  'fetch-account-btn-ghost rounded-full border border-white/15 px-3 py-2 text-[13px] font-semibold text-white/75 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white'
-
-const btnDangerGhost =
-  'rounded-full border border-red-400/35 px-3 py-2 text-[13px] font-semibold text-red-300/90 transition-colors hover:border-red-400/50 hover:bg-red-500/10'
+const selectClass =
+  'fetch-account-input rounded-2xl border border-white/12 bg-black/35 px-3 py-2.5 text-[13px] text-white outline-none ring-0 focus:border-emerald-400/50'
 
 export function AccountScreen({ onBack, onSignOut }: AccountScreenProps) {
   const { preference, setPreference } = useFetchTheme()
@@ -192,10 +186,10 @@ export function AccountScreen({ onBack, onSignOut }: AccountScreenProps) {
   return (
     <div className={shell}>
       <header className="flex flex-wrap items-center justify-between gap-2">
-        <button type="button" onClick={onBack} className={btnGhost}>
+        <button type="button" onClick={onBack} className="fetch-account-btn-ghost-glass">
           ← Home
         </button>
-        <button type="button" onClick={handleSignOut} className={btnDangerGhost}>
+        <button type="button" onClick={handleSignOut} className="fetch-account-btn-danger-glass">
           Sign out
         </button>
       </header>
@@ -229,8 +223,8 @@ export function AccountScreen({ onBack, onSignOut }: AccountScreenProps) {
               onClick={() => setPreference(id)}
               className={
                 preference === id
-                  ? 'fetch-account-theme-opt fetch-account-theme-opt--active rounded-xl border border-violet-400/50 bg-violet-500/25 py-2.5 text-[12px] font-semibold text-white shadow-[0_0_16px_rgba(139,92,246,0.2)]'
-                  : 'fetch-account-theme-opt rounded-xl border border-white/12 bg-white/[0.04] py-2.5 text-[12px] font-medium text-white/65 transition-colors hover:border-white/20 hover:bg-white/[0.07]'
+                  ? 'fetch-account-theme-opt-glass fetch-account-theme-opt-glass--active'
+                  : 'fetch-account-theme-opt-glass'
               }
             >
               {label}
@@ -240,7 +234,7 @@ export function AccountScreen({ onBack, onSignOut }: AccountScreenProps) {
       </details>
 
       <div className="mt-5">
-        <p className="fetch-account-kicker text-[11px] font-semibold uppercase tracking-[0.14em] text-violet-300/80">
+        <p className="fetch-account-kicker text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-300/85">
           Your Fetch account
         </p>
         <h1 className="fetch-account-page-title mt-1 text-[26px] font-semibold tracking-[-0.03em] text-white">
@@ -300,9 +294,13 @@ export function AccountScreen({ onBack, onSignOut }: AccountScreenProps) {
             />
           </div>
           {profileMsg ? (
-            <p className="text-[13px] font-medium text-violet-200/85">{profileMsg}</p>
+            <p className="text-[13px] font-medium text-emerald-200/85">{profileMsg}</p>
           ) : null}
-          <button type="button" onClick={saveProfile} className={`${btnPrimary} mt-1 w-full sm:w-auto sm:self-start`}>
+          <button
+            type="button"
+            onClick={saveProfile}
+            className="fetch-account-btn-primary mt-1 w-full sm:w-auto sm:self-start"
+          >
             Save details
           </button>
         </div>
@@ -335,7 +333,7 @@ export function AccountScreen({ onBack, onSignOut }: AccountScreenProps) {
                 <button
                   type="button"
                   onClick={() => removeAddress(item.id)}
-                  className="shrink-0 self-start rounded-full border border-red-400/30 px-3 py-1.5 text-[12px] font-semibold text-red-300/90 hover:bg-red-500/10"
+                  className="fetch-account-btn-subtle-glass--danger shrink-0 self-start"
                 >
                   Remove
                 </button>
@@ -349,7 +347,7 @@ export function AccountScreen({ onBack, onSignOut }: AccountScreenProps) {
               onChange={(e) =>
                 setAddressType(e.target.value as 'home' | 'work' | 'custom')
               }
-              className="rounded-2xl border border-white/12 bg-black/35 px-3 py-2.5 text-[13px] text-white outline-none focus:border-violet-400/45"
+              className={selectClass}
             >
               <option value="home">Home</option>
               <option value="work">Work</option>
@@ -359,7 +357,7 @@ export function AccountScreen({ onBack, onSignOut }: AccountScreenProps) {
               <input
                 value={customLabel}
                 onChange={(e) => setCustomLabel(e.target.value)}
-                className="min-w-[8rem] flex-1 rounded-2xl border border-white/12 bg-black/35 px-4 py-2.5 text-[14px] text-white placeholder:text-white/30 outline-none focus:border-violet-400/45"
+                className={`${inputClass} min-w-[8rem] flex-1 px-4 py-2.5 text-[14px]`}
                 placeholder={"Label (e.g. Mum's)"}
               />
             ) : null}
@@ -397,7 +395,7 @@ export function AccountScreen({ onBack, onSignOut }: AccountScreenProps) {
               />
             </div>
           </details>
-          <button type="button" onClick={addAddress} className={`${btnPrimary} w-full sm:w-auto`}>
+          <button type="button" onClick={addAddress} className="fetch-account-btn-primary w-full sm:w-auto">
             Save place
           </button>
         </div>
@@ -406,8 +404,10 @@ export function AccountScreen({ onBack, onSignOut }: AccountScreenProps) {
       <section className={`${cardClass} fetch-account-panel mt-4`}>
         <p className={fieldLabel}>Cards for checkout</p>
         <p className="mt-1 text-[13px] text-white/45">
-          Full card number, expiry, and CVV are saved on this device only and sent when you tap
-          Book now (demo). Production apps use a vault — never store raw card data like this.
+          <span className="font-semibold text-white/60">Demo mode: </span>
+          Full card number, expiry, and CVV live in this browser only. Book now calls the Fetch
+          server to create and confirm a payment intent with those details — same API shape as
+          production, but not PCI-safe until you swap in tokenization (for example Stripe Elements).
         </p>
         <div className="mt-4 space-y-3">
           {payments.length === 0 ? (
@@ -435,14 +435,12 @@ export function AccountScreen({ onBack, onSignOut }: AccountScreenProps) {
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {item.isDefault ? (
-                    <span className="rounded-full border border-violet-400/40 bg-violet-500/15 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-violet-200">
-                      Default
-                    </span>
+                    <span className="fetch-account-badge-default">Default</span>
                   ) : (
                     <button
                       type="button"
                       onClick={() => setPrimary(item.id)}
-                      className="rounded-full border border-white/18 px-3 py-1.5 text-[12px] font-semibold text-white/80 hover:bg-white/5"
+                      className="fetch-account-btn-subtle-glass"
                     >
                       Use as default
                     </button>
@@ -450,7 +448,7 @@ export function AccountScreen({ onBack, onSignOut }: AccountScreenProps) {
                   <button
                     type="button"
                     onClick={() => removePayment(item.id)}
-                    className="rounded-full border border-white/15 px-3 py-1.5 text-[12px] font-semibold text-white/50 hover:border-red-400/35 hover:text-red-300/90"
+                    className="fetch-account-btn-subtle-glass--danger"
                   >
                     Remove
                   </button>
@@ -464,7 +462,7 @@ export function AccountScreen({ onBack, onSignOut }: AccountScreenProps) {
               <select
                 value={newPaymentBrand}
                 onChange={(e) => setNewPaymentBrand(e.target.value)}
-                className="rounded-2xl border border-white/12 bg-black/35 px-3 py-2.5 text-[13px] text-white outline-none focus:border-violet-400/45 sm:w-auto"
+                className={`${selectClass} sm:w-auto`}
               >
                 <option>Visa</option>
                 <option>Mastercard</option>
@@ -535,7 +533,7 @@ export function AccountScreen({ onBack, onSignOut }: AccountScreenProps) {
             {paymentFormError ? (
               <p className="text-[12px] font-medium text-red-300/90">{paymentFormError}</p>
             ) : null}
-            <button type="button" onClick={addPayment} className={`${btnPrimary} w-full sm:w-auto`}>
+            <button type="button" onClick={addPayment} className="fetch-account-btn-primary w-full sm:w-auto">
               Add card
             </button>
           </div>

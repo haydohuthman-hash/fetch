@@ -10,7 +10,7 @@ import {
   requiresDropoff,
 } from './bookingReadiness'
 import { deriveNextQuestion } from './deriveNextQuestion'
-import { beginJunkDriverDemo, canBeginJunkDriverDemo } from './junkDriverDemo'
+import { beginDriverSearchDemo, canBeginDriverSearchDemo } from './junkDriverDemo'
 import { computeBookingPricing, computeBookingQuoteBreakdown } from './pricing'
 import { classifyJobLane, parseFromText } from './parseFromText'
 import type {
@@ -896,8 +896,8 @@ export function handleUserInput(input: UserInput, bookingState: BookingState): H
 
   next = syncIntentState(next)
 
-  if (wantsDriverMatch && canBeginJunkDriverDemo(next)) {
-    next = beginJunkDriverDemo(next)
+  if (wantsDriverMatch && canBeginDriverSearchDemo(next)) {
+    next = beginDriverSearchDemo(next)
   }
 
   const paymentConfirmed =

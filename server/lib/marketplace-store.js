@@ -136,6 +136,8 @@ function applyBookingLifecycle(state, booking, now) {
   }
 
   if (!booking.dispatchMeta?.startedAt) return
+  // Driver dashboard PATCH drives status; skip demo timer progression.
+  if (booking.driverControlled) return
 
   for (const step of LIFECYCLE_STEPS) {
     if (now - booking.dispatchMeta.startedAt < step.afterMs) break
@@ -198,6 +200,18 @@ export function createMarketplaceStore(dataFile) {
       paymentIntent: payload.paymentIntent ?? existing?.paymentIntent ?? null,
       aiReview: payload.aiReview ?? existing?.aiReview ?? null,
       matchedDriver: payload.matchedDriver ?? existing?.matchedDriver ?? null,
+      driverLocation:
+        payload.driverLocation !== undefined
+          ? payload.driverLocation
+          : existing?.driverLocation ?? null,
+      assignedDriverId:
+        payload.assignedDriverId !== undefined
+          ? payload.assignedDriverId
+          : existing?.assignedDriverId ?? null,
+      driverControlled:
+        payload.driverControlled !== undefined
+          ? Boolean(payload.driverControlled)
+          : Boolean(existing?.driverControlled),
       status: payload.status ?? existing?.status ?? 'draft',
     }
     if (!existing) {

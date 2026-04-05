@@ -1,7 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Circle, Marker } from '@react-google-maps/api'
+import { Circle, Marker, Polyline } from '@react-google-maps/api'
+import {
+  MarkerClusterer,
+  SuperClusterAlgorithm,
+  defaultOnClusterClickHandler,
+  type Renderer,
+} from '@googlemaps/markerclusterer'
 import type { BookingStage } from '../../lib/assistant'
+import { haversineMeters } from '../../lib/homeDirections'
+import type { ExploreMapPoi } from '../../lib/mapsExplorePlaces'
 import { fitPickupAndDropoff, nudgeMapCenterTowardTop } from './brisbaneMap'
+
+function isAdventureClusterKind(kind: ExploreMapPoi['kind']): boolean {
+  return kind === 'park' || kind === 'natural' || kind === 'adventure'
+}
 
 export type MapAccentRgb = { r: number; g: number; b: number }
 
@@ -28,6 +40,22 @@ type BookingMapReflectionProps = {
   accentRgb?: MapAccentRgb
   /** Shown as a distinct blue pin when geolocation is allowed. */
   userLocationCoords?: google.maps.LatLngLiteral | null
+  /** Skip pan/zoom/fit automation (orb tunnel owns the camera). */
+  suspendCameraAutomation?: boolean
+  /** When true, keep panning to `userLocationCoords` (navigation follow). */
+  cameraFollowUser?: boolean
+  /** Live traffic tint on roads — only while a real route is active (see `mapNavStrip`). */
+  showTrafficLayer?: boolean
+  /** Maps tab / nearby search — below user dot, above base map. */
+  explorePois?: readonly ExploreMapPoi[]
+  /** Chat turn-by-turn: calm camera, optional pin dedupe with user dot. */
+  navigationRouteActive?: boolean
+  /** Driver → pickup path from Directions (traffic). */
+  driverToPickupPath?: google.maps.LatLngLiteral[] | null
+  /** When set during search/match/live, overrides straight-line driver animation. */
+  driverLivePosition?: google.maps.LatLngLiteral | null
+  /** Maps tab: user-dropped pin at map center. */
+  droppedPinCoords?: google.maps.LatLngLiteral | null
 }
 
 /**
@@ -44,6 +72,14 @@ export function BookingMapReflection({
   stage,
   accentRgb: accentRgbProp,
   userLocationCoords = null,
+  suspendCameraAutomation = false,
+  cameraFollowUser = false,
+  showTrafficLayer = false,
+  explorePois = [],
+  navigationRouteActive = false,
+  driverToPickupPath = null,
+  driverLivePosition = null,
+  droppedPinCoords = null,
 }: BookingMapReflectionProps) {
   const accentRgb = accentRgbProp ?? DEFAULT_ACCENT
   const accentHex = useMemo(
@@ -103,6 +139,30 @@ export function BookingMapReflection({
   const revealTimersRef = useRef<number[]>([])
   const lastPickupKeyRef = useRef<string | null>(null)
   const lastDropoffKeyRef = useRef<string | null>(null)
+  const exploreClustererRef = useRef<MarkerClusterer | null>(null)
+  const exploreClusterMarkersRef = useRef<google.maps.Marker[]>([])
+
+  useEffect(() => {
+    if (!map || !showTrafficLayer) return
+    const layer = new google.maps.TrafficLayer()
+    layer.setMap(map)
+    return () => {
+      layer.setMap(null)
+    }
+  }, [map, showTrafficLayer])
+
+  useEffect(() => {
+    if (suspendCameraAutomation || !map || !cameraFollowUser || !userLocationCoords) return
+    map.panTo(userLocationCoords)
+    const z = map.getZoom() ?? 14
+    if (z < 15) map.setZoom(Math.min(16, 15))
+  }, [
+    map,
+    suspendCameraAutomation,
+    cameraFollowUser,
+    userLocationCoords?.lat,
+    userLocationCoords?.lng,
+  ])
 
   const markerIcon = useMemo(
     () => ({
@@ -127,6 +187,104 @@ export function BookingMapReflection({
     }),
     [],
   )
+
+  const exploreAdventureKey = useMemo(
+    () =>
+      explorePois
+        .filter((p) => isAdventureClusterKind(p.kind))
+        .map((p) => `${p.id}:${p.lat.toFixed(5)}:${p.lng.toFixed(5)}`)
+        .join('|'),
+    [explorePois],
+  )
+
+  const droppedPinIcon = useMemo((): google.maps.Icon | undefined => {
+    if (typeof google === 'undefined') return undefined
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="46" viewBox="0 0 36 46"><path fill="#e11d48" stroke="#fff" stroke-width="2" d="M18 2C10.27 2 4 8.27 4 16c0 11 14 28 14 28s14-17 14-28C32 8.27 25.73 2 18 2z"/><circle cx="18" cy="16" r="5" fill="#fff"/></svg>`
+    return {
+      url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+      scaledSize: new google.maps.Size(36, 46),
+      anchor: new google.maps.Point(18, 46),
+    }
+  }, [])
+
+  useEffect(() => {
+    const disposeMarkers = () => {
+      if (exploreClustererRef.current) {
+        exploreClustererRef.current.clearMarkers(true)
+        exploreClustererRef.current.setMap(null)
+        exploreClustererRef.current = null
+      }
+      for (const m of exploreClusterMarkersRef.current) {
+        m.setMap(null)
+        if (typeof google !== 'undefined') google.maps.event.clearInstanceListeners(m)
+      }
+      exploreClusterMarkersRef.current = []
+    }
+
+    if (!map || typeof google === 'undefined') {
+      disposeMarkers()
+      return
+    }
+
+    disposeMarkers()
+
+    const pois = explorePois.filter((p) => isAdventureClusterKind(p.kind))
+    if (pois.length === 0) return
+
+    const adventureRenderer: Renderer = {
+      render(cluster) {
+        const n = cluster.count
+        const position = cluster.position
+        const svg = encodeURIComponent(
+          `<svg xmlns="http://www.w3.org/2000/svg" width="58" height="58" viewBox="0 0 58 58"><defs><linearGradient id="g" x1="15%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#c4b5fd"/><stop offset="55%" stop-color="#38bdf8"/><stop offset="100%" stop-color="#34d399"/></linearGradient><filter id="s" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#000" flood-opacity="0.28"/></filter></defs><circle cx="29" cy="29" r="23" fill="url(#g)" stroke="rgba(255,255,255,0.92)" stroke-width="2.5" filter="url(#s)"/><circle cx="29" cy="29" r="26" fill="none" stroke="rgba(255,255,255,0.18)" stroke-width="1"/></svg>`,
+        )
+        return new google.maps.Marker({
+          position,
+          icon: {
+            url: `data:image/svg+xml,${svg}`,
+            scaledSize: new google.maps.Size(58, 58),
+            anchor: new google.maps.Point(29, 29),
+          },
+          label: {
+            text: String(n),
+            color: '#0f172a',
+            fontSize: n > 99 ? '10px' : '13px',
+            fontWeight: '700',
+          },
+          zIndex: Number(google.maps.Marker.MAX_ZINDEX) + n,
+        })
+      },
+    }
+
+    const markers = pois.map((p) => {
+      const scale = p.kind === 'park' ? 7 : p.kind === 'natural' ? 6.5 : 6.5
+      const fillColor =
+        p.kind === 'park' ? '#22c55e' : p.kind === 'natural' ? '#06b6d4' : '#f59e0b'
+      return new google.maps.Marker({
+        position: { lat: p.lat, lng: p.lng },
+        title: p.title,
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale,
+          fillColor,
+          fillOpacity: 0.92,
+          strokeColor: '#ffffff',
+          strokeWeight: 1.5,
+        },
+      })
+    })
+    exploreClusterMarkersRef.current = markers
+
+    exploreClustererRef.current = new MarkerClusterer({
+      map,
+      markers,
+      algorithm: new SuperClusterAlgorithm({ radius: 84, maxZoom: 17 }),
+      renderer: adventureRenderer,
+      onClusterClick: defaultOnClusterClickHandler,
+    })
+
+    return disposeMarkers
+  }, [map, exploreAdventureKey])
 
   const clearRevealTimers = () => {
     for (const t of revealTimersRef.current) window.clearTimeout(t)
@@ -292,9 +450,21 @@ export function BookingMapReflection({
   }, [realRoutePath])
 
   useEffect(() => {
+    if (suspendCameraAutomation) return
+    if (navigationRouteActive && cameraFollowUser) return
     if (!map || !pickupPos || !dropoffPos) return
     fitPickupAndDropoff(map, pickupPos, dropoffPos)
-  }, [map, pickupPos?.lat, pickupPos?.lng, dropoffPos?.lat, dropoffPos?.lng, realRoutePath])
+  }, [
+    suspendCameraAutomation,
+    navigationRouteActive,
+    cameraFollowUser,
+    map,
+    pickupPos?.lat,
+    pickupPos?.lng,
+    dropoffPos?.lat,
+    dropoffPos?.lng,
+    realRoutePath,
+  ])
 
   useEffect(() => {
     if (!pickupPos || dropoffPos) {
@@ -312,7 +482,7 @@ export function BookingMapReflection({
     const target = { lat: pickupPos.lat + latOffset, lng: pickupPos.lng + lngOffset }
     setAnticipatedDropoffPos(target)
 
-    if (map) {
+    if (map && !suspendCameraAutomation) {
       const mid = {
         lat: (pickupPos.lat + target.lat) / 2,
         lng: (pickupPos.lng + target.lng) / 2,
@@ -333,7 +503,7 @@ export function BookingMapReflection({
       if (anticipationPulseTimer.current != null) window.clearInterval(anticipationPulseTimer.current)
       anticipationPulseTimer.current = null
     }
-  }, [pickupPos?.lat, pickupPos?.lng, dropoffPos?.lat, dropoffPos?.lng, map])
+  }, [pickupPos?.lat, pickupPos?.lng, dropoffPos?.lat, dropoffPos?.lng, map, suspendCameraAutomation])
 
   useEffect(() => {
     if (!pickupPos) {
@@ -345,12 +515,17 @@ export function BookingMapReflection({
     if (lastPickupKeyRef.current === key) return
     lastPickupKeyRef.current = key
 
+    if (navigationRouteActive) {
+      setShowPickupPin(true)
+      return
+    }
+
     setShowPickupPin(false)
     runConversationPulse(pickupPos)
     runPinDropRing(pickupPos)
     const showPin = window.setTimeout(() => setShowPickupPin(true), 220)
     const cameraZoom = window.setTimeout(() => {
-      if (!map) return
+      if (!map || suspendCameraAutomation) return
       map.panTo(pickupPos)
       map.setZoom(16)
       try { map.setTilt(60) } catch { /* vector only */ }
@@ -359,7 +534,13 @@ export function BookingMapReflection({
       requestAnimationFrame(() => requestAnimationFrame(nudge))
     }, 300)
     revealTimersRef.current.push(showPin, cameraZoom)
-  }, [pickupPos?.lat, pickupPos?.lng, map])
+  }, [
+    pickupPos?.lat,
+    pickupPos?.lng,
+    map,
+    suspendCameraAutomation,
+    navigationRouteActive,
+  ])
 
   useEffect(() => {
     if (!dropoffPos) {
@@ -371,12 +552,17 @@ export function BookingMapReflection({
     if (lastDropoffKeyRef.current === key) return
     lastDropoffKeyRef.current = key
 
+    if (navigationRouteActive) {
+      setShowDropoffPin(true)
+      return
+    }
+
     setShowDropoffPin(false)
     runConversationPulse(dropoffPos)
     runPinDropRing(dropoffPos)
     const showPin = window.setTimeout(() => setShowDropoffPin(true), 220)
     const cameraNudge = window.setTimeout(() => {
-      if (!map) return
+      if (!map || suspendCameraAutomation) return
       const z = map.getZoom() ?? 12
       if (pickupPos) {
         const mid = {
@@ -392,9 +578,23 @@ export function BookingMapReflection({
       requestAnimationFrame(() => requestAnimationFrame(() => nudgeMapCenterTowardTop(map, frac)))
     }, 340)
     revealTimersRef.current.push(showPin, cameraNudge)
-  }, [dropoffPos?.lat, dropoffPos?.lng, pickupPos?.lat, pickupPos?.lng, map])
+  }, [
+    dropoffPos?.lat,
+    dropoffPos?.lng,
+    pickupPos?.lat,
+    pickupPos?.lng,
+    map,
+    suspendCameraAutomation,
+    navigationRouteActive,
+  ])
 
   useEffect(() => {
+    if (navigationRouteActive) {
+      setRouteRevealOpacity(0)
+      if (routeRevealPulseTimer.current != null) window.clearInterval(routeRevealPulseTimer.current)
+      routeRevealPulseTimer.current = null
+      return
+    }
     if (!pickupPos || !dropoffPos) {
       setRouteRevealOpacity(0)
       if (routeRevealPulseTimer.current != null) window.clearInterval(routeRevealPulseTimer.current)
@@ -426,7 +626,13 @@ export function BookingMapReflection({
       if (routeRevealPulseTimer.current != null) window.clearInterval(routeRevealPulseTimer.current)
       routeRevealPulseTimer.current = null
     }
-  }, [pickupPos?.lat, pickupPos?.lng, dropoffPos?.lat, dropoffPos?.lng])
+  }, [
+    navigationRouteActive,
+    pickupPos?.lat,
+    pickupPos?.lng,
+    dropoffPos?.lat,
+    dropoffPos?.lng,
+  ])
 
   useEffect(() => {
     if (stage !== 'searching' || !pickupPos) {
@@ -474,12 +680,28 @@ export function BookingMapReflection({
   }, [stage, routePath])
 
   useEffect(() => {
-    if ((stage !== 'matched' && stage !== 'searching') || !pickupPos) {
+    if ((stage !== 'matched' && stage !== 'searching' && stage !== 'live') || !pickupPos) {
       if (driverMoveTimer.current != null) window.clearInterval(driverMoveTimer.current)
       setDriverPos(null)
       driverAnimProgressRef.current = 0
       setShowDriverMarker(false)
       return
+    }
+
+    if (
+      driverLivePosition &&
+      (stage === 'searching' || stage === 'matched' || stage === 'live')
+    ) {
+      if (driverMoveTimer.current != null) window.clearInterval(driverMoveTimer.current)
+      driverMoveTimer.current = null
+      setDriverPos(driverLivePosition)
+      setShowDriverMarker(true)
+      setDriverMarkerOpacity(1)
+      setDriverMarkerScale(1)
+      return () => {
+        if (driverMoveTimer.current != null) window.clearInterval(driverMoveTimer.current)
+        driverMoveTimer.current = null
+      }
     }
 
     const heading = ((pickupPos.lat + pickupPos.lng) * 997) % 360
@@ -513,9 +735,12 @@ export function BookingMapReflection({
       if (driverMoveTimer.current != null) window.clearInterval(driverMoveTimer.current)
       driverMoveTimer.current = null
     }
-  }, [stage, pickupPos?.lat, pickupPos?.lng])
+  }, [stage, pickupPos?.lat, pickupPos?.lng, driverLivePosition?.lat, driverLivePosition?.lng])
 
   useEffect(() => {
+    if (driverLivePosition) {
+      return
+    }
     if (stage !== 'matched' || !pickupPos || !driverPos) {
       if (driverRevealPulseTimer.current != null) window.clearInterval(driverRevealPulseTimer.current)
       if (driverMarkerIntroTimer.current != null) window.clearInterval(driverMarkerIntroTimer.current)
@@ -566,7 +791,7 @@ export function BookingMapReflection({
       }, 20)
     }, 220)
     revealTimersRef.current.push(markerStartTimer)
-  }, [stage, pickupPos?.lat, pickupPos?.lng, driverPos?.lat, driverPos?.lng])
+  }, [stage, pickupPos?.lat, pickupPos?.lng, driverPos?.lat, driverPos?.lng, driverLivePosition])
 
   const searchSweepPos =
     stage === 'searching' && routePath.length > 0
@@ -580,6 +805,12 @@ export function BookingMapReflection({
           { lat: pickupPos.lat - 0.00044, lng: pickupPos.lng + 0.00008, phase: 6 },
         ]
       : []
+
+  const hidePickupPinNearUser =
+    navigationRouteActive &&
+    userLocationCoords &&
+    pickupPos &&
+    haversineMeters(userLocationCoords, pickupPos) < 52
 
   return (
     <>
@@ -609,20 +840,95 @@ export function BookingMapReflection({
           }}
         />
       ) : null}
+      {driverToPickupPath &&
+      driverToPickupPath.length >= 2 &&
+      (stage === 'searching' || stage === 'matched' || stage === 'live') ? (
+        <Polyline
+          path={driverToPickupPath}
+          options={{
+            strokeColor: '#1f6feb',
+            strokeOpacity: 0.92,
+            strokeWeight: 5,
+            zIndex: 2,
+            clickable: false,
+          }}
+        />
+      ) : null}
+      {routePath.length >= 2 ? (
+        <Polyline
+          path={routePath}
+          options={{
+            strokeColor: navigationRouteActive ? '#0A84FF' : accentHex,
+            strokeOpacity: navigationRouteActive ? 0.94 : 0.88,
+            strokeWeight: navigationRouteActive ? 5.5 : 4,
+            zIndex: navigationRouteActive ? 1 : 2,
+            clickable: false,
+            geodesic: true,
+          }}
+        />
+      ) : null}
+      {explorePois.length > 0 && typeof google !== 'undefined'
+        ? explorePois
+            .filter((p) => !isAdventureClusterKind(p.kind))
+            .map((p) => {
+              const scale =
+                p.kind === 'fuel'
+                  ? 6.25
+                  : 6
+              const fillColor =
+                p.kind === 'fuel'
+                  ? '#ef4444'
+                  : p.kind === 'food'
+                    ? '#f97316'
+                    : p.kind === 'cafe'
+                      ? '#a855f7'
+                      : p.kind === 'shop'
+                        ? '#64748b'
+                        : '#8b5cf6'
+              return (
+                <Marker
+                  key={p.id}
+                  position={{ lat: p.lat, lng: p.lng }}
+                  title={p.title}
+                  zIndex={2}
+                  icon={{
+                    path: google.maps.SymbolPath.CIRCLE,
+                    scale,
+                    fillColor,
+                    fillOpacity: 0.92,
+                    strokeColor: '#ffffff',
+                    strokeWeight: 1.5,
+                  }}
+                />
+              )
+            })
+        : null}
+      {droppedPinCoords && droppedPinIcon ? (
+        <Marker
+          position={droppedPinCoords}
+          title="Dropped pin"
+          zIndex={6}
+          icon={droppedPinIcon}
+        />
+      ) : null}
       {userLocationCoords ? (
         <Marker
           position={userLocationCoords}
           title="Your location"
           icon={userLocationIcon}
-          animation={google.maps.Animation.DROP}
-          zIndex={2}
+          animation={
+            navigationRouteActive ? undefined : google.maps.Animation.DROP
+          }
+          zIndex={5}
         />
       ) : null}
-      {showPickupPin && pickupPos ? (
+      {showPickupPin && pickupPos && !hidePickupPinNearUser ? (
         <Marker
           position={pickupPos}
           label={{ text: 'A', color: '#ffffff', fontWeight: '700' }}
-          animation={google.maps.Animation.DROP}
+          animation={
+            navigationRouteActive ? undefined : google.maps.Animation.DROP
+          }
           icon={markerIcon}
           zIndex={3}
         />
@@ -630,10 +936,19 @@ export function BookingMapReflection({
       {showDropoffPin && dropoffPos ? (
         <Marker
           position={dropoffPos}
-          label={{ text: 'B', color: '#ffffff', fontWeight: '700' }}
-          animation={google.maps.Animation.DROP}
-          icon={{ ...markerIcon, fillColor: '#252a35' }}
-          zIndex={3}
+          title={navigationRouteActive ? 'Destination' : 'Drop-off'}
+          animation={
+            navigationRouteActive ? undefined : google.maps.Animation.DROP
+          }
+          icon={{
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: navigationRouteActive ? 10 : 8,
+            fillColor: navigationRouteActive ? '#34C759' : '#252a35',
+            fillOpacity: 1,
+            strokeColor: '#ffffff',
+            strokeWeight: navigationRouteActive ? 2.5 : 2,
+          }}
+          zIndex={4}
         />
       ) : null}
       {showDriverMarker && driverPos ? (

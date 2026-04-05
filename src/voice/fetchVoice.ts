@@ -463,6 +463,11 @@ function stopCurrentPlayback() {
   setSpeechPlaying(false)
 }
 
+/** Stops ElevenLabs / browser TTS immediately (e.g. leaving brain — do not leak speech to home). */
+export function stopFetchAssistantPlayback(): void {
+  stopCurrentPlayback()
+}
+
 /**
  * When ElevenLabs is unavailable or `HTMLAudioElement.play()` is blocked, use the OS voice.
  * Prefers en-GB with a measured rate/pitch as a rough Jarvis-style fallback.

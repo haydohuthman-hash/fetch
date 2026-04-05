@@ -148,6 +148,97 @@ test('marketplace lifecycle materializes dispatch updates and notifications', as
   assert.ok(dispatchStarted > 0)
 })
 
+test('driverControlled skips demo dispatch timer progression', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'fetch-booking-flow-'))
+  const dataFile = path.join(tempDir, 'marketplace-data.json')
+  const store = createMarketplaceStore(dataFile)
+  const state = await store.readState()
+
+  const paymentIntent = createPaymentIntentRecord({ bookingId: 'bk_dc', amount: 179 })
+  paymentIntent.status = 'succeeded'
+  paymentIntent.confirmedAt = Date.now()
+  store.upsertPaymentIntent(state, paymentIntent)
+  store.upsertBooking(state, {
+    id: 'bk_dc',
+    status: 'confirmed',
+    jobType: 'deliveryPickup',
+    serviceMode: 'pickup',
+    serviceType: 'pickup',
+    pickupAddressText: '1 Test St',
+    pickupCoords: { lat: -27.47, lng: 153.03 },
+    dropoffAddressText: '2 Test St',
+    dropoffCoords: { lat: -27.48, lng: 153.04 },
+    route: { distanceMeters: 1000, durationSeconds: 120, path: [] },
+    pricing: {
+      minPrice: 100,
+      maxPrice: 120,
+      currency: 'AUD',
+      estimatedDuration: 600,
+      explanation: 'test',
+    },
+    quoteBreakdown: {
+      baseFee: 50,
+      routeFee: 10,
+      routeTimeFee: 5,
+      inventoryFee: 0,
+      accessFee: 0,
+      disposalFee: 0,
+      helperFee: 0,
+      moveSizeMultiplier: 1,
+      subtotal: 65,
+      spread: 10,
+      totalItems: 1,
+      autoHelpers: 0,
+    },
+    aiReview: {
+      status: 'ready',
+      summary: 'ok',
+      confidence: 0.9,
+      riskLevel: 'low',
+      highlights: [],
+      blockers: [],
+      suggestedPrompt: null,
+      quoteBreakdown: null,
+      lastReviewedAt: Date.now(),
+      errorMessage: null,
+    },
+    detectedItems: [],
+    itemCounts: {},
+    inventorySummary: null,
+    accessDetails: {
+      stairs: false,
+      lift: true,
+      carryDistance: 10,
+      disassembly: false,
+    },
+    disposalRequired: null,
+    helperHours: null,
+    helperType: null,
+    helperNotes: null,
+    specialItemType: null,
+    isHeavyItem: false,
+    isBulky: false,
+    needsTwoMovers: false,
+    needsSpecialEquipment: false,
+    accessRisk: null,
+    paymentIntent,
+    matchedDriver: null,
+    timeline: [],
+  })
+
+  const dispatchResult = store.startDispatch(state, 'bk_dc')
+  assert.equal(dispatchResult.error, null)
+  const booking = state.bookings.find((row) => row.id === 'bk_dc')
+  assert.ok(booking)
+  booking.driverControlled = true
+  store.materializeState(state, booking.dispatchMeta.startedAt + 120_000)
+
+  const updated = state.bookings.find((row) => row.id === 'bk_dc')
+  assert.equal(updated?.status, 'dispatching')
+
+  await fs.rm(tempDir, { recursive: true, force: true })
+})
+
 test('reviewBookingDraft returns a ready review for helpers bookings', async () => {
   const review = await reviewBookingDraft({
     jobType: 'helper',

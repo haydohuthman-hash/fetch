@@ -1,17 +1,26 @@
 import { deriveFlowStep } from './bookingReadiness'
-import type { BookingDriver, BookingState } from './types'
+import type { BookingDriver, BookingLifecycleStatus, BookingState } from './types'
 
-export function canBeginJunkDriverDemo(state: BookingState): boolean {
+/** Junk: assistant can start search before payment. Other jobs: after payment succeeds or status confirmed. */
+export function canBeginDriverSearchDemo(state: BookingState): boolean {
+  if (state.pricing == null) return false
+  if (state.mode === 'searching' || state.mode === 'matched' || state.mode === 'live') return false
+  if (state.jobType === 'junkRemoval') {
+    return (
+      state.junkConfirmStepComplete &&
+      (state.bookingStatus == null || state.bookingStatus === 'payment_required')
+    )
+  }
   return (
-    state.jobType === 'junkRemoval' &&
-    state.junkConfirmStepComplete &&
-    state.pricing != null &&
-    (state.bookingStatus == null || state.bookingStatus === 'payment_required')
+    state.paymentIntent?.status === 'succeeded' || state.bookingStatus === 'confirmed'
   )
 }
 
-/** Demo handoff: dispatching + searching for a driver (no real payment). */
-export function beginJunkDriverDemo(state: BookingState): BookingState {
+/** @deprecated Use canBeginDriverSearchDemo */
+export const canBeginJunkDriverDemo = canBeginDriverSearchDemo
+
+/** Demo handoff: dispatching + searching for a driver. */
+export function beginDriverSearchDemo(state: BookingState): BookingState {
   const next: BookingState = {
     ...state,
     bookingStatus: 'dispatching',
@@ -27,6 +36,9 @@ export function beginJunkDriverDemo(state: BookingState): BookingState {
   next.flowStep = deriveFlowStep(next)
   return next
 }
+
+/** @deprecated Use beginDriverSearchDemo */
+export const beginJunkDriverDemo = beginDriverSearchDemo
 
 export function patchBookingLifecycle(
   state: BookingState,
@@ -44,7 +56,7 @@ export const DEMO_DRIVER: BookingDriver = {
   rating: 4.9,
 }
 
-export function isActiveJunkDriverFlow(status: BookingState['bookingStatus']): boolean {
+export function isActiveDriverFlow(status: BookingLifecycleStatus | null): boolean {
   if (status == null) return false
   return (
     status === 'dispatching' ||
@@ -55,3 +67,6 @@ export function isActiveJunkDriverFlow(status: BookingState['bookingStatus']): b
     status === 'completed'
   )
 }
+
+/** @deprecated Use isActiveDriverFlow */
+export const isActiveJunkDriverFlow = isActiveDriverFlow

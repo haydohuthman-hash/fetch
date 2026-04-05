@@ -1,6 +1,9 @@
 /**
- * Five-bar assistant / mic motif — bar colour from CSS (`.fetch-sound-wave-bars__bar`).
+ * Voice-activity motif — seven tapered capsules (colour from `.fetch-sound-wave-bars__bar`).
  */
+const BAR_HEIGHTS = [0.32, 0.48, 0.68, 0.95, 0.68, 0.48, 0.32] as const
+const BAR_WIDTHS = [2, 2, 3, 3, 3, 2, 2] as const
+
 export function FetchSoundWaveBars({
   active,
   className = '',
@@ -8,11 +11,11 @@ export function FetchSoundWaveBars({
   active: boolean
   className?: string
 }) {
-  const heights = [0.38, 0.62, 1, 0.62, 0.38] as const
+  const maxH = 17
   return (
     <div
       className={[
-        'fetch-sound-wave-bars inline-flex h-[18px] items-end justify-center gap-[3px]',
+        'fetch-sound-wave-bars inline-flex h-[20px] items-end justify-center gap-[2px]',
         active ? 'fetch-sound-wave-bars--active' : 'fetch-sound-wave-bars--idle',
         className,
       ]
@@ -20,13 +23,14 @@ export function FetchSoundWaveBars({
         .join(' ')}
       aria-hidden
     >
-      {heights.map((h, i) => (
+      {BAR_HEIGHTS.map((h, i) => (
         <span
           key={i}
-          className="fetch-sound-wave-bars__bar w-[2.5px] rounded-full"
+          className="fetch-sound-wave-bars__bar rounded-full"
           style={{
-            height: `${Math.round(16 * h)}px`,
-            animationDelay: `${i * 0.07}s`,
+            width: `${BAR_WIDTHS[i]}px`,
+            height: `${Math.round(maxH * h)}px`,
+            animationDelay: `${i * 0.06}s`,
           }}
         />
       ))}

@@ -9,6 +9,8 @@ import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
 import { createPaymentIntentRecord, reviewBookingDraft as reviewFetchAiBookingDraft } from './lib/fetch-ai-booking.js'
+import { getHardwareSkuPriceAud } from './lib/hardware-catalog.js'
+import { createHardwareOrdersStore } from './lib/hardware-orders-store.js'
 import { createMarketplaceStore } from './lib/marketplace-store.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -123,6 +125,10 @@ const DATA_FILE = process.env.VERCEL
   : path.join(__dirname, 'marketplace-data.json')
 const ALLOWED_MEDIA_TYPES = new Set(['pickup', 'during_job', 'completion'])
 const marketplaceStore = createMarketplaceStore(DATA_FILE)
+const HARDWARE_ORDERS_FILE = process.env.VERCEL
+  ? path.join('/tmp', 'fetch-hardware-orders.json')
+  : path.join(__dirname, 'hardware-orders.json')
+const hardwareOrdersStore = createHardwareOrdersStore(HARDWARE_ORDERS_FILE)
 
 function stripJsonFence(s) {
   const t = (s || '').trim()
@@ -589,6 +595,24 @@ function parseUserMemory(body) {
   return t.length > 0 ? t.slice(0, 1400) : ''
 }
 
+function parseBrainAccountIntel(body) {
+  const ctx = body?.context
+  if (!ctx || typeof ctx !== 'object') return ''
+  const m = ctx.brainAccountIntel
+  if (typeof m !== 'string') return ''
+  const t = m.trim()
+  return t.length > 0 ? t.slice(0, 900) : ''
+}
+
+function parseNearbyExploreSummary(body) {
+  const ctx = body?.context
+  if (!ctx || typeof ctx !== 'object') return ''
+  const m = ctx.nearbyExploreSummary
+  if (typeof m !== 'string') return ''
+  const t = m.trim()
+  return t.length > 0 ? t.slice(0, 1600) : ''
+}
+
 async function buildChatContextAppendix(body) {
   const { timeZone, lat, lon } = parseChatContext(body)
   const timeLine = `Current local time (user device timezone ${timeZone}): ${formatLocalContextTime(timeZone)}.`
@@ -601,9 +625,17 @@ async function buildChatContextAppendix(body) {
   const memBlock = userMemory
     ? `\n\nUser memory (signed-in customer—use naturally in conversation; confirm addresses before booking):\n${userMemory}`
     : ''
+  const brainIntelRaw = parseBrainAccountIntel(body)
+  const brainBlock = brainIntelRaw
+    ? `\n\nBrain account snapshot (trust these figures for spend/mileage/job counts; do not invent other amounts):\n${brainIntelRaw}`
+    : ''
+  const exploreRaw = parseNearbyExploreSummary(body)
+  const exploreBlock = exploreRaw
+    ? `\n\nNearby places on the user map (trust this list only for location ideas; do not invent other venues or coordinates):\n${exploreRaw}`
+    : ''
   const trusted =
     'Trust the following lines as facts for questions about time or weather; do not contradict them. If no weather line is present, you do not have live weather—say so briefly and suggest they allow location if they want it.'
-  const block = `${trusted}\n${timeLine}${extra}${memBlock}`
+  const block = `${trusted}\n${timeLine}${extra}${memBlock}${brainBlock}${exploreBlock}`
   return block.length > CHAT_CONTEXT_MAX_LEN ? block.slice(0, CHAT_CONTEXT_MAX_LEN) : block
 }
 
@@ -802,15 +834,45 @@ app.post('/api/fetch-ai/chat', async (req, res) => {
 })
 
 app.post('/api/payments/intents', async (req, res) => {
-  const bookingId = typeof req.body?.bookingId === 'string' ? req.body.bookingId : null
+  const meta = req.body?.metadata
+  const isHardware =
+    meta &&
+    typeof meta === 'object' &&
+    meta.type === 'hardware' &&
+    typeof meta.sku === 'string'
+
+  let bookingId = typeof req.body?.bookingId === 'string' ? req.body.bookingId : null
   const requestedAmount =
     typeof req.body?.amount === 'number' && Number.isFinite(req.body.amount) ? req.body.amount : 0
   const state = await marketplaceStore.readState()
-  const booking =
-    bookingId ? state.bookings.find((row) => row.id === bookingId) ?? null : null
-  const amount =
-    booking?.pricing?.maxPrice != null ? booking.pricing.maxPrice : requestedAmount
-  const paymentIntent = createPaymentIntentRecord({ bookingId, amount, currency: 'AUD' })
+
+  let amount = requestedAmount
+  let intentMetadata = null
+
+  if (isHardware) {
+    bookingId = null
+    const unit = getHardwareSkuPriceAud(meta.sku)
+    if (unit == null) {
+      return res.status(400).json({ error: 'unknown_hardware_sku' })
+    }
+    const qtyRaw = Number(meta.qty)
+    const qty =
+      Number.isFinite(qtyRaw) && qtyRaw >= 1 ? Math.min(20, Math.floor(qtyRaw)) : 1
+    amount = Math.round(unit * qty)
+    intentMetadata = { type: 'hardware', sku: meta.sku, qty }
+  } else {
+    const booking =
+      bookingId ? state.bookings.find((row) => row.id === bookingId) ?? null : null
+    amount =
+      booking?.pricing?.maxPrice != null ? booking.pricing.maxPrice : requestedAmount
+  }
+
+  const paymentIntent = createPaymentIntentRecord({
+    bookingId,
+    amount,
+    currency: 'AUD',
+    metadata: intentMetadata,
+  })
   marketplaceStore.upsertPaymentIntent(state, paymentIntent)
   await marketplaceStore.writeState(state)
   return res.json({ paymentIntent })
@@ -870,6 +932,21 @@ app.post('/api/payments/intents/:paymentIntentId/confirm', async (req, res) => {
       return res.status(409).json({ error: 'booking_not_ready_for_confirmation' })
     }
   }
+  if (paymentIntent.metadata?.type === 'hardware') {
+    const sku = paymentIntent.metadata.sku
+    const unit = getHardwareSkuPriceAud(sku)
+    if (unit == null) {
+      return res.status(400).json({ error: 'unknown_hardware_sku' })
+    }
+    const qty =
+      typeof paymentIntent.metadata.qty === 'number' && paymentIntent.metadata.qty >= 1
+        ? Math.min(20, Math.floor(paymentIntent.metadata.qty))
+        : 1
+    const expected = Math.round(unit * qty)
+    if (paymentIntent.amount !== expected) {
+      return res.status(409).json({ error: 'hardware_amount_mismatch' })
+    }
+  }
   paymentIntent.status = 'succeeded'
   paymentIntent.paymentMethodId = paymentMethodId
   paymentIntent.confirmedAt = Date.now()
@@ -890,6 +967,19 @@ app.post('/api/payments/intents/:paymentIntentId/confirm', async (req, res) => {
       booking.paymentIntent = { ...paymentIntent }
       booking.status = 'confirmed'
       booking.updatedAt = Date.now()
+    }
+  }
+  if (paymentIntent.metadata?.type === 'hardware') {
+    try {
+      await hardwareOrdersStore.appendOrder({
+        paymentIntentId: paymentIntent.id,
+        sku: paymentIntent.metadata.sku,
+        qty: paymentIntent.metadata.qty ?? 1,
+        amountAud: paymentIntent.amount,
+        status: 'paid',
+      })
+    } catch (e) {
+      console.error('[hardware-orders] append failed', e)
     }
   }
   marketplaceStore.materializeState(state)
@@ -943,6 +1033,39 @@ app.post('/api/marketplace/bookings', async (req, res) => {
   return res.json({ booking })
 })
 
+app.patch('/api/marketplace/bookings/:bookingId/location', async (req, res) => {
+  const { bookingId } = req.params
+  const lat = typeof req.body?.lat === 'number' && Number.isFinite(req.body.lat) ? req.body.lat : null
+  const lng = typeof req.body?.lng === 'number' && Number.isFinite(req.body.lng) ? req.body.lng : null
+  const heading =
+    typeof req.body?.heading === 'number' && Number.isFinite(req.body.heading)
+      ? req.body.heading
+      : undefined
+  const driverId = typeof req.body?.driverId === 'string' ? req.body.driverId.trim() : ''
+  if (lat == null || lng == null || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+    return res.status(400).json({ error: 'invalid_coordinates' })
+  }
+  const state = await marketplaceStore.readState()
+  const booking = state.bookings.find((b) => b.id === bookingId)
+  if (!booking) return res.status(404).json({ error: 'booking_not_found' })
+  if (
+    booking.assignedDriverId &&
+    driverId &&
+    booking.assignedDriverId !== driverId
+  ) {
+    return res.status(403).json({ error: 'driver_mismatch' })
+  }
+  booking.driverLocation = {
+    lat,
+    lng,
+    ...(heading != null ? { heading } : {}),
+    updatedAt: Date.now(),
+  }
+  booking.updatedAt = Date.now()
+  await marketplaceStore.writeState(state)
+  return res.json({ booking })
+})
+
 app.patch('/api/marketplace/bookings/:bookingId/status', async (req, res) => {
   const { bookingId } = req.params
   const { status } = req.body ?? {}
@@ -959,6 +1082,12 @@ app.patch('/api/marketplace/bookings/:bookingId/status', async (req, res) => {
   booking.updatedAt = Date.now()
   if (req.body?.matchedDriver) {
     booking.matchedDriver = req.body.matchedDriver
+  }
+  if (req.body?.assignedDriverId !== undefined) {
+    booking.assignedDriverId = req.body.assignedDriverId
+  }
+  if (req.body?.driverControlled !== undefined) {
+    booking.driverControlled = Boolean(req.body.driverControlled)
   }
   marketplaceStore.materializeState(state)
   await marketplaceStore.writeState(state)

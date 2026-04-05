@@ -267,10 +267,16 @@ export async function reviewBookingDraft(draft, { openAiApiKey } = {}) {
   return maybeEnhanceWithOpenAI(normalized, heuristic, openAiApiKey)
 }
 
-export function createPaymentIntentRecord({ bookingId = null, amount, currency = 'AUD' }) {
+export function createPaymentIntentRecord({
+  bookingId = null,
+  amount,
+  currency = 'AUD',
+  metadata = null,
+}) {
   return {
     id: makeId('pi'),
     bookingId,
+    metadata: metadata && typeof metadata === 'object' ? metadata : null,
     status: 'requires_confirmation',
     amount: Math.max(0, Math.round(amount || 0)),
     currency,

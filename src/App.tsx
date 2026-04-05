@@ -14,7 +14,15 @@ const accountChunk = () => import('./components/UserScreens/AccountScreen').then
 }))
 const AccountScreen = lazy(accountChunk)
 
-type AppPhase = 'splash' | 'home' | 'auth' | 'account'
+const driverChunk = () => import('./views/DriverDashboardView')
+const DriverDashboardView = lazy(driverChunk)
+
+type AppPhase = 'splash' | 'home' | 'auth' | 'account' | 'driver'
+
+function hasDriverQuery() {
+  if (typeof window === 'undefined') return false
+  return new URLSearchParams(window.location.search).has('driver')
+}
 
 /** Short splash; home chunk prefetches in parallel so Suspense resolves quickly. */
 const SPLASH_MS = 220
@@ -24,24 +32,33 @@ function PhaseFallback() {
 }
 
 function App() {
-  const [phase, setPhase] = useState<AppPhase>('splash')
+  const [phase, setPhase] = useState<AppPhase>(() => (hasDriverQuery() ? 'driver' : 'splash'))
 
   useEffect(() => {
     void homeChunk()
     void authChunk()
     void accountChunk()
+    void driverChunk()
   }, [])
 
   const goAccountFromHome = useCallback(() => {
     setPhase(loadSession() ? 'account' : 'auth')
   }, [])
 
+  const leaveDriverDashboard = useCallback(() => {
+    const url = new URL(window.location.href)
+    url.searchParams.delete('driver')
+    window.history.replaceState({}, '', `${url.pathname}${url.search}`)
+    setPhase('home')
+  }, [])
+
   useEffect(() => {
+    if (phase !== 'splash') return
     const readyTimer = window.setTimeout(() => setPhase('home'), SPLASH_MS)
     return () => {
       window.clearTimeout(readyTimer)
     }
-  }, [])
+  }, [phase])
 
   return (
     <FetchVoiceProvider>
@@ -49,6 +66,10 @@ function App() {
         <div className="fetch-app-shell-inner relative mx-auto min-h-dvh min-h-[100dvh] w-full max-w-[1024px] overflow-x-clip overflow-y-visible">
           {phase === 'splash' ? (
             <SplashScreen />
+          ) : phase === 'driver' ? (
+            <Suspense fallback={<PhaseFallback />}>
+              <DriverDashboardView onBack={leaveDriverDashboard} />
+            </Suspense>
           ) : phase === 'home' ? (
             <Suspense fallback={<PhaseFallback />}>
               <HomeView onAccountNavigate={goAccountFromHome} />

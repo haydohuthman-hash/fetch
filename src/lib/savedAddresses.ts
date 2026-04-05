@@ -34,6 +34,7 @@ export function loadSavedAddresses(): SavedAddress[] {
     if (!raw) return DEFAULT_SAVED_ADDRESSES
     const parsed = JSON.parse(raw) as SavedAddress[]
     if (!Array.isArray(parsed)) return DEFAULT_SAVED_ADDRESSES
+    if (parsed.length === 0) return []
     const safe = parsed.filter(
       (row) =>
         row &&

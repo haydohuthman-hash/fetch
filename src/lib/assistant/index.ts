@@ -12,9 +12,12 @@ export {
   requiresDropoff,
 } from './bookingReadiness'
 export {
+  beginDriverSearchDemo,
   beginJunkDriverDemo,
+  canBeginDriverSearchDemo,
   canBeginJunkDriverDemo,
   DEMO_DRIVER,
+  isActiveDriverFlow,
   isActiveJunkDriverFlow,
   patchBookingLifecycle,
 } from './junkDriverDemo'
@@ -32,6 +35,7 @@ export {
   type BookingJobType,
   type BookingAiReview,
   type BookingDriver,
+  type BookingDriverLocation,
   type BookingLifecycleStatus,
   type BookingPaymentIntent,
   type BookingPaymentInstrument,

@@ -14,6 +14,7 @@ import {
   playVoice,
   primeVoicePlaybackFromUserGesture,
   speakLine,
+  stopFetchAssistantPlayback,
   subscribeVoiceSpeechPlaying,
 } from './fetchVoice'
 import { playUiFeedback, type UiFeedbackEvent } from './fetchFeedback'
@@ -37,6 +38,8 @@ type FetchVoiceContextValue = {
   playEvent: (type: VoiceEventType, options?: VoiceEventOptions) => void
   speakLine: (text: string, options?: FetchSpeakLineOptions) => Promise<void>
   playUiEvent: (event: UiFeedbackEvent) => void
+  /** Stop assistant TTS and clear voice-hold UI (e.g. exit brain). */
+  stopAssistantPlayback: () => void
 }
 
 const FetchVoiceContext = createContext<FetchVoiceContextValue | null>(null)
@@ -134,6 +137,11 @@ export function FetchVoiceProvider({ children }: { children: React.ReactNode }) 
     [muted],
   )
 
+  const stopAssistantPlayback = useCallback(() => {
+    stopFetchAssistantPlayback()
+    setVoiceHoldCaption(null)
+  }, [])
+
   const value = useMemo(
     () => ({
       muted,
@@ -145,6 +153,7 @@ export function FetchVoiceProvider({ children }: { children: React.ReactNode }) 
       playEvent,
       speakLine: speakAssistantLine,
       playUiEvent,
+      stopAssistantPlayback,
     }),
     [
       muted,
@@ -156,6 +165,7 @@ export function FetchVoiceProvider({ children }: { children: React.ReactNode }) 
       playEvent,
       speakAssistantLine,
       playUiEvent,
+      stopAssistantPlayback,
     ],
   )
 

@@ -1,0 +1,373 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  fetchBookingDetail,
+  fetchBookings,
+  fetchOffers,
+  patchBookingDriverLocation,
+  patchBookingStatus,
+} from '../lib/booking/api'
+import type { BookingRecord } from '../lib/booking/types'
+import {
+  acceptDispatchOffer,
+  filterAvailableJobs,
+  filterMyActiveJobs,
+  getDriverId,
+  nextDriverStatus,
+  setDriverIdForDemo,
+  toDriverJobViewModel,
+} from '../lib/driver'
+import { useFetchTheme } from '../theme/FetchThemeContext'
+
+export type DriverDashboardViewProps = {
+  onBack: () => void
+}
+
+const shell =
+  'fetch-driver-dashboard fetch-theme-chrome mx-auto flex min-h-dvh w-full max-w-[1024px] flex-col px-4 pb-28 pt-[max(1rem,env(safe-area-inset-top))]'
+
+const cardClass =
+  'rounded-2xl border border-white/[0.08] bg-black/35 p-4 shadow-[0_0_0_1px_rgba(139,92,246,0.06)]'
+
+const btnPrimary =
+  'rounded-2xl bg-gradient-to-b from-violet-500 to-violet-700 px-4 py-3 text-[14px] font-semibold text-white shadow-lg shadow-violet-950/40 transition-opacity hover:opacity-95 active:opacity-90 disabled:cursor-not-allowed disabled:opacity-45'
+
+const btnGhost =
+  'rounded-full border border-white/15 px-3 py-2 text-[13px] font-semibold text-white/75 transition-colors hover:border-white/25 hover:bg-white/5 hover:text-white'
+
+function statusPill(status: string) {
+  return (
+    <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/80">
+      {status.replace(/_/g, ' ')}
+    </span>
+  )
+}
+
+export function DriverDashboardView({ onBack }: DriverDashboardViewProps) {
+  const { resolved: theme } = useFetchTheme()
+  const [driverIdInput, setDriverIdInput] = useState(() => getDriverId())
+  const [bookings, setBookings] = useState<BookingRecord[]>([])
+  const [offers, setOffers] = useState<Awaited<ReturnType<typeof fetchOffers>>>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [detail, setDetail] = useState<Awaited<ReturnType<typeof fetchBookingDetail>> | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const myDriverId = getDriverId()
+
+  const refresh = useCallback(async () => {
+    setError(null)
+    setLoading(true)
+    try {
+      const [b, o] = await Promise.all([fetchBookings(), fetchOffers()])
+      setBookings(b)
+      setOffers(o)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not load jobs')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  const available = useMemo(
+    () => filterAvailableJobs(bookings, offers, myDriverId),
+    [bookings, offers, myDriverId],
+  )
+  const mine = useMemo(
+    () => filterMyActiveJobs(bookings, offers, myDriverId),
+    [bookings, offers, myDriverId],
+  )
+
+  const locationTrackingBookingId = useMemo(() => {
+    const active = mine.find(
+      (b) =>
+        b.assignedDriverId === myDriverId &&
+        ['matched', 'en_route', 'arrived', 'in_progress'].includes(b.status),
+    )
+    return active?.id ?? null
+  }, [mine, myDriverId])
+
+  useEffect(() => {
+    if (!locationTrackingBookingId || typeof navigator === 'undefined' || !navigator.geolocation) {
+      return
+    }
+    let lastSent = 0
+    const wid = navigator.geolocation.watchPosition(
+      (pos) => {
+        const now = Date.now()
+        if (now - lastSent < 8000) return
+        lastSent = now
+        void patchBookingDriverLocation(locationTrackingBookingId, {
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          ...(typeof pos.coords.heading === 'number' && Number.isFinite(pos.coords.heading)
+            ? { heading: pos.coords.heading }
+            : {}),
+          driverId: myDriverId,
+        }).catch(() => {})
+      },
+      () => {},
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 },
+    )
+    return () => navigator.geolocation.clearWatch(wid)
+  }, [locationTrackingBookingId, myDriverId])
+
+  useEffect(() => {
+    if (!selectedId) {
+      setDetail(null)
+      return
+    }
+    let cancelled = false
+    void fetchBookingDetail(selectedId)
+      .then((d) => {
+        if (!cancelled) setDetail(d)
+      })
+      .catch(() => {
+        if (!cancelled) setDetail(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedId])
+
+  const selectedVm = detail ? toDriverJobViewModel(detail.booking) : null
+  const selectedIsAvailable = selectedVm ? available.some((b) => b.id === selectedVm.id) : false
+
+  const applyDriverId = () => {
+    setDriverIdForDemo(driverIdInput.trim() || getDriverId())
+    setDriverIdInput(getDriverId())
+    void refresh()
+  }
+
+  const onAccept = async () => {
+    if (!selectedVm || !selectedIsAvailable) return
+    setBusy(true)
+    setError(null)
+    try {
+      const label = myDriverId.replace(/_/g, ' ')
+      await acceptDispatchOffer({
+        bookingId: selectedVm.id,
+        driverId: myDriverId,
+        matchedDriver: {
+          name: label.slice(0, 1).toUpperCase() + label.slice(1),
+          vehicle: 'Van',
+          etaMinutes: 8,
+          rating: 4.85,
+        },
+      })
+      await refresh()
+      const d = await fetchBookingDetail(selectedVm.id)
+      setDetail(d)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Accept failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const onAdvance = async () => {
+    if (!selectedVm) return
+    const next = nextDriverStatus(selectedVm.status)
+    if (!next) return
+    setBusy(true)
+    setError(null)
+    try {
+      await patchBookingStatus(selectedVm.id, { status: next })
+      await refresh()
+      const d = await fetchBookingDetail(selectedVm.id)
+      setDetail(d)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Update failed')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const nextLifecycleStatus = selectedVm ? nextDriverStatus(selectedVm.status) : null
+
+  return (
+    <div className={shell} data-theme={theme}>
+      <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/40">Driver</p>
+          <h1 className="text-[1.35rem] font-semibold tracking-tight text-white">Job board</h1>
+        </div>
+        <button type="button" className={btnGhost} onClick={onBack}>
+          Back to home
+        </button>
+      </header>
+
+      <section className={`${cardClass} mb-4`}>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/45">Demo driver id</p>
+        <p className="mt-1 text-[12px] leading-snug text-white/55">
+          Stored in localStorage. Used for offers and assignment until real auth exists.
+        </p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <input
+            value={driverIdInput}
+            onChange={(e) => setDriverIdInput(e.target.value)}
+            className="min-w-[12rem] flex-1 rounded-xl border border-white/12 bg-black/40 px-3 py-2 text-[14px] text-white outline-none ring-0 focus:border-violet-400/45"
+            aria-label="Driver id"
+          />
+          <button type="button" className={btnGhost} onClick={applyDriverId}>
+            Apply
+          </button>
+        </div>
+      </section>
+
+      {error ? (
+        <div className="mb-3 rounded-xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-[13px] text-red-200">
+          {error}
+        </div>
+      ) : null}
+
+      {loading ? (
+        <p className="text-[14px] text-white/55">Loading jobs…</p>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="flex flex-col gap-3">
+            <h2 className="text-[13px] font-semibold uppercase tracking-wide text-white/50">Available</h2>
+            {available.length === 0 ? (
+              <p className="text-[13px] text-white/45">No dispatching jobs right now.</p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {available.map((b) => {
+                  const vm = toDriverJobViewModel(b)
+                  return (
+                    <li key={b.id}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId(b.id)}
+                        className={[
+                          'w-full rounded-2xl border px-3 py-3 text-left transition-colors',
+                          selectedId === b.id
+                            ? 'border-violet-400/45 bg-violet-500/15'
+                            : 'border-white/10 bg-black/30 hover:border-white/18',
+                        ].join(' ')}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="line-clamp-1 text-[14px] font-semibold text-white">
+                            {vm.jobTypeLabel ?? 'Job'} · {vm.pickupAddressText || 'Pickup TBC'}
+                          </span>
+                          {statusPill(vm.status)}
+                        </div>
+                        {vm.pricingSummary ? (
+                          <p className="mt-1 text-[12px] text-white/55">{vm.pricingSummary}</p>
+                        ) : null}
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+
+            <h2 className="mt-2 text-[13px] font-semibold uppercase tracking-wide text-white/50">My jobs</h2>
+            {mine.length === 0 ? (
+              <p className="text-[13px] text-white/45">No active assignments.</p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {mine.map((b) => {
+                  const vm = toDriverJobViewModel(b)
+                  return (
+                    <li key={b.id}>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId(b.id)}
+                        className={[
+                          'w-full rounded-2xl border px-3 py-3 text-left transition-colors',
+                          selectedId === b.id
+                            ? 'border-violet-400/45 bg-violet-500/15'
+                            : 'border-white/10 bg-black/30 hover:border-white/18',
+                        ].join(' ')}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="line-clamp-1 text-[14px] font-semibold text-white">
+                            {vm.jobTypeLabel ?? 'Job'} · {vm.pickupAddressText || 'Pickup TBC'}
+                          </span>
+                          {statusPill(vm.status)}
+                        </div>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+
+          <div className={cardClass}>
+            {!selectedVm ? (
+              <p className="text-[14px] text-white/50">Select a job for details.</p>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <h3 className="text-[16px] font-semibold text-white">
+                      {selectedVm.jobTypeLabel ?? 'Job'}
+                    </h3>
+                    {statusPill(selectedVm.status)}
+                  </div>
+                </div>
+                <dl className="mt-4 space-y-2 text-[13px]">
+                  <div>
+                    <dt className="text-[11px] font-semibold uppercase tracking-wide text-white/40">Pickup</dt>
+                    <dd className="text-white/85">{selectedVm.pickupAddressText || '—'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-[11px] font-semibold uppercase tracking-wide text-white/40">Drop-off</dt>
+                    <dd className="text-white/85">{selectedVm.dropoffAddressText || '—'}</dd>
+                  </div>
+                  {selectedVm.routeSummary ? (
+                    <div>
+                      <dt className="text-[11px] font-semibold uppercase tracking-wide text-white/40">Route</dt>
+                      <dd className="text-white/85">{selectedVm.routeSummary}</dd>
+                    </div>
+                  ) : null}
+                  {selectedVm.pricingSummary ? (
+                    <div>
+                      <dt className="text-[11px] font-semibold uppercase tracking-wide text-white/40">Quote</dt>
+                      <dd className="text-white/85">{selectedVm.pricingSummary}</dd>
+                    </div>
+                  ) : null}
+                  {selectedVm.matchedDriver ? (
+                    <div>
+                      <dt className="text-[11px] font-semibold uppercase tracking-wide text-white/40">Matched</dt>
+                      <dd className="text-white/85">
+                        {selectedVm.matchedDriver.name}
+                        {selectedVm.matchedDriver.vehicle ? ` · ${selectedVm.matchedDriver.vehicle}` : ''}
+                      </dd>
+                    </div>
+                  ) : null}
+                </dl>
+
+                {detail?.booking.driverControlled ? (
+                  <p className="mt-3 text-[11px] leading-snug text-emerald-200/80">
+                    Driver-controlled lifecycle: demo dispatch timers are off for this booking.
+                  </p>
+                ) : null}
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {selectedIsAvailable ? (
+                    <button type="button" className={btnPrimary} disabled={busy} onClick={() => void onAccept()}>
+                      Accept job
+                    </button>
+                  ) : null}
+                  {!selectedIsAvailable && nextLifecycleStatus ? (
+                    <button type="button" className={btnPrimary} disabled={busy} onClick={() => void onAdvance()}>
+                      Mark {nextLifecycleStatus.replace(/_/g, ' ')}
+                    </button>
+                  ) : null}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default DriverDashboardView

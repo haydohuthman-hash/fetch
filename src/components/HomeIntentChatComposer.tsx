@@ -2,6 +2,7 @@ import { useJsApiLoader } from '@react-google-maps/api'
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ChangeEvent,
@@ -21,7 +22,7 @@ import {
   fetchPerfSetServerTiming,
 } from '../lib/fetchPerf'
 import { INTENT_COMPOSER_PLACEHOLDER_HINTS } from '../views/homeConstants'
-import { pickVoiceInstantAck } from '../voice/voiceAckPhrases'
+import type { SavedAddress } from '../lib/savedAddresses'
 import { voiceFlowDebug, voiceFlowSttError } from '../voice/voiceFlowDebug'
 import { primeVoicePlaybackFromUserGesture } from '../voice/fetchVoice'
 import { buildFetchUserMemoryContext } from '../lib/fetchUserMemoryContext'
@@ -45,6 +46,19 @@ function isLikelyAddressQuery(s: string): boolean {
   return t.length >= 14
 }
 
+/** Looser than `isLikelyAddressQuery` so short house numbers still get Places suggestions. */
+function isAutocompleteAddressInput(s: string): boolean {
+  const t = s.trim()
+  if (t.length < 3) return false
+  if (isLikelyAddressQuery(t)) return true
+  if (t.length >= 5 && /\d/.test(t)) return true
+  return false
+}
+
+function composerIsSingleLineOnly(raw: string): boolean {
+  return raw.split('\n').filter((l) => l.trim().length > 0).length <= 1
+}
+
 type HomeAiPhoto = { id: string; url: string; file: File }
 type PlacePredictionRow = { description: string; placeId: string }
 type HomeChatRole = 'user' | 'assistant' | 'system'
@@ -53,10 +67,43 @@ type HomeChatMessage = { role: HomeChatRole; content: string }
 export function HomeIntentChatComposer({
   appendOrbChatTurn,
   onChatNavigation,
+  onListeningChange,
+  onPlaceSuggestionsOpenChange,
+  savedAddresses = [],
+  showSavedAddressChips = false,
+  onSavedPlaceChipNavigate,
+  showGuestAccountHint = false,
+  mapsJsReady = false,
+  onStartNavigationToPlace,
+  onAddressEntryIntentChange,
 }: {
   appendOrbChatTurn: (role: 'user' | 'assistant', text: string) => void
   /** Live route from server (Google Directions + traffic) — drives map + minimal nav sheet. */
   onChatNavigation?: (nav: FetchAiChatNavigation | null) => void
+  /** STT mic active — optional (e.g. neural brain “listening” mode). */
+  onListeningChange?: (listening: boolean) => void
+  /** Place prediction list visible — parent can expand the booking sheet. */
+  onPlaceSuggestionsOpenChange?: (open: boolean) => void
+  /** Quick-fill saved places from Account into the composer. */
+  savedAddresses?: readonly SavedAddress[]
+  /**
+   * Saved-place pills (Home / Work). Off on the landing composer; use live navigation sheet instead.
+   */
+  showSavedAddressChips?: boolean
+  /** When set (e.g. chat navigation), tapping a chip reroutes immediately instead of pasting into the field. */
+  onSavedPlaceChipNavigate?: (a: SavedAddress) => void
+  /** Signed-out nudge to save places and cards in Account. */
+  showGuestAccountHint?: boolean
+  /** Parent maps bootstrap — required with `onStartNavigationToPlace` for instant routes. */
+  mapsJsReady?: boolean
+  /** Client-side Directions: start turn-by-turn immediately (suggestion tap or nav arrow). */
+  onStartNavigationToPlace?: (place: {
+    lat: number
+    lng: number
+    label: string
+  }) => void
+  /** User is typing a destination — parent can switch peek chrome to nav. */
+  onAddressEntryIntentChange?: (active: boolean) => void
 }) {
   const mapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ?? ''
   const { isLoaded: mapsJsLoaded } = useJsApiLoader({
@@ -69,6 +116,11 @@ export function HomeIntentChatComposer({
 
   const { speakLine, playUiEvent, isSpeechPlaying } = useFetchVoice()
   const [listening, setListening] = useState(false)
+
+  useEffect(() => {
+    onListeningChange?.(listening)
+  }, [listening, onListeningChange])
+
   const [micPrimed, setMicPrimed] = useState(false)
   const [composerText, setComposerText] = useState('')
   const [composerPhotos, setComposerPhotos] = useState<HomeAiPhoto[]>([])
@@ -84,6 +136,12 @@ export function HomeIntentChatComposer({
   const [placePredictions, setPlacePredictions] = useState<PlacePredictionRow[]>([])
   const [suggestOpen, setSuggestOpen] = useState(false)
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1)
+
+  const placeSuggestionsVisible = suggestOpen && placePredictions.length > 0
+  useEffect(() => {
+    onPlaceSuggestionsOpenChange?.(placeSuggestionsVisible)
+  }, [placeSuggestionsVisible, onPlaceSuggestionsOpenChange])
+
   const composerFileInputRef = useRef<HTMLInputElement>(null)
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null)
   const chatGeoRef = useRef<{ latitude: number; longitude: number } | null>(null)
@@ -174,7 +232,6 @@ export function HomeIntentChatComposer({
         sttSpeakPendingRef.current = true
       }
       appendOrbChatTurn('user', trimmed)
-      appendOrbChatTurn('assistant', pickVoiceInstantAck())
       playUiEvent('processing_start')
 
       const userMsg: HomeChatMessage = { role: 'user' as const, content: trimmed }
@@ -204,6 +261,12 @@ export function HomeIntentChatComposer({
         )
         if (navigation?.active) {
           onChatNavigation?.(navigation)
+          if (perfRunId) {
+            fetchPerfMark(perfRunId, '2_step_visible', {
+              surface: 'home_intent_chat',
+              chat_nav_active: true,
+            })
+          }
         }
         if (perfRunId && perfTiming) {
           fetchPerfSetServerTiming(perfRunId, perfTiming)
@@ -344,12 +407,45 @@ export function HomeIntentChatComposer({
             finish(row.description)
             return
           }
-          finish(place.formatted_address ?? place.name ?? row.description)
+          const label = place.formatted_address ?? place.name ?? row.description
+          const loc = place.geometry?.location
+          if (loc && onStartNavigationToPlace) {
+            onStartNavigationToPlace({
+              lat: loc.lat(),
+              lng: loc.lng(),
+              label,
+            })
+          }
+          finish(label)
         },
       )
     },
-    [resizeComposerTextarea],
+    [resizeComposerTextarea, onStartNavigationToPlace],
   )
+
+  const startNavFromTypedQuery = useCallback(() => {
+    if (!onStartNavigationToPlace || typeof google === 'undefined') return
+    const line = composerText.split('\n')[0]?.trim() ?? ''
+    if (!line) return
+    playUiEvent('processing_start')
+    const geocoder = new google.maps.Geocoder()
+    geocoder.geocode({ address: `${line}, Australia`, region: 'AU' }, (results, status) => {
+      if (!mountedRef.current) return
+      if (status !== 'OK' || !results?.[0]?.geometry?.location) {
+        playUiEvent('error')
+        return
+      }
+      const loc = results[0].geometry.location
+      onStartNavigationToPlace({
+        lat: loc.lat(),
+        lng: loc.lng(),
+        label: results[0].formatted_address ?? line,
+      })
+      setPlacePredictions([])
+      setSuggestOpen(false)
+      setActiveSuggestionIndex(-1)
+    })
+  }, [composerText, onStartNavigationToPlace, playUiEvent])
 
   useEffect(() => {
     if (predictDebounceRef.current) {
@@ -360,30 +456,27 @@ export function HomeIntentChatComposer({
     if (
       !mapsApiKey ||
       !mapsJsLoaded ||
-      deviceLocationStatus !== 'granted' ||
       chatPending ||
       !line ||
-      !isLikelyAddressQuery(line)
+      !isAutocompleteAddressInput(line)
     ) {
       setPlacePredictions([])
       setSuggestOpen(false)
       setActiveSuggestionIndex(-1)
       return
     }
-    if (!chatGeoRef.current) {
-      setPlacePredictions([])
-      setSuggestOpen(false)
-      return
-    }
 
     predictDebounceRef.current = window.setTimeout(() => {
       predictDebounceRef.current = null
       const ac = acServiceRef.current
+      if (!ac || typeof google === 'undefined') return
       const geo = chatGeoRef.current
-      if (!ac || !geo || typeof google === 'undefined') return
+      const center = geo
+        ? { lat: geo.latitude, lng: geo.longitude }
+        : { lat: -27.4705, lng: 153.026 }
       const circle = new google.maps.Circle({
-        center: { lat: geo.latitude, lng: geo.longitude },
-        radius: 85_000,
+        center,
+        radius: geo ? 85_000 : 220_000,
       })
       ac.getPlacePredictions(
         {
@@ -403,7 +496,7 @@ export function HomeIntentChatComposer({
             return
           }
           const rows = predictions
-            .slice(0, 3)
+            .slice(0, 6)
             .map((p) => ({
               description: p.description ?? '',
               placeId: p.place_id ?? '',
@@ -414,7 +507,7 @@ export function HomeIntentChatComposer({
           setActiveSuggestionIndex(-1)
         },
       )
-    }, 220)
+    }, 200)
 
     return () => {
       if (predictDebounceRef.current) {
@@ -422,7 +515,42 @@ export function HomeIntentChatComposer({
         predictDebounceRef.current = null
       }
     }
-  }, [composerText, mapsApiKey, mapsJsLoaded, deviceLocationStatus, chatPending])
+  }, [composerText, mapsApiKey, mapsJsLoaded, chatPending])
+
+  const intentNavChrome = useMemo(() => {
+    const line = composerText.split('\n')[0]?.trim() ?? ''
+    const single = composerIsSingleLineOnly(composerText)
+    const addressIntentCore =
+      Boolean(
+        mapsJsReady &&
+          mapsJsLoaded &&
+          mapsApiKey &&
+          onStartNavigationToPlace &&
+          single &&
+          isAutocompleteAddressInput(line),
+      )
+    const showNavGoArrow =
+      addressIntentCore &&
+      line.length >= 3 &&
+      !listening &&
+      !micPrimed &&
+      composerPhotos.length === 0
+    return { line, addressIntentCore, showNavGoArrow }
+  }, [
+    composerText,
+    mapsJsReady,
+    mapsJsLoaded,
+    mapsApiKey,
+    onStartNavigationToPlace,
+    listening,
+    micPrimed,
+    composerPhotos.length,
+  ])
+
+  useEffect(() => {
+    if (!onAddressEntryIntentChange) return
+    onAddressEntryIntentChange(intentNavChrome.addressIntentCore)
+  }, [intentNavChrome.addressIntentCore, onAddressEntryIntentChange])
 
   const onComposerKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -460,6 +588,10 @@ export function HomeIntentChatComposer({
       }
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
+        if (intentNavChrome.showNavGoArrow) {
+          startNavFromTypedQuery()
+          return
+        }
         submitComposer()
       }
     },
@@ -469,6 +601,8 @@ export function HomeIntentChatComposer({
       activeSuggestionIndex,
       applyPlacePrediction,
       submitComposer,
+      intentNavChrome.showNavGoArrow,
+      startNavFromTypedQuery,
     ],
   )
 
@@ -585,6 +719,7 @@ export function HomeIntentChatComposer({
     mountedRef.current = true
     return () => {
       mountedRef.current = false
+      onAddressEntryIntentChange?.(false)
       if (suggestBlurCloseRef.current) {
         clearTimeout(suggestBlurCloseRef.current)
         suggestBlurCloseRef.current = null
@@ -599,7 +734,7 @@ export function HomeIntentChatComposer({
         }
       }
     }
-  }, [])
+  }, [onAddressEntryIntentChange])
 
   useEffect(() => {
     const hints = INTENT_COMPOSER_PLACEHOLDER_HINTS
@@ -616,11 +751,30 @@ export function HomeIntentChatComposer({
 
   const hasSendableDraft =
     composerText.trim().length > 0 || composerPhotos.length > 0
-  const showSendArrow = hasSendableDraft && !listening && !micPrimed
+  const showNavGoArrow = intentNavChrome.showNavGoArrow
+  const showSendArrow =
+    hasSendableDraft && !showNavGoArrow && !listening && !micPrimed
   const rotatingPlaceholder =
     INTENT_COMPOSER_PLACEHOLDER_HINTS[
       placeholderIndex % Math.max(1, INTENT_COMPOSER_PLACEHOLDER_HINTS.length)
     ] ?? 'Ask Fetch anything…'
+
+  /** Empty while there is text — avoids iOS/WebKit drawing hint on top of typed addresses. */
+  const composerPlaceholder = composerText.trim().length > 0 ? '' : rotatingPlaceholder
+
+  const locationHintId = 'fetch-intent-location-hint'
+  const showLocationHint =
+    deviceLocationStatus === 'denied' &&
+    Boolean(mapsApiKey) &&
+    Boolean(onStartNavigationToPlace) &&
+    isAutocompleteAddressInput(composerText.split('\n')[0]?.trim() ?? '')
+
+  const composerDescribedBy = [showLocationHint ? locationHintId : null].filter(Boolean).join(' ')
+
+  const insertSavedAddress = useCallback((a: SavedAddress) => {
+    setComposerText(a.address)
+    queueMicrotask(() => resizeComposerTextarea())
+  }, [resizeComposerTextarea])
 
   return (
     <div className="pointer-events-auto mt-1 w-full">
@@ -634,6 +788,12 @@ export function HomeIntentChatComposer({
         onChange={onComposerPhotosSelected}
         aria-hidden
       />
+
+      {showGuestAccountHint ? (
+        <p className="mb-1.5 px-1 text-[11px] font-medium leading-snug text-white/50 [text-wrap:pretty]">
+          Sign in via Account to save places and cards on this device.
+        </p>
+      ) : null}
 
       <div className="fetch-ai-composer-shell fetch-home-intent-composer w-full">
         {composerPhotos.length > 0 ? (
@@ -658,11 +818,43 @@ export function HomeIntentChatComposer({
             ))}
           </div>
         ) : null}
-        <div className="flex min-h-[3rem] items-center gap-2 px-2 pb-2 pl-2 pr-2 pt-1.5">
+        {showSavedAddressChips && savedAddresses.length > 0 ? (
+          <div
+            className="flex gap-1.5 overflow-x-auto px-3 pt-2 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            role="group"
+            aria-label="Saved places"
+          >
+            {savedAddresses.map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                onClick={() =>
+                  onSavedPlaceChipNavigate
+                    ? onSavedPlaceChipNavigate(a)
+                    : insertSavedAddress(a)
+                }
+                disabled={chatPending}
+                className="shrink-0 rounded-full border border-white/15 bg-white/[0.06] px-2.5 py-1 text-[11px] font-semibold text-white/85 transition-colors hover:bg-white/10 disabled:opacity-45"
+              >
+                {a.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {showLocationHint ? (
+          <p
+            id={locationHintId}
+            className="fetch-home-intent-location-hint px-3 pt-2.5 pb-1 text-[11px] leading-snug"
+            role="note"
+          >
+            Allow location to route from where you are. You can still browse address suggestions.
+          </p>
+        ) : null}
+        <div className="flex min-h-[3rem] items-center gap-2 px-2 py-2">
           <button
             type="button"
             onClick={() => composerFileInputRef.current?.click()}
-            className="fetch-ai-composer-plus flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-[transform,color,opacity] active:scale-[0.96]"
+            className="fetch-ai-composer-plus flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-[transform,color,opacity] active:scale-[0.96]"
             aria-label="Add photos"
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -690,9 +882,10 @@ export function HomeIntentChatComposer({
                   setActiveSuggestionIndex(-1)
                 }, 200)
               }}
-              placeholder={rotatingPlaceholder}
-              className="fetch-ai-composer-input max-h-32 min-h-[2.75rem] w-full resize-none bg-transparent py-2.5 text-[16px] leading-normal text-white placeholder:text-neutral-500 focus:outline-none"
+              placeholder={composerPlaceholder}
+              className="fetch-ai-composer-input max-h-32 min-h-11 w-full resize-none bg-transparent py-3 text-[16px] leading-5 text-white placeholder:text-neutral-500 focus:outline-none"
               aria-label="Message"
+              aria-describedby={composerDescribedBy || undefined}
               aria-autocomplete={suggestOpen ? 'list' : 'none'}
               aria-controls="fetch-intent-place-suggestions"
               aria-expanded={suggestOpen}
@@ -702,7 +895,7 @@ export function HomeIntentChatComposer({
               <ul
                 id="fetch-intent-place-suggestions"
                 role="listbox"
-                className="absolute left-0 right-0 top-full z-[60] mt-1 max-h-44 overflow-auto rounded-xl border border-white/12 bg-[#141416]/96 py-1 shadow-[0_12px_40px_rgba(0,0,0,0.45)] backdrop-blur-md"
+                className="absolute left-0 right-0 top-full z-[60] mt-1 max-h-52 overflow-auto rounded-xl border border-white/12 bg-[#141416]/96 py-1 shadow-[0_12px_40px_rgba(0,0,0,0.45)] backdrop-blur-md"
               >
                 {placePredictions.map((p, i) => (
                   <li key={p.placeId} role="presentation">
@@ -728,23 +921,73 @@ export function HomeIntentChatComposer({
           </div>
           <button
             type="button"
-            onPointerDown={showSendArrow ? undefined : onComposerVoicePointerDown}
-            onClick={showSendArrow ? submitComposer : startListening}
-            disabled={showSendArrow ? chatPending : listening || chatPending}
+            onPointerDown={
+              showSendArrow || showNavGoArrow ? undefined : onComposerVoicePointerDown
+            }
+            onClick={() => {
+              if (showNavGoArrow) {
+                primeVoicePlaybackFromUserGesture()
+                startNavFromTypedQuery()
+              } else if (showSendArrow) {
+                submitComposer()
+              } else {
+                startListening()
+              }
+            }}
+            disabled={
+              showNavGoArrow
+                ? chatPending
+                : showSendArrow
+                  ? chatPending
+                  : listening || chatPending
+            }
             className={[
               'fetch-ai-voice-btn',
               showSendArrow ? 'fetch-ai-voice-btn--send-draft' : '',
-              !showSendArrow && (listening || micPrimed) ? 'fetch-ai-voice-btn--listening' : '',
-              !showSendArrow && isSpeechPlaying ? 'fetch-ai-voice-btn--speaking' : '',
+              showNavGoArrow ? 'fetch-ai-voice-btn--nav-go' : '',
+              !showSendArrow &&
+              !showNavGoArrow &&
+              (listening || micPrimed)
+                ? 'fetch-ai-voice-btn--listening'
+                : '',
+              !showSendArrow &&
+              !showNavGoArrow &&
+              isSpeechPlaying
+                ? 'fetch-ai-voice-btn--speaking'
+                : '',
             ]
               .filter(Boolean)
               .join(' ')}
-            aria-label={showSendArrow ? 'Send message' : 'Voice'}
+            aria-label={
+              showNavGoArrow
+                ? 'Start directions to this address'
+                : showSendArrow
+                  ? 'Send message'
+                  : 'Voice'
+            }
           >
             <span className="fetch-ai-voice-btn__ring" aria-hidden />
             <span className="fetch-ai-voice-btn__glow" aria-hidden />
             <span className="fetch-ai-voice-btn__core fetch-ai-voice-btn__core--waves flex items-center justify-center">
-              {showSendArrow ? (
+              {showNavGoArrow ? (
+                <svg
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="fetch-ai-voice-btn__nav-icon"
+                  aria-hidden
+                >
+                  <path d="M12 3v10.5" />
+                  <path d="M7.5 8.5L12 3l4.5 5.5" />
+                  <path d="M8 21h8" />
+                  <path d="M12 13.5V21" />
+                </svg>
+              ) : showSendArrow ? (
                 <svg
                   width="22"
                   height="22"
@@ -765,13 +1008,6 @@ export function HomeIntentChatComposer({
             </span>
           </button>
         </div>
-        {deviceLocationStatus === 'denied' &&
-        mapsApiKey &&
-        isLikelyAddressQuery(composerText.split('\n')[0]?.trim() ?? '') ? (
-          <p className="px-2 pb-2 text-[11px] leading-snug text-white/42">
-            Allow location for address suggestions.
-          </p>
-        ) : null}
       </div>
     </div>
   )

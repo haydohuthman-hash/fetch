@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { useFetchVoice } from '../voice/FetchVoiceContext'
 import { VoiceMuteControl } from './FetchHomeStepOne/VoiceMuteControl'
 
-type AppTab = 'home' | 'activity' | 'notifications' | 'account'
+export type AppTab = 'home' | 'activity' | 'notifications' | 'account'
 
 function HomeIcon({ className }: { className?: string }) {
   return (

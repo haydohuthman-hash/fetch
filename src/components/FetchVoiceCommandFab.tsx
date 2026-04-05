@@ -142,25 +142,6 @@ export function FetchVoiceCommandFab({
           size={compact ? 'sm' : homeSheetDock ? 'homeDock' : 'dock'}
           ariaLive={false}
         />
-        {mapAttention === 'navigation' ? (
-          <span
-            className="pointer-events-none absolute bottom-[10%] right-[10%] z-[4] flex h-[26%] w-[26%] min-h-[1.35rem] min-w-[1.35rem] items-center justify-center rounded-full bg-[#0a0a0a] text-white shadow-[0_2px_10px_rgba(0,0,0,0.35)] ring-[1.5px] ring-white/25"
-            aria-hidden
-          >
-            <svg
-              width="42%"
-              height="42%"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M12 3.5 20 21 12 17 4 21 12 3.5z" />
-            </svg>
-          </span>
-        ) : null}
       </span>
     </button>
   )
