@@ -4,15 +4,18 @@ import {
   useId,
   useMemo,
   useRef,
-  useState,
   type ChangeEvent,
   type CSSProperties,
 } from 'react'
+import { createPortal } from 'react-dom'
 import type { FetchBrainMindState } from '../lib/fetchBrainParticles'
 import type { BrainAccountSnapshot } from '../lib/fetchBrainAccountSnapshot'
 import type { BrainNode } from '../lib/fetchBrainGraph'
+import type { BrainFieldPlaceCard } from '../lib/mapsExplorePlaces'
 import { FetchBrainCortexDirectory } from './FetchBrainCortexDirectory'
+import { FetchBrainFieldPanel } from './FetchBrainFieldPanel'
 import { FetchBrainParticleCanvas } from './FetchBrainParticleCanvas'
+import { FetchBrainSplineBackdrop } from './FetchBrainSplineBackdrop'
 import { FetchBrainThinkingChrome } from './FetchBrainThinkingChrome'
 import { useFetchVoice } from '../voice/FetchVoiceContext'
 import { primeVoicePlaybackFromUserGesture } from '../voice/fetchVoice'
@@ -36,10 +39,21 @@ export type FetchBrainMemoryOverlayProps = {
   onClearVisual?: () => void
   snapshot: BrainAccountSnapshot | null
   brainGraphNodes: BrainNode[]
-  brainViewMode: 'field' | 'cortex'
-  onBrainViewModeChange: (mode: 'field' | 'cortex') => void
   focusedMemoryId: string | null
   onFocusedMemoryIdChange?: (id: string | null) => void
+  /** Nearby search / structured results sheet over the field. */
+  fieldPlaces?: {
+    title: string
+    introLine?: string
+    items: BrainFieldPlaceCard[]
+  } | null
+  onDismissFieldPlaces?: () => void
+  onFieldPlaceOpenMaps?: (card: BrainFieldPlaceCard) => void
+  onFieldPlaceLiked?: (card: BrainFieldPlaceCard) => void
+  onFieldPlacePass?: (card: BrainFieldPlaceCard) => void
+  /** Voice-opened account memory browser. */
+  memoriesSheetOpen?: boolean
+  onMemoriesSheetClose?: () => void
   /** Task-style “thinking” headline, feedback bubble, and stepper (e.g. AI pending). */
   thinkingUi?: {
     show: boolean
@@ -69,14 +83,18 @@ export function FetchBrainMemoryOverlay({
   onClearVisual,
   snapshot,
   brainGraphNodes,
-  brainViewMode,
-  onBrainViewModeChange,
   focusedMemoryId,
   onFocusedMemoryIdChange,
+  fieldPlaces = null,
+  onDismissFieldPlaces,
+  onFieldPlaceOpenMaps,
+  onFieldPlaceLiked,
+  onFieldPlacePass,
+  memoriesSheetOpen = false,
+  onMemoriesSheetClose,
   thinkingUi = null,
 }: FetchBrainMemoryOverlayProps) {
   const closeRef = useRef<HTMLButtonElement>(null)
-  const [cortexSpread01, setCortexSpread01] = useState(0)
   const photoInputId = useId()
   const recognitionRef = useRef<{ abort: () => void } | null>(null)
   const listenTimerRef = useRef<number | null>(null)
@@ -92,10 +110,6 @@ export function FetchBrainMemoryOverlay({
   useEffect(() => {
     closeRef.current?.focus()
   }, [])
-
-  useEffect(() => {
-    if (brainViewMode !== 'cortex') setCortexSpread01(0)
-  }, [brainViewMode])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -274,7 +288,7 @@ export function FetchBrainMemoryOverlay({
   const isLight = theme === 'light'
 
   useEffect(() => {
-    if (brainViewMode !== 'cortex' || !focusedMemoryId) return
+    if (!memoriesSheetOpen || !focusedMemoryId) return
     const id = focusedMemoryId.replace(/"/g, '')
     let raf1 = 0
     let raf2 = 0
@@ -290,7 +304,9 @@ export function FetchBrainMemoryOverlay({
       cancelAnimationFrame(raf1)
       cancelAnimationFrame(raf2)
     }
-  }, [brainViewMode, focusedMemoryId, snapshot?.generatedAt])
+  }, [memoriesSheetOpen, focusedMemoryId, snapshot?.generatedAt])
+
+  const fieldPanelOpen = fieldPlaces != null
 
   const hudLine = useMemo(() => {
     if (flowPhase === 'clarity') return 'Field calibrating'
@@ -302,9 +318,9 @@ export function FetchBrainMemoryOverlay({
       case 'listening':
         return 'Listening · up to 8s'
       default:
-        return 'Tap anywhere to speak'
+        return fieldPanelOpen ? 'Tap above the list to speak' : 'Tap anywhere to speak'
     }
-  }, [flowPhase, mind])
+  }, [flowPhase, mind, fieldPanelOpen])
 
   const shellStyle = {
     '--brain-glow': `${glowRgb.r}, ${glowRgb.g}, ${glowRgb.b}`,
@@ -371,16 +387,10 @@ export function FetchBrainMemoryOverlay({
 
       <div className="fetch-brain-split-stage relative z-0 min-h-0 flex-1 overflow-hidden">
         <div className="fetch-brain-field-bg pointer-events-none absolute inset-0 z-0" aria-hidden />
+        <FetchBrainSplineBackdrop active={flowPhase === 'brain'} />
         <div className="fetch-brain-field-vignette pointer-events-none absolute inset-0 z-0" aria-hidden />
 
-        <div
-          className="fetch-brain-shell__canvas pointer-events-none absolute inset-0 z-[1] min-h-0 transition-opacity duration-300"
-          style={
-            {
-              opacity: brainViewMode === 'cortex' ? 0.86 + cortexSpread01 * 0.14 : 1,
-            } as CSSProperties
-          }
-        >
+        <div className="fetch-brain-shell__canvas pointer-events-none absolute inset-0 z-[1] min-h-0">
           <FetchBrainParticleCanvas
             theme={theme}
             mind={mind}
@@ -388,8 +398,8 @@ export function FetchBrainMemoryOverlay({
             graphNodes={brainGraphNodes}
             running
             skipEntryDissolve={instantReveal}
-            cortexCalm={brainViewMode === 'cortex'}
-            cortexSpread01={brainViewMode === 'cortex' ? cortexSpread01 : 0}
+            cortexCalm={false}
+            cortexSpread01={0}
             className="h-full w-full"
           />
         </div>
@@ -409,17 +419,25 @@ export function FetchBrainMemoryOverlay({
           />
         ) : null}
 
-        {brainViewMode === 'field' ? (
-          <button
-            type="button"
-            className="fetch-brain-immersion-tap absolute inset-0 z-[3] cursor-default border-0 bg-transparent p-0 outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brain-glow),0.5)] focus-visible:ring-offset-0"
-            aria-label={mind === 'listening' ? 'Stop listening' : 'Talk to Fetch'}
-            onClick={onTapField}
-          />
-        ) : null}
+        <button
+          type="button"
+          className={[
+            'fetch-brain-immersion-tap absolute inset-x-0 top-0 z-[3] cursor-default border-0 bg-transparent p-0 outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brain-glow),0.5)] focus-visible:ring-offset-0',
+            fieldPanelOpen ? 'bottom-[min(58vh,420px)]' : 'bottom-0',
+          ].join(' ')}
+          aria-label={mind === 'listening' ? 'Stop listening' : 'Talk to Fetch'}
+          onClick={onTapField}
+        />
 
-        {brainViewMode === 'field' && !thinkingOn ? (
-          <div className="fetch-brain-immersion-hud pointer-events-none absolute inset-x-0 bottom-0 z-[4] flex flex-col items-center px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-8">
+        {!thinkingOn ? (
+          <div
+            className={[
+              'fetch-brain-immersion-hud pointer-events-none absolute inset-x-0 z-[4] flex flex-col items-center px-6 pt-8',
+              fieldPanelOpen
+                ? 'bottom-[min(58vh,420px)] max-h-[min(32vh,240px)] justify-end pb-3'
+                : 'bottom-0 pb-[max(1.5rem,env(safe-area-inset-bottom))]',
+            ].join(' ')}
+          >
             <p
               className={[
                 'fetch-brain-immersion-hud__state text-center text-[10px] font-semibold uppercase tracking-[0.22em] opacity-55 transition-[opacity,letter-spacing] duration-300',
@@ -454,7 +472,7 @@ export function FetchBrainMemoryOverlay({
                 </svg>
               </span>
             ) : null}
-            {lastAssistantLine ? (
+            {lastAssistantLine && !fieldPanelOpen ? (
               <p
                 key={lastAssistantLine.slice(0, 48)}
                 className={[
@@ -468,90 +486,23 @@ export function FetchBrainMemoryOverlay({
           </div>
         ) : null}
 
-        {brainViewMode === 'cortex' ? (
-          <div
-            className={[
-              'fetch-brain-cortex-panel pointer-events-none absolute inset-0 z-[5] overflow-hidden',
-              isLight ? 'text-neutral-800' : 'text-white/92',
-            ].join(' ')}
-            role="region"
-            aria-label="Memory cortex"
-          >
-            {!snapshot ? (
-              <p className="mt-8 text-center text-[13px] opacity-70">Loading account memory…</p>
-            ) : (
-              <FetchBrainCortexDirectory
-                snapshot={snapshot}
-                theme={theme}
-                glowRgb={glowRgb}
-                focusedMemoryId={focusedMemoryId}
-                onFocusedMemoryIdChange={onFocusedMemoryIdChange}
-                onCortexSpreadChange={setCortexSpread01}
-              />
-            )}
-
-            {brainViewMode === 'cortex' && lastAssistantLine ? (
-              <div
-                className={[
-                  'pointer-events-none absolute inset-x-0 bottom-0 z-[6] px-4 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-3',
-                  isLight
-                    ? 'bg-gradient-to-t from-white/55 to-transparent'
-                    : 'bg-gradient-to-t from-black/45 to-transparent',
-                ].join(' ')}
-              >
-                <p className="mx-auto max-w-lg text-center text-[11px] font-medium leading-snug opacity-80 [text-wrap:pretty]">
-                  {lastAssistantLine}
-                </p>
-              </div>
-            ) : null}
-          </div>
+        {fieldPlaces ? (
+          <FetchBrainFieldPanel
+            theme={theme}
+            glowRgb={glowRgb}
+            title={fieldPlaces.title}
+            introLine={fieldPlaces.introLine}
+            items={fieldPlaces.items}
+            assistantLine={fieldPanelOpen ? lastAssistantLine : null}
+            onClose={() => onDismissFieldPlaces?.()}
+            onOpenMaps={onFieldPlaceOpenMaps}
+            onPlaceLiked={onFieldPlaceLiked}
+            onPlaceDisliked={onFieldPlacePass}
+          />
         ) : null}
       </div>
 
       <div className="pointer-events-none fixed left-[max(1rem,env(safe-area-inset-left))] top-[max(0.75rem,env(safe-area-inset-top))] z-[6] flex flex-wrap items-center gap-2">
-        <div
-          className={[
-            'pointer-events-auto flex h-11 items-center rounded-full p-0.5',
-            isLight ? 'bg-black/[0.08]' : 'bg-white/[0.1]',
-          ].join(' ')}
-          role="group"
-          aria-label="Brain view mode"
-        >
-          <button
-            type="button"
-            onClick={() => onBrainViewModeChange('field')}
-            aria-pressed={brainViewMode === 'field'}
-            className={[
-              'rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors',
-              brainViewMode === 'field'
-                ? isLight
-                  ? 'bg-[rgba(var(--brain-glow),0.22)] text-neutral-900 shadow-[inset_0_0_0_1px_rgba(var(--brain-glow),0.32)]'
-                  : 'bg-[rgba(var(--brain-glow),0.42)] text-white'
-                : isLight
-                  ? 'text-neutral-600'
-                  : 'text-white/75',
-            ].join(' ')}
-          >
-            Field
-          </button>
-          <button
-            type="button"
-            onClick={() => onBrainViewModeChange('cortex')}
-            aria-pressed={brainViewMode === 'cortex'}
-            className={[
-              'rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] transition-colors',
-              brainViewMode === 'cortex'
-                ? isLight
-                  ? 'bg-[rgba(var(--brain-glow),0.22)] text-neutral-900 shadow-[inset_0_0_0_1px_rgba(var(--brain-glow),0.32)]'
-                  : 'bg-[rgba(var(--brain-glow),0.42)] text-white'
-                : isLight
-                  ? 'text-neutral-600'
-                  : 'text-white/75',
-            ].join(' ')}
-          >
-            Cortex
-          </button>
-        </div>
         {onBrainPhotoSelected ? (
           <>
             <label
@@ -599,6 +550,65 @@ export function FetchBrainMemoryOverlay({
       >
         ×
       </button>
+
+      {typeof document !== 'undefined' &&
+      memoriesSheetOpen &&
+      snapshot &&
+      onMemoriesSheetClose
+        ? createPortal(
+            <div className="fixed inset-0 z-[80]">
+              <button
+                type="button"
+                className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+                aria-label="Close memories"
+                onClick={onMemoriesSheetClose}
+              />
+              <div
+                className={[
+                  'absolute inset-x-0 bottom-0 top-[16%] flex flex-col overflow-hidden rounded-t-[24px] border shadow-[0_-20px_60px_rgba(0,0,0,0.35)]',
+                  isLight
+                    ? 'border-black/10 bg-white/96 text-neutral-900'
+                    : 'border-white/10 bg-[rgba(10,12,18,0.98)] text-white',
+                ].join(' ')}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="fetch-brain-memories-title"
+              >
+                <div
+                  className={[
+                    'flex shrink-0 items-center justify-between border-b px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]',
+                    isLight ? 'border-black/10' : 'border-white/10',
+                  ].join(' ')}
+                >
+                  <p id="fetch-brain-memories-title" className="text-[15px] font-semibold tracking-[-0.02em]">
+                    Memories
+                  </p>
+                  <button
+                    type="button"
+                    onClick={onMemoriesSheetClose}
+                    className={[
+                      'rounded-full px-3 py-1.5 text-[13px] font-semibold',
+                      isLight ? 'bg-black/[0.06] text-neutral-700' : 'bg-white/10 text-white/85',
+                    ].join(' ')}
+                  >
+                    Close
+                  </button>
+                </div>
+                <div className="relative min-h-0 flex-1">
+                  <FetchBrainCortexDirectory
+                    snapshot={snapshot}
+                    theme={theme}
+                    glowRgb={glowRgb}
+                    focusedMemoryId={focusedMemoryId}
+                    onFocusedMemoryIdChange={onFocusedMemoryIdChange}
+                    onCortexSpreadChange={() => {}}
+                  />
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   )
 }

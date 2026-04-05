@@ -3,12 +3,18 @@ import type { HardwareProduct } from '../lib/hardwareCatalog'
 export type FetchHomeSideMenuProps = {
   open: boolean
   onClose: () => void
+  /** Header title (default: Menu). */
+  menuTitle?: string
   onAccount?: () => void
+  /** e.g. Back to home — shown before Account when set. */
+  primaryNav?: { label: string; onClick: () => void }
   onHelp: () => void
   onActivity?: () => void
   onAlerts?: () => void
   onLegal?: () => void
   alertsUnreadCount?: number
+  /** When false, hides the hardware carousel (driver / minimal menus). */
+  showHardwareRail?: boolean
   products: readonly HardwareProduct[]
   onProductView: (product: HardwareProduct) => void
 }
@@ -27,12 +33,15 @@ function previewGradient(style: HardwareProduct['previewStyle']) {
 export function FetchHomeSideMenu({
   open,
   onClose,
+  menuTitle = 'Menu',
   onAccount,
+  primaryNav,
   onHelp,
   onActivity,
   onAlerts,
   onLegal,
   alertsUnreadCount = 0,
+  showHardwareRail = true,
   products,
   onProductView,
 }: FetchHomeSideMenuProps) {
@@ -51,7 +60,7 @@ export function FetchHomeSideMenu({
           id="fetch-home-map-side-menu-title"
           className="text-[15px] font-semibold tracking-[-0.02em] text-white/[0.94]"
         >
-          Menu
+          {menuTitle}
         </h2>
         <button
           type="button"
@@ -63,6 +72,18 @@ export function FetchHomeSideMenu({
       </div>
 
       <nav className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden p-3 pb-2">
+        {primaryNav ? (
+          <button
+            type="button"
+            className="rounded-xl px-4 py-3 text-left text-[14px] font-medium text-white/[0.9] transition-colors hover:bg-white/[0.06]"
+            onClick={() => {
+              onClose()
+              primaryNav.onClick()
+            }}
+          >
+            {primaryNav.label}
+          </button>
+        ) : null}
         {onAccount ? (
           <button
             type="button"
@@ -128,6 +149,7 @@ export function FetchHomeSideMenu({
         ) : null}
       </nav>
 
+      {showHardwareRail ? (
       <div
         className="shrink-0 border-t border-white/[0.08] px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3"
         role="region"
@@ -183,6 +205,7 @@ export function FetchHomeSideMenu({
           ))}
         </div>
       </div>
+      ) : null}
     </aside>
   )
 }

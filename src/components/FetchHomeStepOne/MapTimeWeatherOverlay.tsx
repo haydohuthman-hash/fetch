@@ -68,6 +68,10 @@ type MapTimeWeatherOverlayProps = {
   onMenuAccount?: () => void
   /** Touch-panel catalog for the menu rail (defaults to `HARDWARE_PRODUCTS`). */
   hardwareProducts?: readonly HardwareProduct[]
+  /** Driver dashboard: slim menu + help copy; use with `onDriverExit`. */
+  overlayContext?: 'home' | 'driver'
+  /** Leave driver mode (e.g. return to customer home). */
+  onDriverExit?: () => void
 }
 
 function HamburgerIcon({ className = '' }: { className?: string }) {
@@ -94,7 +98,10 @@ function MapTimeWeatherOverlayInner({
   navStrip = null,
   onMenuAccount,
   hardwareProducts = HARDWARE_PRODUCTS,
+  overlayContext = 'home',
+  onDriverExit,
 }: MapTimeWeatherOverlayProps) {
+  const isDriver = overlayContext === 'driver'
   const [coords, setCoords] = useState<{ lat: number; lng: number }>(() => ({
     lat: BRISBANE_CENTER.lat,
     lng: BRISBANE_CENTER.lng,
@@ -445,7 +452,7 @@ function MapTimeWeatherOverlayInner({
 
       {typeof document !== 'undefined' && sideMenuOpen
         ? createPortal(
-            <div className="fetch-home-map-menu-root fixed inset-0 z-[56]">
+            <div className="fetch-home-map-menu-root fixed inset-0 z-[72]">
               <button
                 type="button"
                 className="absolute inset-0 bg-black/40 backdrop-blur-md transition-opacity"
@@ -455,12 +462,22 @@ function MapTimeWeatherOverlayInner({
               <FetchHomeSideMenu
                 open
                 onClose={() => setSideMenuOpen(false)}
-                onAccount={onMenuAccount}
-                onHelp={() => setHelpOpen(true)}
-                onActivity={() => setFeedPanel('activity')}
-                onAlerts={() => setFeedPanel('alerts')}
-                onLegal={() => setLegalOpen(true)}
+                menuTitle={isDriver ? 'Driver' : undefined}
+                primaryNav={
+                  isDriver && onDriverExit
+                    ? { label: 'Back to home', onClick: onDriverExit }
+                    : undefined
+                }
+                onAccount={isDriver ? undefined : onMenuAccount}
+                onHelp={() => {
+                  setSideMenuOpen(false)
+                  setHelpOpen(true)
+                }}
+                onActivity={isDriver ? undefined : () => setFeedPanel('activity')}
+                onAlerts={isDriver ? undefined : () => setFeedPanel('alerts')}
+                onLegal={isDriver ? undefined : () => setLegalOpen(true)}
                 alertsUnreadCount={alertsUnreadMenu}
+                showHardwareRail={!isDriver}
                 products={hardwareProducts}
                 onProductView={(p) => setHardwareProduct(p)}
               />
@@ -491,9 +508,19 @@ function MapTimeWeatherOverlayInner({
                   Quick tips
                 </h2>
                 <ul className="mt-3 list-disc space-y-2 pl-4 text-[13px] leading-relaxed text-white/[0.78]">
-                  <li>Tap the orb to talk or type what you need.</li>
-                  <li>Drag the sheet up for services, maps, and booking.</li>
-                  <li>Use the menu for account and this help panel.</li>
+                  {isDriver ? (
+                    <>
+                      <li>Open the sheet to see incoming jobs and your active run.</li>
+                      <li>Tap a job to preview it on the map, then accept when you are ready.</li>
+                      <li>Use Mark status to move through en route, arrived, and completed.</li>
+                    </>
+                  ) : (
+                    <>
+                      <li>Tap the orb to talk or type what you need.</li>
+                      <li>Drag the sheet up for services, maps, and booking.</li>
+                      <li>Use the menu for account and this help panel.</li>
+                    </>
+                  )}
                 </ul>
                 <button
                   type="button"

@@ -497,25 +497,6 @@ export function FetchHomeBookingSheet({
             }
           >
             <span className="fetch-home-booking-sheet__handle-bar" aria-hidden />
-            {snap !== 'full' ? (
-              <span className="fetch-home-booking-sheet__drag-hint-up" aria-hidden>
-                <svg
-                  width="20"
-                  height="11"
-                  viewBox="0 0 20 11"
-                  fill="none"
-                  className="fetch-home-booking-sheet__drag-hint-up-svg"
-                >
-                  <path
-                    d="M4 10 10 4 16 10 M4 7 10 1 16 7"
-                    stroke="currentColor"
-                    strokeWidth="1.75"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </span>
-            ) : null}
           </button>
         </div>
 

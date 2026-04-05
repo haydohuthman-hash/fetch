@@ -220,7 +220,7 @@ export function buildFetchBrainGraph(input: {
     const accHub: BrainNode = {
       id: 'hub-account',
       kind: 'hub',
-      label: 'Memory cortex',
+      label: 'Memories',
       subtitle: 'Account intel',
       body: clamp(
         `${snap.activityCount} activities · ${snap.alertCount} alerts (${snap.unreadAlertCount} unread) · ${snap.savedAddressCount} saved places.`,

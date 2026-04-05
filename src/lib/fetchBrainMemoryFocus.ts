@@ -32,7 +32,7 @@ export function resolveMemoryFocus(
   if (!u) return null
 
   const openish =
-    /\b(open|show|display|go to|jump to|scroll to|memory|cortex|recall|what was)\b/.test(u)
+    /\b(open|show|display|go to|jump to|scroll to|memory|recall|what was)\b/.test(u)
   if (!openish && !/\b(last|latest|recent|my)\b/.test(u)) {
     // Still allow strong keyword-only matches below
   }
@@ -91,7 +91,7 @@ export function resolveMemoryFocus(
   }
 
   const wantsOpen =
-    /\b(open|show|display|go to|jump to|scroll to|memory cortex|that memory|this memory|recall)\b/.test(
+    /\b(open|show|display|go to|jump to|scroll to|memories|that memory|this memory|recall)\b/.test(
       u,
     )
   if (wantsOpen) {

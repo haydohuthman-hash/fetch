@@ -25,6 +25,8 @@ export type FetchAiChatClientContext = {
   userMemory?: string
   /** Fetch Brain only: compact local spend/mileage/activity stats (server appends to system context). */
   brainAccountIntel?: string
+  /** Fetch Brain: recent place likes/mentions from local learning store. */
+  brainLearningMemory?: string
   /** Map explore sheet: vetted nearby place list for the model (server may append). */
   nearbyExploreSummary?: string
 }

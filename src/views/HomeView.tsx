@@ -17,10 +17,8 @@ import {
 import { FetchBrainMemoryOverlay } from '../components/FetchBrainMemoryOverlay'
 import { FetchHomeStepOne } from '../components/FetchHomeStepOne'
 import { BRISBANE_CENTER } from '../components/FetchHomeStepOne/brisbaneMap'
-import {
-  PlacesAddressAutocomplete,
-  type ResolvedPlace,
-} from '../components/FetchHomeStepOne/PlacesAddressAutocomplete'
+import { PlacesAddressGeocodeField } from '../components/FetchHomeStepOne/PlacesAddressGeocodeField'
+import type { ResolvedPlace } from '../components/FetchHomeStepOne/PlacesAddressAutocomplete'
 import type { FetchOrbExpression } from '../components/JarvisNeuralOrb'
 import { FetchVoiceCommandFab } from '../components/FetchVoiceCommandFab'
 import { FetchSpeechBottomGlow } from '../components/FetchHomeFloatingChrome'
@@ -53,7 +51,8 @@ import {
 } from '../lib/fetchBrainAccountSnapshot'
 import { buildFetchBrainGraph } from '../lib/fetchBrainGraph'
 import { resolveMemoryFocus } from '../lib/fetchBrainMemoryFocus'
-import { FetchSoundWaveBars } from '../components/FetchSoundWaveBars'
+import { appendBrainLearningEvent, buildFetchBrainLearningContext } from '../lib/fetchBrainLearningStore'
+import { detectBrainRestaurantIntent } from '../lib/fetchBrainPlacesIntent'
 import {
   applyDirectionsToBookingState,
   applyLaborDetailsFromSheet,
@@ -104,9 +103,11 @@ import {
 import type { FetchBrainMindState } from '../lib/fetchBrainParticles'
 import { buildFetchUserMemoryContext } from '../lib/fetchUserMemoryContext'
 import {
+  fetchBrainNearbyRestaurants,
   fetchPlaceDetailsForMystery,
   pickRandomMysteryPoi,
   runAdventureNearbyBatch,
+  type BrainFieldPlaceCard,
   type ExploreMapPoi,
   type MysteryPlaceBundle,
 } from '../lib/mapsExplorePlaces'
@@ -175,7 +176,14 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
   const [brainSurfaceSpeaking, setBrainSurfaceSpeaking] = useState(false)
   const [brainConvRevision, setBrainConvRevision] = useState(0)
   const [homeActivityTick, setHomeActivityTick] = useState(0)
-  const [brainViewMode, setBrainViewMode] = useState<'field' | 'cortex'>('field')
+  const [brainFieldPlaces, setBrainFieldPlaces] = useState<{
+    title: string
+    introLine?: string
+    items: BrainFieldPlaceCard[]
+  } | null>(null)
+  const [brainPlacesLoading, setBrainPlacesLoading] = useState(false)
+  const [brainMemoriesSheetOpen, setBrainMemoriesSheetOpen] = useState(false)
+  const brainPlacesAbortRef = useRef<AbortController | null>(null)
   const [brainFocusedMemoryId, setBrainFocusedMemoryId] = useState<string | null>(null)
   const [brainAccountSnapshot, setBrainAccountSnapshot] = useState<BrainAccountSnapshot | null>(null)
   const [sheetGestureActive, setSheetGestureActive] = useState(false)
@@ -231,7 +239,6 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
   const [bookNowBusy, setBookNowBusy] = useState(false)
   const [bookNowError, setBookNowError] = useState<string | null>(null)
   const [intentPlaceSuggestionsOpen, setIntentPlaceSuggestionsOpen] = useState(false)
-  const [addressPacSuggestionsOpen, setAddressPacSuggestionsOpen] = useState(false)
   const [driverLegPath, setDriverLegPath] = useState<google.maps.LatLngLiteral[] | null>(null)
   const [driverLegEtaSeconds, setDriverLegEtaSeconds] = useState<number | null>(null)
   const [driverLegTrafficDelaySeconds, setDriverLegTrafficDelaySeconds] = useState<number | null>(
@@ -489,6 +496,8 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
     stopAssistantPlayback()
     brainAbortRef.current?.abort()
     brainAbortRef.current = null
+    brainPlacesAbortRef.current?.abort()
+    brainPlacesAbortRef.current = null
     setBrainSttListening(false)
     setBrainLastReply(null)
     setBrainAiPending(false)
@@ -496,14 +505,18 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
     clearBrainVisual()
     setHomeBrainFlow(null)
     setBrainSkipReveal(false)
-    setBrainViewMode('field')
     setBrainFocusedMemoryId(null)
+    setBrainFieldPlaces(null)
+    setBrainPlacesLoading(false)
+    setBrainMemoriesSheetOpen(false)
   }, [clearBrainVisual, stopAssistantPlayback])
 
   useEffect(() => {
     if (homeBrainFlow == null) {
-      setBrainViewMode('field')
       setBrainFocusedMemoryId(null)
+      setBrainFieldPlaces(null)
+      setBrainPlacesLoading(false)
+      setBrainMemoriesSheetOpen(false)
     }
   }, [homeBrainFlow])
 
@@ -1227,7 +1240,6 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
     setBookingState(createInitialBookingState())
     setMapAttention('none')
     setIntentPlaceSuggestionsOpen(false)
-    setAddressPacSuggestionsOpen(false)
     setDriverLegPath(null)
     setDriverLegEtaSeconds(null)
     setDriverLegTrafficDelaySeconds(null)
@@ -1254,6 +1266,8 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
       const trimmed = text.trim()
       if (!trimmed) return
       brainAbortRef.current?.abort()
+      brainPlacesAbortRef.current?.abort()
+      brainPlacesAbortRef.current = null
       const ac = new AbortController()
       brainAbortRef.current = ac
 
@@ -1267,9 +1281,9 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
       })
       const memFocus = resolveMemoryFocus(trimmed, preSnap.catalog)
       if (memFocus) {
-        setBrainViewMode('cortex')
+        setBrainMemoriesSheetOpen(true)
         setBrainFocusedMemoryId(memFocus.focusId)
-        void speakLine('Opening that memory.', {
+        void speakLine('Opening your memories.', {
           debounceKey: 'brain_mem_focus',
           debounceMs: 3500,
         })
@@ -1285,6 +1299,50 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
         brainChatLines: toCatalogLines(brainConvRef.current),
       })
 
+      const wantRestaurants = detectBrainRestaurantIntent(trimmed)
+      let placesSummaryBlock = ''
+      if (wantRestaurants) {
+        const pac = new AbortController()
+        brainPlacesAbortRef.current = pac
+        if (!mapsJsReady || !mapPlacesSvcRef.current || userMapLocation == null) {
+          void speakLine(
+            'Turn on location and wait for the map to finish loading so I can search nearby restaurants.',
+            {
+              debounceKey: 'brain_places_need_loc',
+              debounceMs: 4500,
+            },
+          )
+        } else {
+          setBrainPlacesLoading(true)
+          try {
+            const cards = await fetchBrainNearbyRestaurants(mapPlacesSvcRef.current, userMapLocation, {
+              signal: pac.signal,
+              maxResults: 10,
+              detailEnrichCount: 3,
+            })
+            if (!pac.signal.aborted) {
+              setBrainFieldPlaces({
+                title: 'Restaurants near you',
+                introLine:
+                  cards.length > 0
+                    ? 'Here are up to 10 restaurants from Google Maps, sorted by rating.'
+                    : 'No restaurants matched nearby.',
+                items: cards,
+              })
+              if (cards.length) {
+                placesSummaryBlock = cards
+                  .map((p, i) => `${i + 1}. ${p.title} — ${p.summary}`)
+                  .join('\n')
+                  .slice(0, 1600)
+              }
+            }
+          } finally {
+            if (brainPlacesAbortRef.current === pac) brainPlacesAbortRef.current = null
+            setBrainPlacesLoading(false)
+          }
+        }
+      }
+
       const perfRunId = fetchPerfIsEnabled() ? createPerfRunId('fetch_ai_brain') : undefined
       if (perfRunId) fetchPerfMark(perfRunId, '1_user_action', { surface: 'fetch_brain' })
 
@@ -1294,6 +1352,7 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
             ? { latitude: userMapLocation.lat, longitude: userMapLocation.lng }
             : undefined
         const mem = buildFetchUserMemoryContext()
+        const learn = buildFetchBrainLearningContext()
         setBrainAiPending(true)
         const { reply, navigation, perfTiming } = await postFetchAiChat(messages, {
           signal: ac.signal,
@@ -1303,6 +1362,8 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
             ...(geo ? geo : {}),
             ...(mem ? { userMemory: mem } : {}),
             brainAccountIntel: buildBrainAccountIntelForAi(intelSnap),
+            ...(learn ? { brainLearningMemory: learn } : {}),
+            ...(placesSummaryBlock ? { nearbyExploreSummary: placesSummaryBlock } : {}),
           },
           perfRunId,
         })
@@ -1345,8 +1406,39 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
         if (brainAbortRef.current === ac) brainAbortRef.current = null
       }
     },
-    [applyChatNavigation, playUiEvent, speakLine, userMapLocation],
+    [applyChatNavigation, mapsJsReady, playUiEvent, speakLine, userMapLocation],
   )
+
+  const dismissBrainFieldPlaces = useCallback(() => setBrainFieldPlaces(null), [])
+
+  const onBrainFieldPlaceMaps = useCallback((card: BrainFieldPlaceCard) => {
+    window.open(card.mapsUrl, '_blank', 'noopener,noreferrer')
+  }, [])
+
+  const onBrainFieldPlaceLiked = useCallback(
+    (card: BrainFieldPlaceCard) => {
+      appendBrainLearningEvent({
+        kind: 'place_opinion',
+        placeId: card.placeId,
+        name: card.title,
+        rating: 1,
+      })
+      void speakLine("Noted — I'll remember you liked this one.", {
+        debounceKey: 'brain_place_like',
+        debounceMs: 3000,
+      })
+    },
+    [speakLine],
+  )
+
+  const onBrainFieldPlacePass = useCallback((card: BrainFieldPlaceCard) => {
+    appendBrainLearningEvent({
+      kind: 'place_opinion',
+      placeId: card.placeId,
+      name: card.title,
+      rating: -1,
+    })
+  }, [])
 
   const exitChatNavigation = useCallback(() => {
     setChatNavRoute(null)
@@ -2182,8 +2274,9 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
             ? 'Where to clean'
             : 'Pickup location'
       const body = !mapsApiKey
-        ? 'Add a Google Maps API key to search addresses.'
-        : bookingState.currentQuestion ?? 'Search for a verified address.'
+        ? 'Add a Google Maps API key to use addresses.'
+        : bookingState.currentQuestion ??
+          'Type your full address and confirm — no suggestions while you type.'
       const core = `${title}\n${body}`
       return servicePersonalityLine?.trim()
         ? `${servicePersonalityLine.trim()}\n\n${core}`
@@ -2191,7 +2284,7 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
     }
     if (showDropoff) {
       if (!mapsApiKey) {
-        return `Drop-off location\nAdd a Google Maps API key to search addresses.`
+        return `Drop-off location\nAdd a Google Maps API key to use addresses.`
       }
       return `Drop-off location\n${bookingState.currentQuestion ?? 'Where should we deliver?'}`
     }
@@ -2400,15 +2493,14 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
     if (sheetGestureActive) return
     const suggestionsWantFull =
       (homeShellTab === 'maps' && mapsExploreAddressExpanded) ||
-      (showIntent && intentPlaceSuggestionsOpen) ||
-      ((showPickup || showDropoff) && addressPacSuggestionsOpen)
+      (showIntent && intentPlaceSuggestionsOpen)
     if (suggestionsWantFull) {
       setSheetSnap('full')
       return
     }
     if (homeShellTab === 'maps') return
     if (showIntent && !intentPlaceSuggestionsOpen) setSheetSnap('compact')
-    if ((showPickup || showDropoff) && !addressPacSuggestionsOpen) setSheetSnap('half')
+    if (showPickup || showDropoff) setSheetSnap('half')
   }, [
     sheetGestureActive,
     homeShellTab,
@@ -2417,7 +2509,6 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
     showPickup,
     showDropoff,
     intentPlaceSuggestionsOpen,
-    addressPacSuggestionsOpen,
   ])
 
   const onPeekHomeClick = useCallback(() => {
@@ -3000,7 +3091,8 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
                 </button>
               </div>
               <p className="mt-1.5 max-w-[18rem] text-[12px] font-medium leading-snug tracking-[-0.01em] text-fetch-muted/90 [text-wrap:pretty]">
-                {bookingState.currentQuestion ?? 'Search for a verified address.'}
+                {bookingState.currentQuestion ??
+                  'Type your full address, then confirm — no address suggestions while you type.'}
               </p>
               {savedAddresses.length > 0 ? (
                 <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Saved places">
@@ -3017,24 +3109,23 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
                 </div>
               ) : null}
               {mapsApiKey ? (
-                <PlacesAddressAutocomplete
+                <PlacesAddressGeocodeField
                   key="pickup"
                   apiKey={mapsApiKey}
                   field="pickup"
                   placeholder={
                     jobType === 'helper'
-                      ? 'Search address for this job'
+                      ? 'Enter address for this job'
                       : jobType === 'cleaning'
-                        ? 'Search address to clean'
-                        : 'Search pickup address'
+                        ? 'Enter address to clean'
+                        : 'Enter pickup address'
                   }
                   autoFocus
                   onResolved={onPickupResolved}
-                  onSuggestionsOpenChange={setAddressPacSuggestionsOpen}
                   className={inputClass}
                 />
               ) : (
-                <p className="mt-2 text-[12px] text-fetch-muted">Add a Google Maps API key to search addresses.</p>
+                <p className="mt-2 text-[12px] text-fetch-muted">Add a Google Maps API key to use addresses.</p>
               )}
             </>
           ) : null}
@@ -3071,18 +3162,17 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
                 </div>
               ) : null}
               {mapsApiKey ? (
-                <PlacesAddressAutocomplete
+                <PlacesAddressGeocodeField
                   key="dropoff"
                   apiKey={mapsApiKey}
                   field="dropoff"
-                  placeholder="Search drop-off address"
+                  placeholder="Enter drop-off address"
                   autoFocus
                   onResolved={onDropoffResolved}
-                  onSuggestionsOpenChange={setAddressPacSuggestionsOpen}
                   className={inputClass}
                 />
               ) : (
-                <p className="mt-2 text-[12px] text-fetch-muted">Add a Google Maps API key to search addresses.</p>
+                <p className="mt-2 text-[12px] text-fetch-muted">Add a Google Maps API key to use addresses.</p>
               )}
             </>
           ) : null}
@@ -3608,13 +3698,6 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
                 <p className="min-w-0 whitespace-pre-line text-left text-[12px] font-medium leading-snug [text-wrap:pretty]">
                   {turn.text}
                 </p>
-                {turn.role === 'assistant' &&
-                isSpeechPlaying &&
-                index === lastAssistantTurnIndex ? (
-                  <div className="mt-2 flex justify-end border-t border-white/10 pt-2">
-                    <FetchSoundWaveBars active />
-                  </div>
-                ) : null}
               </div>
             ))}
           </div>
@@ -3651,15 +3734,7 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
                 <p className="min-w-0 flex-1 whitespace-pre-line text-left text-[12px] font-medium leading-snug text-white/92 [text-wrap:pretty]">
                   {orbEphemeralBubble}
                 </p>
-                <div className="shrink-0 pt-0.5">
-                  <FetchSoundWaveBars active={isSpeechPlaying} />
-                </div>
               </div>
-            </div>
-          ) : null}
-          {isSpeechPlaying && lastAssistantTurnIndex < 0 && !orbEphemeralBubble ? (
-            <div className="fetch-home-orb-floating-waves pointer-events-none mb-1 flex h-8 items-center justify-center">
-              <FetchSoundWaveBars active />
             </div>
           ) : null}
           <div
@@ -3721,20 +3796,32 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
           onClearVisual={clearBrainVisual}
           snapshot={brainAccountSnapshot}
           brainGraphNodes={brainGraphNodes}
-          brainViewMode={brainViewMode}
-          onBrainViewModeChange={setBrainViewMode}
           focusedMemoryId={brainFocusedMemoryId}
           onFocusedMemoryIdChange={setBrainFocusedMemoryId}
+          fieldPlaces={brainFieldPlaces}
+          onDismissFieldPlaces={dismissBrainFieldPlaces}
+          onFieldPlaceOpenMaps={onBrainFieldPlaceMaps}
+          onFieldPlaceLiked={onBrainFieldPlaceLiked}
+          onFieldPlacePass={onBrainFieldPlacePass}
+          memoriesSheetOpen={brainMemoriesSheetOpen}
+          onMemoriesSheetClose={() => setBrainMemoriesSheetOpen(false)}
           thinkingUi={
-            brainAiPending
+            brainPlacesLoading
               ? {
                   show: true,
-                  title: 'Fetch is thinking…',
-                  subtitle: 'Building the best plan for your move',
-                  feedback:
-                    "I'll find the best options, estimate your cost, and keep you moving.",
+                  title: 'Fetch is finding places…',
+                  subtitle: 'Live from Google Maps',
+                  feedback: 'Pulling restaurants near your location.',
                 }
-              : null
+              : brainAiPending
+                ? {
+                    show: true,
+                    title: 'Fetch is thinking…',
+                    subtitle: 'Building the best plan for your move',
+                    feedback:
+                      "I'll find the best options, estimate your cost, and keep you moving.",
+                  }
+                : null
           }
         />
       ) : null}

@@ -52,6 +52,13 @@ function App() {
     setPhase('home')
   }, [])
 
+  const openDriverDashboard = useCallback(() => {
+    const url = new URL(window.location.href)
+    url.searchParams.set('driver', '1')
+    window.history.replaceState({}, '', `${url.pathname}${url.search}`)
+    setPhase('driver')
+  }, [])
+
   useEffect(() => {
     if (phase !== 'splash') return
     const readyTimer = window.setTimeout(() => setPhase('home'), SPLASH_MS)
@@ -87,6 +94,7 @@ function App() {
               <AccountScreen
                 onBack={() => setPhase('home')}
                 onSignOut={() => setPhase('home')}
+                onOpenDriver={openDriverDashboard}
               />
             </Suspense>
           )}

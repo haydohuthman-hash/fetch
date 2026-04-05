@@ -388,3 +388,193 @@ export function buildNearbyExploreSummary(
   }
   return lines.join('\n').slice(0, 1600)
 }
+
+/** Enriched row for Fetch Brain field panel (nearby restaurants). */
+export type BrainFieldPlaceCard = {
+  id: string
+  placeId: string
+  title: string
+  lat: number
+  lng: number
+  vicinity?: string
+  formattedAddress?: string
+  rating?: number
+  userRatingsTotal?: number
+  priceLevel?: number
+  openNow?: boolean
+  summary: string
+  distanceMeters?: number
+  mapsUrl: string
+}
+
+function brainMapsUrl(lat: number, lng: number, placeId: string) {
+  const q = encodeURIComponent(`${lat},${lng}`)
+  return `https://www.google.com/maps/search/?api=1&query=${q}&query_place_id=${encodeURIComponent(placeId)}`
+}
+
+function nearbyResultToBrainCard(
+  p: google.maps.places.PlaceResult,
+  origin: google.maps.LatLngLiteral,
+): BrainFieldPlaceCard | null {
+  const loc = p.geometry?.location
+  const pid = p.place_id
+  if (!loc || !pid) return null
+  const lat = loc.lat()
+  const lng = loc.lng()
+  const title = (p.name && p.name.trim()) || 'Restaurant'
+  const dist = haversineMeters(origin, { lat, lng })
+  const bits: string[] = []
+  if (p.vicinity) bits.push(p.vicinity)
+  if (p.rating != null) bits.push(`${p.rating.toFixed(1)}★`)
+  if (p.price_level != null && p.price_level > 0) {
+    bits.push('$'.repeat(Math.min(4, p.price_level)))
+  }
+  if (p.opening_hours?.open_now != null) {
+    bits.push(p.opening_hours.open_now ? 'Open now' : 'Closed')
+  }
+  return {
+    id: pid,
+    placeId: pid,
+    title: title.slice(0, 120),
+    lat,
+    lng,
+    vicinity: p.vicinity,
+    rating: p.rating,
+    userRatingsTotal: p.user_ratings_total,
+    priceLevel: p.price_level ?? undefined,
+    openNow: p.opening_hours?.open_now,
+    summary: bits.join(' · ').slice(0, 220),
+    distanceMeters: dist,
+    mapsUrl: brainMapsUrl(lat, lng, pid),
+  }
+}
+
+function enrichBrainPlaceCardDetails(
+  service: google.maps.places.PlacesService,
+  card: BrainFieldPlaceCard,
+  signal?: AbortSignal,
+): Promise<BrainFieldPlaceCard> {
+  if (typeof google === 'undefined') return Promise.resolve(card)
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve(card)
+      return
+    }
+    service.getDetails(
+      {
+        placeId: card.placeId,
+        fields: [
+          'place_id',
+          'name',
+          'formatted_address',
+          'vicinity',
+          'rating',
+          'user_ratings_total',
+          'price_level',
+          'opening_hours',
+          'types',
+        ],
+      },
+      (place, status) => {
+        if (signal?.aborted) {
+          resolve(card)
+          return
+        }
+        if (status !== google.maps.places.PlacesServiceStatus.OK || !place) {
+          resolve(card)
+          return
+        }
+        const types = (place.types ?? [])
+          .filter((t) => !['point_of_interest', 'establishment'].includes(t))
+          .slice(0, 4)
+          .join(', ')
+        const addr = place.formatted_address ?? place.vicinity ?? card.vicinity
+        const head = [card.rating != null ? `${card.rating.toFixed(1)}★` : null, types || null]
+          .filter(Boolean)
+          .join(' · ')
+        const summary = [head, addr].filter(Boolean).join(' — ').slice(0, 360)
+        resolve({
+          ...card,
+          formattedAddress: place.formatted_address ?? card.formattedAddress,
+          vicinity: place.vicinity ?? card.vicinity,
+          rating: place.rating ?? card.rating,
+          userRatingsTotal: place.user_ratings_total ?? card.userRatingsTotal,
+          priceLevel: place.price_level ?? card.priceLevel,
+          openNow: place.opening_hours?.open_now ?? card.openNow,
+          summary: summary || card.summary,
+        })
+      },
+    )
+  })
+}
+
+/**
+ * Nearby restaurants for Brain field — caps 10, enriches first rows with Place Details (sequential).
+ */
+export async function fetchBrainNearbyRestaurants(
+  service: google.maps.places.PlacesService,
+  location: google.maps.LatLngLiteral,
+  opts: {
+    radiusMeters?: number
+    maxResults?: number
+    detailEnrichCount?: number
+    signal?: AbortSignal
+  } = {},
+): Promise<BrainFieldPlaceCard[]> {
+  if (typeof google === 'undefined') return []
+  const radiusMeters = opts.radiusMeters ?? MAPS_EXPLORE_NEARBY_RADIUS_M
+  const maxResults = Math.max(1, Math.min(10, opts.maxResults ?? 10))
+  const detailEnrichCount = Math.max(0, Math.min(3, opts.detailEnrichCount ?? 3))
+  const signal = opts.signal
+
+  const raw = await new Promise<google.maps.places.PlaceResult[]>((resolve) => {
+    if (signal?.aborted) {
+      resolve([])
+      return
+    }
+    service.nearbySearch(
+      { location, radius: radiusMeters, type: 'restaurant' },
+      (results, status) => {
+        if (signal?.aborted) {
+          resolve([])
+          return
+        }
+        if (status !== google.maps.places.PlacesServiceStatus.OK || !results?.length) {
+          resolve([])
+          return
+        }
+        resolve([...results])
+      },
+    )
+  })
+
+  if (signal?.aborted) return []
+
+  const cards: BrainFieldPlaceCard[] = []
+  for (const r of raw) {
+    const c = nearbyResultToBrainCard(r, location)
+    if (c) cards.push(c)
+  }
+
+  cards.sort((a, b) => {
+    const ra = a.rating ?? 0
+    const rb = b.rating ?? 0
+    if (rb !== ra) return rb - ra
+    return (a.distanceMeters ?? 0) - (b.distanceMeters ?? 0)
+  })
+
+  const top = cards.slice(0, maxResults)
+  const out: BrainFieldPlaceCard[] = []
+
+  for (let i = 0; i < top.length; i += 1) {
+    if (signal?.aborted) break
+    const c = top[i]!
+    if (i < detailEnrichCount) {
+      out.push(await enrichBrainPlaceCardDetails(service, c, signal))
+    } else {
+      out.push(c)
+    }
+  }
+
+  return out
+}

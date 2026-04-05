@@ -51,6 +51,9 @@ export type FetchHomeStepOneProps = {
   onHomeMapMenuAccount?: () => void
   /** Map hamburger → hardware rail catalog (defaults from `hardwareCatalog` module). */
   homeMapHardwareCatalog?: readonly HardwareProduct[]
+  /** Driver dashboard map overlay (slim menu, help copy). */
+  mapOverlayContext?: 'home' | 'driver'
+  onDriverMapExit?: () => void
 }
 
 /**
@@ -80,6 +83,8 @@ function FetchHomeStepOneInner({
   droppedPinCoords = null,
   onHomeMapMenuAccount,
   homeMapHardwareCatalog,
+  mapOverlayContext = 'home',
+  onDriverMapExit,
 }: FetchHomeStepOneProps) {
   const [map, setMap] = useState<google.maps.Map | null>(null)
   const mapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ?? ''
@@ -162,6 +167,8 @@ function FetchHomeStepOneInner({
           navStrip={mapNavStrip}
           onMenuAccount={onHomeMapMenuAccount}
           hardwareProducts={homeMapHardwareCatalog}
+          overlayContext={mapOverlayContext}
+          onDriverExit={onDriverMapExit}
         />
       </div>
     </div>

@@ -21,6 +21,7 @@ import { useFetchTheme } from '../../theme/FetchThemeContext'
 export type AccountScreenProps = {
   onBack: () => void
   onSignOut: () => void
+  onOpenDriver: () => void
 }
 
 const shell =
@@ -38,7 +39,7 @@ const cardClass =
 const selectClass =
   'fetch-account-input rounded-2xl border border-white/12 bg-black/35 px-3 py-2.5 text-[13px] text-white outline-none ring-0 focus:border-emerald-400/50'
 
-export function AccountScreen({ onBack, onSignOut }: AccountScreenProps) {
+export function AccountScreen({ onBack, onSignOut, onOpenDriver }: AccountScreenProps) {
   const { preference, setPreference } = useFetchTheme()
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -232,6 +233,30 @@ export function AccountScreen({ onBack, onSignOut }: AccountScreenProps) {
           ))}
         </div>
       </details>
+
+      <section className={`${cardClass} fetch-account-panel mt-4`}>
+        <p className={fieldLabel}>Driver</p>
+        <p className="mt-1 text-[13px] text-white/45">
+          Switch to the demo driver dashboard to see incoming jobs, accept bookings, and simulate
+          pickup routes.
+        </p>
+        <button
+          type="button"
+          onClick={onOpenDriver}
+          aria-label="Open driver dashboard"
+          className="fetch-account-driver-switch mt-4 flex w-full cursor-pointer items-center justify-between gap-3 rounded-2xl border border-white/12 bg-white/[0.04] px-4 py-3 text-left transition-colors hover:border-emerald-400/35 hover:bg-white/[0.06]"
+        >
+          <span className="fetch-account-driver-switch-label text-[14px] font-semibold text-white/90">
+            Driver dashboard
+          </span>
+          <span
+            aria-hidden
+            className="relative inline-flex h-7 w-11 shrink-0 items-center rounded-full border border-emerald-400/30 bg-emerald-500/15 px-0.5 shadow-[inset_0_1px_2px_rgba(0,0,0,0.12)]"
+          >
+            <span className="h-[1.125rem] w-[1.125rem] translate-x-0 rounded-full bg-white/95 shadow-sm ring-1 ring-white/25" />
+          </span>
+        </button>
+      </section>
 
       <div className="mt-5">
         <p className="fetch-account-kicker text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-300/85">

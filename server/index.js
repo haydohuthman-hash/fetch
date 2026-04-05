@@ -613,6 +613,15 @@ function parseNearbyExploreSummary(body) {
   return t.length > 0 ? t.slice(0, 1600) : ''
 }
 
+function parseBrainLearningMemory(body) {
+  const ctx = body?.context
+  if (!ctx || typeof ctx !== 'object') return ''
+  const m = ctx.brainLearningMemory
+  if (typeof m !== 'string') return ''
+  const t = m.trim()
+  return t.length > 0 ? t.slice(0, 700) : ''
+}
+
 async function buildChatContextAppendix(body) {
   const { timeZone, lat, lon } = parseChatContext(body)
   const timeLine = `Current local time (user device timezone ${timeZone}): ${formatLocalContextTime(timeZone)}.`
@@ -633,9 +642,13 @@ async function buildChatContextAppendix(body) {
   const exploreBlock = exploreRaw
     ? `\n\nNearby places on the user map (trust this list only for location ideas; do not invent other venues or coordinates):\n${exploreRaw}`
     : ''
+  const learnRaw = parseBrainLearningMemory(body)
+  const learnBlock = learnRaw
+    ? `\n\nUser place memory (local device; trust recency; use for follow-ups like “you liked X last week”):\n${learnRaw}`
+    : ''
   const trusted =
     'Trust the following lines as facts for questions about time or weather; do not contradict them. If no weather line is present, you do not have live weather—say so briefly and suggest they allow location if they want it.'
-  const block = `${trusted}\n${timeLine}${extra}${memBlock}${brainBlock}${exploreBlock}`
+  const block = `${trusted}\n${timeLine}${extra}${memBlock}${brainBlock}${learnBlock}${exploreBlock}`
   return block.length > CHAT_CONTEXT_MAX_LEN ? block.slice(0, CHAT_CONTEXT_MAX_LEN) : block
 }
 
