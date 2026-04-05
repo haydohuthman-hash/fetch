@@ -5,6 +5,7 @@ export {
   isJunkBookingConfirmPhase,
   isJunkQuotePhase,
   isJobDetailsPhase,
+  isLaborJobType,
   isRouteTerminalPhase,
   readyForPricing as bookingReadyForPricing,
   refinementDataReady,
@@ -17,7 +18,7 @@ export {
   isActiveJunkDriverFlow,
   patchBookingLifecycle,
 } from './junkDriverDemo'
-export { handleUserInput, selectHomeJobType } from './handleUserInput'
+export { applyLaborDetailsFromSheet, handleUserInput, selectHomeJobType } from './handleUserInput'
 export { deriveNextQuestion } from './deriveNextQuestion'
 export { computeBookingPriceRange, computeBookingPricing, computeBookingQuoteBreakdown } from './pricing'
 export {
@@ -33,6 +34,7 @@ export {
   type BookingDriver,
   type BookingLifecycleStatus,
   type BookingPaymentIntent,
+  type BookingPaymentInstrument,
   type BookingPaymentIntentStatus,
   type BookingQuoteBreakdown,
   type BookingRoute,

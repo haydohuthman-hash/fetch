@@ -17,7 +17,7 @@ export type {
 } from '../lib/orb/fetchOrbExpressions'
 export { expressionForFlowMoment } from '../lib/orb/fetchOrbExpressions'
 
-const SIZE_CLASS: Record<'sm' | 'md' | 'lg' | 'xl' | 'xxl' | 'fab' | 'dock', string> = {
+const SIZE_CLASS: Record<'sm' | 'md' | 'lg' | 'xl' | 'xxl' | 'fab' | 'dock' | 'homeDock', string> = {
   sm: 'h-[3.1rem] w-[3.1rem]',
   md: 'h-[4.2rem] w-[4.2rem]',
   lg: 'h-[6.1rem] w-[6.1rem]',
@@ -26,6 +26,8 @@ const SIZE_CLASS: Record<'sm' | 'md' | 'lg' | 'xl' | 'xxl' | 'fab' | 'dock', str
   xxl: 'h-[min(20rem,78vw)] w-[min(20rem,78vw)] sm:h-[22rem] sm:w-[22rem]',
   fab: 'h-[4.15rem] w-[4.15rem]',
   dock: 'h-[9rem] w-[9rem]',
+  /** Home + bottom sheet — slightly smaller than dock */
+  homeDock: 'h-[6.5rem] w-[6.5rem]',
 }
 
 /** @deprecated Prefer FetchOrbExpression + fetchOrbExpressions */
@@ -43,7 +45,7 @@ export type JarvisOrbState =
   | 'responding'
   | 'completed'
 
-export type MapAttentionCue = 'none' | 'pickup' | 'route' | 'driver'
+export type MapAttentionCue = 'none' | 'pickup' | 'route' | 'driver' | 'navigation'
 
 export type JarvisNeuralOrbProps = {
   /** When set, drives the face; otherwise derived from `state` + `speaking`. */
@@ -59,7 +61,7 @@ export type JarvisNeuralOrbProps = {
   lookAtCard?: boolean
   /** Shift gaze downward (e.g. toward content below the face). */
   lookDown?: boolean
-  /** RGB glow color for underglow + inner warm. Defaults to soft white. */
+  /** RGB glow color for inner warm + CSS --orb-glow. Defaults to soft white. */
   glowColor?: GlowRGB
   size?: keyof typeof SIZE_CLASS
   /**
@@ -67,6 +69,11 @@ export type JarvisNeuralOrbProps = {
    * `faceOnly` — eyes + mouth on a transparent canvas (no black circle).
    */
   surface?: 'sphere' | 'faceOnly'
+  /**
+   * `day` — white sphere with dark (black) facial features (light / daytime UI).
+   * `night` — default dark glass orb with light features.
+   */
+  orbAppearance?: 'night' | 'day'
   /** When true, cycles moods / wave while user is idle (not listening or speaking). */
   autonomous?: boolean
   /** Pause autonomous moods (e.g. mic active or TTS). */
@@ -85,6 +92,7 @@ const BASE_HW = 0.106 * FACE_SCALE
 const BASE_HH = 0.184 * FACE_SCALE
 const BASE_SPREAD = 0.244 * FACE_SCALE
 const ORB_LID_SHADE = 'rgba(10,11,14,0.97)'
+const ORB_LID_LIGHT = 'rgba(252,252,254,0.97)'
 
 function clamp01(v: number) {
   return Math.max(0, Math.min(1, v))
@@ -110,6 +118,7 @@ function drawExpressivePillEye(
   upperLid: number,
   lowerLid: number,
   browTension: number,
+  onLightSphere: boolean,
 ) {
   const op = clamp01(blinkOpen)
   const fullH = halfH * 2
@@ -120,12 +129,71 @@ function drawExpressivePillEye(
   const corner = Math.min(halfW * 0.95, h * 0.48)
   const int = clamp01(intensity)
 
+  if (onLightSphere) {
+    ctx.save()
+    ctx.globalCompositeOperation = 'source-over'
+    ctx.shadowColor = 'rgba(15, 30, 45, 0.2)'
+    ctx.shadowBlur = halfW * 1.35
+    ctx.shadowOffsetY = halfH * 0.1
+    const lg = ctx.createRadialGradient(cx, cy - h * 0.12, 0, cx, cy, Math.max(w, h) * 0.72)
+    lg.addColorStop(0, `rgba(48,52,62,${0.9 * int})`)
+    lg.addColorStop(0.42, `rgba(24,26,32,${0.96 * int})`)
+    lg.addColorStop(1, `rgba(6,7,10,${0.99 * int})`)
+    ctx.fillStyle = lg
+    ctx.beginPath()
+    ctx.roundRect(x, y, w, h, corner)
+    ctx.fill()
+    ctx.shadowBlur = 0
+    ctx.shadowOffsetY = 0
+    const hi = ctx.createLinearGradient(cx - halfW, y, cx + halfW, y + h * 0.4)
+    hi.addColorStop(0, `rgba(255,255,255,${0.1 * int})`)
+    hi.addColorStop(0.55, `rgba(255,255,255,${0.03 * int})`)
+    hi.addColorStop(1, 'rgba(255,255,255,0)')
+    ctx.fillStyle = hi
+    ctx.beginPath()
+    ctx.roundRect(x, y, w, h, corner)
+    ctx.fill()
+    ctx.restore()
+
+    if (browTension > 0.03) {
+      const browH = Math.min(h * (0.18 + browTension * 0.22), h * 0.45)
+      ctx.save()
+      const g = ctx.createLinearGradient(x, y, x, y + browH)
+      g.addColorStop(0, `rgba(255,255,255,${0.28 * browTension})`)
+      g.addColorStop(1, 'rgba(255,255,255,0)')
+      ctx.fillStyle = g
+      ctx.beginPath()
+      ctx.roundRect(x, y - 0.5, w, browH + 1, Math.min(corner * 0.6, 6))
+      ctx.fill()
+      ctx.restore()
+    }
+
+    ctx.save()
+    ctx.globalCompositeOperation = 'source-over'
+    if (upperLid > 0.02) {
+      const cover = h * clamp01(upperLid)
+      ctx.fillStyle = ORB_LID_LIGHT
+      ctx.beginPath()
+      ctx.rect(x - 1.5, y - 1, w + 3, cover + 0.5)
+      ctx.fill()
+    }
+    if (lowerLid > 0.02) {
+      const cover = h * clamp01(lowerLid)
+      ctx.fillStyle = ORB_LID_LIGHT
+      ctx.beginPath()
+      ctx.rect(x - 1.5, y + h - cover - 0.5, w + 3, cover + 2)
+      ctx.fill()
+    }
+    ctx.restore()
+    return
+  }
+
   ctx.save()
   ctx.globalCompositeOperation = 'screen'
 
   /* Outer soft glow — makes eyes feel like light, not shapes */
   ctx.shadowColor = `rgba(210,215,225,${0.38 * int})`
-  ctx.shadowBlur = halfW * 4.5
+  ctx.shadowBlur = halfW * 2.65
   ctx.fillStyle = `rgba(200,205,215,${0.14 * int})`
   ctx.beginPath()
   ctx.roundRect(x, y, w, h, corner)
@@ -187,15 +255,36 @@ function drawPupilDot(
   shiftX: number,
   shiftY: number,
   alpha: number,
+  onLightSphere: boolean,
 ) {
   if (alpha < 0.04) return
   const a = clamp01(alpha)
   ctx.save()
-  ctx.globalCompositeOperation = 'multiply'
-  ctx.fillStyle = `rgba(14,16,22,${0.5 * a})`
-  ctx.beginPath()
-  ctx.ellipse(cx + shiftX, cy + shiftY, R * 0.017, R * 0.021, 0, 0, Math.PI * 2)
-  ctx.fill()
+  if (onLightSphere) {
+    ctx.globalCompositeOperation = 'source-over'
+    ctx.fillStyle = `rgba(255,255,255,${0.5 * a})`
+    ctx.beginPath()
+    ctx.ellipse(
+      cx + shiftX - R * 0.0045,
+      cy + shiftY - R * 0.005,
+      R * 0.0068,
+      R * 0.0082,
+      0,
+      0,
+      Math.PI * 2,
+    )
+    ctx.fill()
+    ctx.fillStyle = `rgba(4,5,8,${0.94 * a})`
+    ctx.beginPath()
+    ctx.ellipse(cx + shiftX, cy + shiftY, R * 0.017, R * 0.021, 0, 0, Math.PI * 2)
+    ctx.fill()
+  } else {
+    ctx.globalCompositeOperation = 'multiply'
+    ctx.fillStyle = `rgba(14,16,22,${0.5 * a})`
+    ctx.beginPath()
+    ctx.ellipse(cx + shiftX, cy + shiftY, R * 0.017, R * 0.021, 0, 0, Math.PI * 2)
+    ctx.fill()
+  }
   ctx.restore()
 }
 
@@ -225,6 +314,115 @@ function strokeSmileArc(
   ctx.stroke()
 }
 
+/**
+ * Stylized human lips (upper with cupid’s bow, fuller lower). `lipOpen` drives jaw drop + oral cavity.
+ * No circular pulse — shape is always lip-like.
+ */
+function drawHumanLipsSpeak(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  yC: number,
+  halfW: number,
+  lipOpen: number,
+  baseAlpha: number,
+  faceInt: number,
+  onLightSphere: boolean,
+) {
+  const lip = clamp01(lipOpen)
+  const fi = clamp01(faceInt)
+  const hw = Math.max(halfW, 4)
+  const peakH = hw * 0.12
+  const cupidDepth = hw * 0.05
+  const cornerY = yC + hw * 0.012
+  const jawGap = lip * hw * 0.78
+  /* Closed: lips nearly meet; opens downward with `lip` */
+  const lowerHang = hw * (0.052 + lip * 0.22) + jawGap
+  const alphaMul = (0.72 + fi * 0.28) * baseAlpha
+  const lineUpper = Math.max(1.05, hw * 0.09)
+  const lineLower = Math.max(1.12, hw * 0.1)
+
+  if (lip > 0.03) {
+    const cavityH = hw * (0.14 + lip * 0.52)
+    ctx.fillStyle = `rgba(4,5,8,${0.55 + lip * 0.4})`
+    ctx.beginPath()
+    ctx.moveTo(cx - hw * 0.9, cornerY + hw * 0.025)
+    ctx.bezierCurveTo(
+      cx - hw * 0.42,
+      cornerY + cavityH,
+      cx + hw * 0.42,
+      cornerY + cavityH,
+      cx + hw * 0.9,
+      cornerY + hw * 0.025,
+    )
+    ctx.lineTo(cx + hw * 0.78, cornerY - hw * 0.01)
+    ctx.bezierCurveTo(
+      cx + hw * 0.28,
+      cornerY + hw * 0.02,
+      cx - hw * 0.28,
+      cornerY + hw * 0.02,
+      cx - hw * 0.78,
+      cornerY - hw * 0.01,
+    )
+    ctx.closePath()
+    ctx.fill()
+  }
+
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+
+  ctx.strokeStyle = onLightSphere
+    ? `rgba(18,20,28,${alphaMul * (0.88 + lip * 0.1)})`
+    : `rgba(248,247,252,${alphaMul * (0.88 + lip * 0.1)})`
+  ctx.lineWidth = lineUpper
+  ctx.beginPath()
+  ctx.moveTo(cx - hw, cornerY)
+  ctx.bezierCurveTo(
+    cx - hw * 0.7,
+    cornerY - peakH * 0.9,
+    cx - hw * 0.26,
+    cornerY - cupidDepth,
+    cx,
+    cornerY - cupidDepth * 0.28,
+  )
+  ctx.bezierCurveTo(
+    cx + hw * 0.26,
+    cornerY - cupidDepth,
+    cx + hw * 0.7,
+    cornerY - peakH * 0.9,
+    cx + hw,
+    cornerY,
+  )
+  ctx.stroke()
+
+  const yLowerMid = cornerY + lowerHang
+  ctx.strokeStyle = onLightSphere
+    ? `rgba(22,24,32,${alphaMul * (0.85 + lip * 0.12)})`
+    : `rgba(232,233,242,${alphaMul * (0.85 + lip * 0.12)})`
+  ctx.lineWidth = lineLower
+  ctx.beginPath()
+  ctx.moveTo(cx - hw * 0.96, cornerY + hw * 0.028)
+  ctx.bezierCurveTo(
+    cx - hw * 0.32,
+    yLowerMid + hw * (0.16 + lip * 0.08),
+    cx + hw * 0.32,
+    yLowerMid + hw * (0.16 + lip * 0.08),
+    cx + hw * 0.96,
+    cornerY + hw * 0.028,
+  )
+  ctx.stroke()
+
+  if (lip > 0.06) {
+    ctx.strokeStyle = onLightSphere
+      ? `rgba(60,65,78,${0.12 + lip * 0.2})`
+      : `rgba(255,255,255,${0.06 + lip * 0.14})`
+    ctx.lineWidth = Math.max(0.6, lineLower * 0.32)
+    ctx.beginPath()
+    ctx.moveTo(cx - hw * 0.42, yLowerMid + hw * 0.04)
+    ctx.quadraticCurveTo(cx, yLowerMid - hw * 0.035 * lip, cx + hw * 0.42, yLowerMid + hw * 0.04)
+    ctx.stroke()
+  }
+}
+
 function drawOrbMouth(
   ctx: CanvasRenderingContext2D,
   cx: number,
@@ -235,12 +433,13 @@ function drawOrbMouth(
   phase: number,
   faceInt: number,
   lipOpen: number,
+  onLightSphere: boolean,
 ) {
   const fi = clamp01(faceInt)
   if (fi < 0.03 || kind === 'none') return
   const en = clamp01(energy)
-  /* Below eye row (~eyeYMul −0.1, tall pills); tabbie-style smile sits mid-lower face */
-  const my = cy + R * (0.168 * FACE_SCALE)
+  /* Slightly lower — reads more like a human mouth under the eye row */
+  const my = cy + R * (0.182 * FACE_SCALE)
 
   ctx.save()
   ctx.lineCap = 'round'
@@ -259,58 +458,49 @@ function drawOrbMouth(
           : 0
       const sagitta = Math.max(R * FACE_SCALE * 0.032, sagBase + wobble + talkPulse)
       const alpha = clamp01((0.62 + en * 0.34) * (0.75 + fi * 0.28))
-      ctx.strokeStyle = `rgba(252,252,255,${alpha})`
+      ctx.strokeStyle = onLightSphere
+        ? `rgba(20,22,30,${alpha})`
+        : `rgba(252,252,255,${alpha})`
       ctx.lineWidth = Math.max(1.15, R * 0.0092)
       strokeSmileArc(ctx, cx, my, w, sagitta)
       break
     }
     case 'speak_line': {
       const lip = clamp01(lipOpen)
-      /* Damp procedural motion while audio drives the mouth — avoids fighting RMS jitter */
-      const proc = clamp01(1 - lip * 0.94)
+      const lipCurve = Math.pow(lip, 0.82)
+      const proc = clamp01(1 - lipCurve * 0.92)
       const ph = phase * 0.62
       const jaw = 0.55 + 0.45 * Math.sin(ph * 1.35) * (0.35 + proc * 0.65)
-      const w =
+      const hw =
         R *
         0.108 *
         FACE_SCALE *
-        (0.9 +
-          proc *
-            (0.07 * en * Math.sin(ph * 1.6) + 0.028 * en * Math.sin(ph * 2.8)))
-      const wobble =
+        (0.94 + proc * 0.028 * en * Math.sin(ph * 1.15))
+      const ySubtle =
         proc *
-        (Math.sin(ph * 1.35) * R * 0.0065 * en +
-          Math.sin(ph * 2.4) * R * 0.0032 * en)
-      const y0 = my + wobble
-      const baseAlpha = (0.48 + en * 0.36) * (0.72 + fi * 0.26)
-
-      /* No smile arc while speaking — oval from audio only; flat line when closed. */
-      if (lip > 0.022) {
-        const rw = w * (0.52 + lip * 0.62)
-        const rh =
-          R *
-          FACE_SCALE *
-          (0.02 + lip * 0.092 * (0.65 + 0.35 * jaw) + 0.018 * en)
-        ctx.strokeStyle = `rgba(252,252,255,${baseAlpha * (0.55 + lip * 0.45)})`
-        ctx.lineWidth = Math.max(1.15, R * (0.0085 + lip * 0.018 + en * 0.0035))
-        ctx.beginPath()
-        ctx.ellipse(cx, y0 + rh * 0.2, rw, rh, 0, 0, Math.PI * 2)
-        ctx.stroke()
-      } else {
-        const halfW = w * 0.26
-        ctx.strokeStyle = `rgba(252,252,255,${baseAlpha * 0.72})`
-        ctx.lineWidth = Math.max(1.05, R * 0.0082)
-        ctx.beginPath()
-        ctx.moveTo(cx - halfW, y0)
-        ctx.lineTo(cx + halfW, y0)
-        ctx.stroke()
-      }
+        (Math.sin(ph * 1.2) * R * 0.0035 * en +
+          Math.sin(ph * 2.1) * R * 0.0018 * en)
+      const y0 = my + ySubtle
+      const baseAlpha = 0.5 + en * 0.34
+      /* Human-style lips; jaw modulates how far the mouth opens */
+      drawHumanLipsSpeak(
+        ctx,
+        cx,
+        y0,
+        hw,
+        lipCurve * (0.55 + jaw * 0.45),
+        baseAlpha,
+        fi,
+        onLightSphere,
+      )
       break
     }
     case 'flat': {
       const w = R * 0.1 * FACE_SCALE
       const sagitta = R * 0.038 * FACE_SCALE
-      ctx.strokeStyle = `rgba(236,238,244,${0.45 * fi})`
+      ctx.strokeStyle = onLightSphere
+        ? `rgba(28,30,38,${0.52 * fi})`
+        : `rgba(236,238,244,${0.45 * fi})`
       ctx.lineWidth = Math.max(1, R * 0.009)
       strokeSmileArc(ctx, cx, my, w, sagitta)
       break
@@ -318,7 +508,9 @@ function drawOrbMouth(
     case 'soft_o': {
       const rw = R * 0.042 * FACE_SCALE + Math.sin(phase * 2.2) * R * 0.005 * en
       const rh = R * 0.034 * FACE_SCALE
-      ctx.strokeStyle = `rgba(252,252,255,${0.52 * fi})`
+      ctx.strokeStyle = onLightSphere
+        ? `rgba(22,24,32,${0.58 * fi})`
+        : `rgba(252,252,255,${0.52 * fi})`
       ctx.lineWidth = Math.max(1, R * 0.011)
       ctx.beginPath()
       ctx.ellipse(cx, my + rh * 0.18, rw, rh, 0, 0, Math.PI * 2)
@@ -340,6 +532,7 @@ function drawFetchWaveHand(
   waveOsc: number,
   glow: GlowRGB,
   alpha: number,
+  onLightSphere: boolean,
 ) {
   if (alpha < 0.02) return
   ctx.save()
@@ -352,7 +545,9 @@ function drawFetchWaveHand(
   const palmW = R * 0.24
   const palmH = R * 0.28
   const rr = Math.min(R * 0.06, palmW * 0.22)
-  const fill = `rgba(${glow.r},${glow.g},${glow.b},0.9)`
+  const fill = onLightSphere
+    ? 'rgba(18,20,28,0.92)'
+    : `rgba(${glow.r},${glow.g},${glow.b},0.9)`
   ctx.beginPath()
   if (typeof ctx.roundRect === 'function') {
     ctx.roundRect(-palmW * 0.32, -palmH * 0.15, palmW, palmH, rr)
@@ -361,7 +556,7 @@ function drawFetchWaveHand(
   }
   ctx.fillStyle = fill
   ctx.fill()
-  ctx.strokeStyle = 'rgba(255,255,255,0.32)'
+  ctx.strokeStyle = onLightSphere ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.32)'
   ctx.lineWidth = Math.max(1, R * 0.011)
   ctx.stroke()
 
@@ -462,6 +657,7 @@ export function JarvisNeuralOrb({
   suspendAutonomous = false,
   className = '',
   ariaLive = true,
+  orbAppearance = 'night',
 }: JarvisNeuralOrbProps) {
   const [autoMood, setAutoMood] = useState<FetchOrbExpression>('curious')
   const autoMoodRef = useRef(autoMood)
@@ -475,7 +671,6 @@ export function JarvisNeuralOrb({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const hostRef = useRef<HTMLDivElement>(null)
   const liftRef = useRef<HTMLDivElement>(null)
-  const underglowRef = useRef<HTMLDivElement>(null)
 
   const expressionRef = useRef(expressionProp)
   const stateRef = useRef(state)
@@ -503,6 +698,8 @@ export function JarvisNeuralOrb({
   lookDownRef.current = lookDown
   const glowRef = useRef(glowColor)
   glowRef.current = glowColor
+  const orbAppearanceRef = useRef(orbAppearance)
+  orbAppearanceRef.current = orbAppearance
 
   expressionRef.current = expressionProp
   stateRef.current = state
@@ -573,7 +770,7 @@ export function JarvisNeuralOrb({
       if (mapAttention === 'pickup') {
         mapVecRef.current = { x: -0.1, y: -0.12 }
         mapImpulseRef.current = 1
-      } else if (mapAttention === 'route') {
+      } else if (mapAttention === 'route' || mapAttention === 'navigation') {
         mapVecRef.current = { x: 0.14, y: 0.02 }
         mapImpulseRef.current = 1
       } else if (mapAttention === 'driver') {
@@ -690,17 +887,27 @@ export function JarvisNeuralOrb({
       }
 
       shimmerPhaseRef.current += 0.014 * vis.shimmerSpeed * (0.5 + vis.shimmer)
+      if (vis.mouthKind === 'speak_line') {
+        const tgt = clamp01(getSpeechAmplitude())
+        const cur = lipOpenVisualRef.current
+        lipOpenVisualRef.current = lerp(cur, tgt, tgt > cur ? 0.42 : 0.11)
+      } else {
+        lipOpenVisualRef.current = lerp(lipOpenVisualRef.current, 0, 0.14)
+      }
       const speakMove = expr === 'speaking' || speak
+      const lipDrive = lipOpenVisualRef.current
       mouthPhaseRef.current += speakMove
         ? vis.mouthKind === 'speak_line'
-          ? 0.078 + act * 0.065
+          ? (0.078 + act * 0.065) * (0.12 + (1 - lipDrive) * 0.88)
           : 0.24 + act * 0.2
         : 0.048
 
       const cx = width / 2
       const cy = height / 2
-      const R = (Math.min(width, height) / 2) * 0.96 * breath
+      /* Fill the rounded host so rim glow reads as one with the sphere (was 0.96 — felt like a gap). */
+      const R = (Math.min(width, height) / 2) * 0.995 * breath
       const gc = glowRef.current
+      const dayOrb = orbAppearanceRef.current === 'day' && surface === 'sphere'
 
       ctx.clearRect(0, 0, width, height)
 
@@ -710,61 +917,117 @@ export function JarvisNeuralOrb({
         ctx.arc(cx, cy, R, 0, Math.PI * 2)
         ctx.clip()
 
-        /* Deep matte sphere — dark center, slightly lighter edges for depth */
-        const core = ctx.createRadialGradient(
-          cx - R * 0.12,
-          cy - R * 0.22,
-          R * 0.01,
-          cx,
-          cy,
-          R * 1.0,
-        )
-        core.addColorStop(0, 'rgba(6,7,9,1)')
-        core.addColorStop(0.35, 'rgba(8,9,11,1)')
-        core.addColorStop(0.7, 'rgba(12,13,16,1)')
-        core.addColorStop(0.92, 'rgba(16,17,21,1)')
-        core.addColorStop(1, 'rgba(14,15,18,1)')
-        ctx.fillStyle = core
-        ctx.fillRect(cx - R * 1.2, cy - R * 1.2, R * 2.4, R * 2.4)
+        if (dayOrb) {
+          /* Daytime: white / porcelain sphere */
+          const core = ctx.createRadialGradient(
+            cx - R * 0.1,
+            cy - R * 0.2,
+            R * 0.02,
+            cx,
+            cy,
+            R * 1.0,
+          )
+          core.addColorStop(0, 'rgba(255,255,255,1)')
+          core.addColorStop(0.35, 'rgba(252,253,255,1)')
+          core.addColorStop(0.65, 'rgba(245,247,250,1)')
+          core.addColorStop(0.9, 'rgba(236,240,245,1)')
+          core.addColorStop(1, 'rgba(228,234,240,1)')
+          ctx.fillStyle = core
+          ctx.fillRect(cx - R * 1.2, cy - R * 1.2, R * 2.4, R * 2.4)
 
-        /* Soft edge falloff — fades sphere into background smoothly */
-        const edgeFade = ctx.createRadialGradient(cx, cy, R * 0.82, cx, cy, R)
-        edgeFade.addColorStop(0, 'rgba(0,0,0,0)')
-        edgeFade.addColorStop(0.6, 'rgba(0,0,0,0.05)')
-        edgeFade.addColorStop(1, 'rgba(0,0,0,0.28)')
-        ctx.fillStyle = edgeFade
-        ctx.beginPath()
-        ctx.arc(cx, cy, R, 0, Math.PI * 2)
-        ctx.fill()
+          const edgeFade = ctx.createRadialGradient(cx, cy, R * 0.78, cx, cy, R)
+          edgeFade.addColorStop(0, 'rgba(0,0,0,0)')
+          edgeFade.addColorStop(0.55, 'rgba(80,110,130,0.05)')
+          edgeFade.addColorStop(1, 'rgba(40,70,90,0.1)')
+          ctx.fillStyle = edgeFade
+          ctx.beginPath()
+          ctx.arc(cx, cy, R, 0, Math.PI * 2)
+          ctx.fill()
 
-        const warmCore =
-          (0.058 + act * 0.065) * vis.innerWarm * (0.85 + vis.redAccent * 0.08)
-        const innerWarm = ctx.createRadialGradient(cx + R * 0.08, cy + R * 0.12, 0, cx, cy, R * 0.7)
-        innerWarm.addColorStop(0, `rgba(${gc.r},${gc.g},${gc.b},${warmCore})`)
-        innerWarm.addColorStop(1, 'rgba(0,0,0,0)')
-        ctx.fillStyle = innerWarm
-        ctx.globalCompositeOperation = 'lighter'
-        ctx.beginPath()
-        ctx.arc(cx, cy, R * 0.88, 0, Math.PI * 2)
-        ctx.fill()
-        ctx.globalCompositeOperation = 'source-over'
+          const warmCore =
+            (0.028 + act * 0.032) * vis.innerWarm * (0.75 + vis.redAccent * 0.06)
+          const innerWarm = ctx.createRadialGradient(cx + R * 0.08, cy + R * 0.1, 0, cx, cy, R * 0.62)
+          innerWarm.addColorStop(0, `rgba(${gc.r},${gc.g},${gc.b},${warmCore})`)
+          innerWarm.addColorStop(1, 'rgba(255,255,255,0)')
+          ctx.fillStyle = innerWarm
+          ctx.globalCompositeOperation = 'multiply'
+          ctx.beginPath()
+          ctx.arc(cx, cy, R * 0.9, 0, Math.PI * 2)
+          ctx.fill()
+          ctx.globalCompositeOperation = 'source-over'
 
-        /* Slow internal shimmer — faint wandering light inside the sphere */
-        if (vis.shimmer > 0.02) {
-          const sh = shimmerPhaseRef.current
-          const gx = cx + Math.cos(sh * 0.75) * R * 0.18
-          const gy = cy + Math.sin(sh * 0.55) * R * 0.14
-          const sg = ctx.createRadialGradient(gx, gy, 0, gx, gy, R * 0.52)
-          const amp = vis.shimmer * (0.016 + Math.sin(sh * 0.9) * 0.012)
-          sg.addColorStop(0, `rgba(255,255,255,${amp})`)
-          sg.addColorStop(0.5, `rgba(255,255,255,${amp * 0.3})`)
-          sg.addColorStop(1, 'rgba(255,255,255,0)')
-          ctx.fillStyle = sg
+          if (vis.shimmer > 0.02) {
+            const sh = shimmerPhaseRef.current
+            const gx = cx + Math.cos(sh * 0.75) * R * 0.16
+            const gy = cy + Math.sin(sh * 0.55) * R * 0.12
+            const sg = ctx.createRadialGradient(gx, gy, 0, gx, gy, R * 0.48)
+            const amp = vis.shimmer * (0.045 + Math.sin(sh * 0.9) * 0.028)
+            sg.addColorStop(0, `rgba(255,255,255,${amp})`)
+            sg.addColorStop(0.45, `rgba(255,255,255,${amp * 0.35})`)
+            sg.addColorStop(1, 'rgba(255,255,255,0)')
+            ctx.fillStyle = sg
+            ctx.globalCompositeOperation = 'source-over'
+            ctx.beginPath()
+            ctx.arc(cx, cy, R * 0.9, 0, Math.PI * 2)
+            ctx.fill()
+          }
+        } else {
+          /* Deep matte sphere — dark center, slightly lighter edges for depth */
+          const core = ctx.createRadialGradient(
+            cx - R * 0.12,
+            cy - R * 0.22,
+            R * 0.01,
+            cx,
+            cy,
+            R * 1.0,
+          )
+          core.addColorStop(0, 'rgba(6,7,9,1)')
+          core.addColorStop(0.35, 'rgba(8,9,11,1)')
+          core.addColorStop(0.7, 'rgba(12,13,16,1)')
+          core.addColorStop(0.92, 'rgba(16,17,21,1)')
+          core.addColorStop(1, 'rgba(14,15,18,1)')
+          ctx.fillStyle = core
+          ctx.fillRect(cx - R * 1.2, cy - R * 1.2, R * 2.4, R * 2.4)
+
+          /* Soft edge falloff — fades sphere into background smoothly */
+          const edgeFade = ctx.createRadialGradient(cx, cy, R * 0.82, cx, cy, R)
+          edgeFade.addColorStop(0, 'rgba(0,0,0,0)')
+          edgeFade.addColorStop(0.6, 'rgba(0,0,0,0.05)')
+          edgeFade.addColorStop(1, 'rgba(0,0,0,0.28)')
+          ctx.fillStyle = edgeFade
+          ctx.beginPath()
+          ctx.arc(cx, cy, R, 0, Math.PI * 2)
+          ctx.fill()
+
+          const warmCore =
+            (0.058 + act * 0.065) * vis.innerWarm * (0.85 + vis.redAccent * 0.08)
+          const innerWarm = ctx.createRadialGradient(cx + R * 0.08, cy + R * 0.12, 0, cx, cy, R * 0.7)
+          innerWarm.addColorStop(0, `rgba(${gc.r},${gc.g},${gc.b},${warmCore})`)
+          innerWarm.addColorStop(1, 'rgba(0,0,0,0)')
+          ctx.fillStyle = innerWarm
           ctx.globalCompositeOperation = 'lighter'
           ctx.beginPath()
           ctx.arc(cx, cy, R * 0.88, 0, Math.PI * 2)
           ctx.fill()
           ctx.globalCompositeOperation = 'source-over'
+
+          /* Slow internal shimmer — faint wandering light inside the sphere */
+          if (vis.shimmer > 0.02) {
+            const sh = shimmerPhaseRef.current
+            const gx = cx + Math.cos(sh * 0.75) * R * 0.18
+            const gy = cy + Math.sin(sh * 0.55) * R * 0.14
+            const sg = ctx.createRadialGradient(gx, gy, 0, gx, gy, R * 0.52)
+            const amp = vis.shimmer * (0.016 + Math.sin(sh * 0.9) * 0.012)
+            sg.addColorStop(0, `rgba(255,255,255,${amp})`)
+            sg.addColorStop(0.5, `rgba(255,255,255,${amp * 0.3})`)
+            sg.addColorStop(1, 'rgba(255,255,255,0)')
+            ctx.fillStyle = sg
+            ctx.globalCompositeOperation = 'lighter'
+            ctx.beginPath()
+            ctx.arc(cx, cy, R * 0.88, 0, Math.PI * 2)
+            ctx.fill()
+            ctx.globalCompositeOperation = 'source-over'
+          }
         }
 
         ctx.restore()
@@ -837,6 +1100,7 @@ export function JarvisNeuralOrb({
         upperLidDraw,
         lowerLidDraw,
         vis.browTension,
+        dayOrb,
       )
       drawExpressivePillEye(
         ctx,
@@ -849,6 +1113,7 @@ export function JarvisNeuralOrb({
         upperLidDraw,
         lowerLidDraw,
         vis.browTension,
+        dayOrb,
       )
 
       drawPupilDot(
@@ -859,6 +1124,7 @@ export function JarvisNeuralOrb({
         gazeX,
         gazeY,
         vis.pupilAlpha,
+        dayOrb,
       )
       drawPupilDot(
         ctx,
@@ -868,6 +1134,7 @@ export function JarvisNeuralOrb({
         gazeX,
         gazeY,
         vis.pupilAlpha,
+        dayOrb,
       )
 
       const mouthEnergy =
@@ -876,15 +1143,6 @@ export function JarvisNeuralOrb({
           : expr === 'speaking' || speak
             ? clamp01(vis.mouthEnergy * (0.72 + act * 0.28))
             : vis.mouthEnergy
-      if (vis.mouthKind === 'speak_line') {
-        lipOpenVisualRef.current = lerp(
-          lipOpenVisualRef.current,
-          clamp01(getSpeechAmplitude()),
-          0.055,
-        )
-      } else {
-        lipOpenVisualRef.current = lerp(lipOpenVisualRef.current, 0, 0.12)
-      }
       const lipOpen = lipOpenVisualRef.current
       drawOrbMouth(
         ctx,
@@ -896,22 +1154,29 @@ export function JarvisNeuralOrb({
         mouthPhaseRef.current,
         faceGlow,
         lipOpen,
+        dayOrb,
       )
 
       const waveTgt = expr === 'waving' ? 1 : 0
       waveVisualRef.current = lerp(waveVisualRef.current, waveTgt, 0.07)
-      drawFetchWaveHand(ctx, cx, cy, R, t * 7.85, gc, waveVisualRef.current)
+      drawFetchWaveHand(ctx, cx, cy, R, t * 7.85, gc, waveVisualRef.current, dayOrb)
 
       /* Confirmation pulse — soft glow bloom instead of hard ring */
       if (confirmPulseRef.current > 0.01) {
         const p = easeOutCubic(confirmPulseRef.current)
         ctx.save()
-        ctx.globalCompositeOperation = 'screen'
+        ctx.globalCompositeOperation = dayOrb ? 'source-over' : 'screen'
         const pr = R + (1 - p) * R * 0.38
         const pg = ctx.createRadialGradient(cx, cy, R * 0.92, cx, cy, pr)
-        pg.addColorStop(0, `rgba(${gc.r},${gc.g},${gc.b},${p * 0.12})`)
-        pg.addColorStop(0.5, `rgba(${gc.r},${gc.g},${gc.b},${p * 0.06})`)
-        pg.addColorStop(1, 'rgba(0,0,0,0)')
+        if (dayOrb) {
+          pg.addColorStop(0, `rgba(${gc.r},${gc.g},${gc.b},${p * 0.14})`)
+          pg.addColorStop(0.45, `rgba(56,189,248,${p * 0.08})`)
+          pg.addColorStop(1, 'rgba(255,255,255,0)')
+        } else {
+          pg.addColorStop(0, `rgba(${gc.r},${gc.g},${gc.b},${p * 0.12})`)
+          pg.addColorStop(0.5, `rgba(${gc.r},${gc.g},${gc.b},${p * 0.06})`)
+          pg.addColorStop(1, 'rgba(0,0,0,0)')
+        }
         ctx.fillStyle = pg
         ctx.beginPath()
         ctx.arc(cx, cy, pr, 0, Math.PI * 2)
@@ -922,30 +1187,6 @@ export function JarvisNeuralOrb({
       if (liftRef.current) {
         liftRef.current.style.transform = `translate3d(0, ${liftPx.toFixed(2)}px, 0)`
       }
-      if (underglowRef.current && surface === 'sphere') {
-        const isSpeaking = expr === 'speaking' || speak
-        const gMul =
-          0.78 +
-          act * 0.28 * vis.glowOpacity +
-          (isSpeaking ? 0.26 : 0) +
-          confirmPulseRef.current * 0.44
-        const blur =
-          42 +
-          vis.glowBlurAdd +
-          (isSpeaking ? 12 : 0) +
-          confirmPulseRef.current * 18
-        const speakLift = isSpeaking
-          ? -9 + Math.sin(t * 2.4) * 2.2
-          : 0
-        underglowRef.current.style.opacity = String(
-          clamp01(0.42 * vis.glowOpacity + act * 0.2 + (isSpeaking ? 0.22 : 0) + confirmPulseRef.current * 0.28),
-        )
-        underglowRef.current.style.filter = `blur(${blur}px)`
-        underglowRef.current.style.transform = `translate3d(-50%, ${
-          4 + vis.glowLiftPx + speakLift - confirmPulseRef.current * 10
-        }px, 0) scale(${1 + gMul * 0.075})`
-      }
-
       raf = window.requestAnimationFrame(render)
     }
 
@@ -954,7 +1195,7 @@ export function JarvisNeuralOrb({
       ro.disconnect()
       window.cancelAnimationFrame(raf)
     }
-  }, [size, surface])
+  }, [size, surface, orbAppearance])
 
   const dim = SIZE_CLASS[size]
 
@@ -969,15 +1210,6 @@ export function JarvisNeuralOrb({
         .join(' ')}
       {...(ariaLive ? { 'aria-live': 'polite' as const } : {})}
     >
-      {surface === 'sphere' ? (
-        <div
-          ref={underglowRef}
-          className="fetch-assistant-face-orb__underglow pointer-events-none absolute left-1/2 top-[72%] h-[58%] w-[118%] -translate-x-1/2 rounded-[50%]"
-          aria-hidden
-        />
-      ) : (
-        <div ref={underglowRef} className="pointer-events-none absolute h-0 w-0 opacity-0" aria-hidden />
-      )}
       <div
         ref={liftRef}
         className={[
@@ -990,6 +1222,7 @@ export function JarvisNeuralOrb({
         data-fetch-orb-expression={mergedExpression}
         data-orb-size={size}
         data-orb-surface={surface}
+        data-orb-appearance={orbAppearance}
       >
         <div
           ref={hostRef}

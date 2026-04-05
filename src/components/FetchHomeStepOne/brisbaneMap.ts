@@ -52,6 +52,19 @@ function boundsLiteralForKmFromCenter(
   }
 }
 
+/**
+ * Pans the map down by a fraction of the map height so the current geographic center
+ * appears toward the top-middle of the viewport (room for the bottom sheet below).
+ */
+export function nudgeMapCenterTowardTop(
+  map: google.maps.Map,
+  fractionOfViewportHeight = 0.34,
+) {
+  const el = map.getDiv()
+  const h = Math.max(200, el.clientHeight || 0)
+  map.panBy(0, Math.round(h * fractionOfViewportHeight))
+}
+
 export function fitBrisbaneOverview(map: google.maps.Map) {
   const b = boundsLiteralForKmFromCenter(
     BRISBANE_CENTER.lat,

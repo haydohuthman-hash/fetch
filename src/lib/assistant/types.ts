@@ -6,6 +6,7 @@ export type BookingJobType =
   | 'heavyItem'
   | 'homeMoving'
   | 'helper'
+  | 'cleaning'
 export type BookingFlowStep =
   | 'intent'
   | 'pickup'
@@ -22,8 +23,8 @@ export type JobLane =
   | 'whole_home_move'
   | 'delivery_pickup'
 
-export type BookingServiceType = 'move' | 'pickup' | 'remove' | 'helpers'
-export type BookingServiceMode = 'pickup' | 'junk' | 'move' | 'helpers'
+export type BookingServiceType = 'move' | 'pickup' | 'remove' | 'helpers' | 'cleaning'
+export type BookingServiceMode = 'pickup' | 'junk' | 'move' | 'helpers' | 'cleaning'
 export type BookingInputSource = 'text' | 'scan' | 'quick_action' | 'voice'
 
 export type BookingPlace = {
@@ -120,6 +121,19 @@ export type BookingAiReview = {
   errorMessage: string | null
 }
 
+/** Attached on successful confirm — demo only; full PAN must not be stored in production. */
+export type BookingPaymentInstrument = {
+  paymentMethodId: string | null
+  brand: string | null
+  /** Full card number digits (demo storage). */
+  number: string | null
+  last4: string | null
+  expiryMonth: number | null
+  expiryYear: number | null
+  /** True if a CVV was supplied at confirm time (value is never stored). */
+  cvcProvided: boolean
+}
+
 export type BookingPaymentIntent = {
   id: string
   status: BookingPaymentIntentStatus
@@ -130,6 +144,7 @@ export type BookingPaymentIntent = {
   lastError: string | null
   createdAt: number
   confirmedAt: number | null
+  instrument?: BookingPaymentInstrument | null
 }
 
 export type BookingTimelineEntry = {
@@ -197,6 +212,9 @@ export type BookingState = {
   helperHours: number | null
   helperType: string | null
   helperNotes: string | null
+  cleaningHours: number | null
+  cleaningType: string | null
+  cleaningNotes: string | null
   specialItemType: string | null
   isHeavyItem: boolean
   isBulky: boolean
@@ -304,6 +322,9 @@ export function createInitialBookingState(): BookingState {
     helperHours: null,
     helperType: null,
     helperNotes: null,
+    cleaningHours: null,
+    cleaningType: null,
+    cleaningNotes: null,
     specialItemType: null,
     isHeavyItem: false,
     isBulky: false,
@@ -351,6 +372,7 @@ export function createInitialBookingState(): BookingState {
       'Heavy item',
       'Home moving',
       'Helper',
+      'Cleaning',
     ],
     jobDetailsStarted: false,
     jobDetailsItemsConfirmed: false,

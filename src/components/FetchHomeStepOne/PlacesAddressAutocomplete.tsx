@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { useJsApiLoader } from '@react-google-maps/api'
+import { fetchPerfExtra, fetchPerfIsEnabled } from '../../lib/fetchPerf'
 
 const GOOGLE_MAP_LIBRARIES: ('places' | 'geometry')[] = ['places', 'geometry']
 
@@ -18,6 +19,8 @@ type PlacesAddressAutocompleteProps = {
   placeholder: string
   disabled?: boolean
   autoFocus?: boolean
+  /** Seed the input when remounting (e.g. returning to landing with pickup already set). */
+  initialDisplayValue?: string
   onResolved: (place: ResolvedPlace) => void
   className?: string
 }
@@ -31,6 +34,7 @@ export function PlacesAddressAutocomplete({
   placeholder,
   disabled = false,
   autoFocus = false,
+  initialDisplayValue = '',
   onResolved,
   className,
 }: PlacesAddressAutocompleteProps) {
@@ -46,6 +50,11 @@ export function PlacesAddressAutocomplete({
   })
 
   useEffect(() => {
+    if (!isLoaded || !fetchPerfIsEnabled()) return
+    fetchPerfExtra('maps_js_api_loaded', { field, phase: 'autocomplete_ready' })
+  }, [isLoaded, field])
+
+  useEffect(() => {
     if (!isLoaded || !inputRef.current || disabled) return
     const input = inputRef.current
     const ac = new google.maps.places.Autocomplete(input, {
@@ -53,6 +62,9 @@ export function PlacesAddressAutocomplete({
       componentRestrictions: { country: 'au' },
     })
     const listener = ac.addListener('place_changed', () => {
+      if (fetchPerfIsEnabled()) {
+        fetchPerfExtra('maps_places_autocomplete_place_changed', { field })
+      }
       const place = ac.getPlace()
       const loc = place.geometry?.location
       const formattedAddress = place.formatted_address
@@ -86,6 +98,7 @@ export function PlacesAddressAutocomplete({
       autoComplete="street-address"
       disabled={disabled}
       autoFocus={autoFocus}
+      defaultValue={initialDisplayValue}
       placeholder={placeholder}
       className={className}
       aria-label={placeholder}

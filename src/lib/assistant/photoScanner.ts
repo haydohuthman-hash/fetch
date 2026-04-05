@@ -1,4 +1,10 @@
 import type { JobLane } from './types'
+import {
+  fetchPerfHeaders,
+  fetchPerfMark,
+  fetchPerfSetServerTiming,
+  parseFetchPerfTimingHeader,
+} from '../fetchPerf'
 
 export type ScannerEstimatedSize = 'small' | 'medium' | 'large' | 'whole_home'
 
@@ -180,9 +186,14 @@ function parseRemoteScanResult(payload: unknown): PhotoScanResult | null {
  * AI scanner entrypoint for booking.
  * Uses remote vision endpoint when configured; falls back to local heuristic.
  */
+export type ScanBookingPhotosPerfOptions = {
+  perfRunId?: string
+}
+
 export async function scanBookingPhotos(
   files: File[],
   selectedService?: 'junk' | 'moving' | 'pickup' | 'heavy',
+  perf?: ScanBookingPhotosPerfOptions,
 ): Promise<PhotoScanResult> {
   const usable = files.filter((f) => f.type.startsWith('image/'))
   if (usable.length === 0) {
@@ -195,12 +206,27 @@ export async function scanBookingPhotos(
   }
 
   const endpoint = import.meta.env.VITE_SCAN_API_URL?.trim() || DEFAULT_SCAN_API_URL
+  const perfRunId = perf?.perfRunId
   try {
     const form = new FormData()
     form.append('mode', 'booking')
     if (selectedService) form.append('selectedService', selectedService)
     for (const file of usable) form.append('images', file)
-    const resp = await fetch(endpoint, { method: 'POST', body: form })
+    if (perfRunId) {
+      fetchPerfMark(perfRunId, '3_client_request_sent', { route: 'scan', endpoint })
+    }
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      body: form,
+      headers: fetchPerfHeaders(perfRunId),
+    })
+    if (perfRunId) {
+      fetchPerfMark(perfRunId, '4_client_response_received', {
+        route: 'scan',
+        httpStatus: resp.status,
+      })
+      fetchPerfSetServerTiming(perfRunId, parseFetchPerfTimingHeader(resp))
+    }
     const payload = (await resp.json().catch(() => ({}))) as unknown
     const parsed = parseRemoteScanResult(payload)
     if (resp.ok && parsed) {

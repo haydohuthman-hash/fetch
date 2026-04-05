@@ -1,6 +1,7 @@
 import {
   isAddressAndRouteCheckpointComplete,
   pickupCoordsReady,
+  refinementDataReady,
   requiresDropoff,
   routeComputedReady,
 } from './bookingReadiness'
@@ -37,11 +38,18 @@ export function deriveNextQuestion(state: BookingState): QuestionPlan {
         'Heavy item',
         'Home moving',
         'Helper',
+        'Cleaning',
       ],
     }
   }
 
   if (!state.pickupAddressText.trim()) {
+    if (state.jobType === 'helper') {
+      return { question: 'Where do you need help?', suggestions: [] }
+    }
+    if (state.jobType === 'cleaning') {
+      return { question: 'Where should we clean?', suggestions: [] }
+    }
     return { question: 'Where are we picking up from?', suggestions: [] }
   }
   if (!pickupCoordsReady(state)) {
@@ -61,6 +69,38 @@ export function deriveNextQuestion(state: BookingState): QuestionPlan {
   }
 
   if (isAddressAndRouteCheckpointComplete(state)) {
+    if (state.jobType === 'helper' || state.jobType === 'cleaning') {
+      if (!refinementDataReady(state)) {
+        if (state.jobType === 'helper') {
+          if (state.helperHours == null) {
+            return {
+              question: 'How long do you need help?',
+              suggestions: ['2 hours', '4 hours', '6 hours'],
+            }
+          }
+          if (!state.helperType?.trim()) {
+            return {
+              question: 'What kind of help?',
+              suggestions: ['Loading', 'Assembly', 'General labour'],
+            }
+          }
+        } else {
+          if (state.cleaningHours == null) {
+            return {
+              question: 'How many hours of cleaning?',
+              suggestions: ['2 hours', '4 hours', '6 hours'],
+            }
+          }
+          if (!state.cleaningType?.trim()) {
+            return {
+              question: 'What kind of clean?',
+              suggestions: ['Regular home', 'Deep clean', 'End of lease'],
+            }
+          }
+        }
+      }
+      return { question: null, suggestions: [] }
+    }
     if (!state.jobDetailsStarted) {
       return { question: 'Route ready', suggestions: [] }
     }

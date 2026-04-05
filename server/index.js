@@ -3,7 +3,10 @@ import multer from 'multer'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import { execSync } from 'node:child_process'
+import fs from 'node:fs'
 import path from 'node:path'
+import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
 import { createPaymentIntentRecord, reviewBookingDraft as reviewFetchAiBookingDraft } from './lib/fetch-ai-booking.js'
 import { createMarketplaceStore } from './lib/marketplace-store.js'
@@ -12,6 +15,26 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 /** Repo root (parent of server/), so .env loads even when cwd is not the project root. */
 const projectRoot = path.resolve(__dirname, '..')
+
+/** Debug NDJSON (session 59c911) — workspace file locally; /tmp fallback on serverless. */
+function agentDebugLog(payload) {
+  const line = JSON.stringify({
+    sessionId: '59c911',
+    timestamp: Date.now(),
+    ...payload,
+  })
+  for (const filePath of [
+    path.join(projectRoot, 'debug-59c911.log'),
+    path.join('/tmp', 'debug-59c911.log'),
+  ]) {
+    try {
+      fs.appendFileSync(filePath, `${line}\n`)
+      return
+    } catch {
+      /* try next */
+    }
+  }
+}
 
 dotenv.config({ path: path.join(projectRoot, '.env') })
 dotenv.config({ path: path.join(projectRoot, '.env.local'), override: true })
@@ -95,7 +118,9 @@ const SAFE_FALLBACK = {
   confidence: 0.35,
   note: 'Fallback used',
 }
-const DATA_FILE = path.join(__dirname, 'marketplace-data.json')
+const DATA_FILE = process.env.VERCEL
+  ? path.join('/tmp', 'fetch-marketplace-data.json')
+  : path.join(__dirname, 'marketplace-data.json')
 const ALLOWED_MEDIA_TYPES = new Set(['pickup', 'during_job', 'completion'])
 const marketplaceStore = createMarketplaceStore(DATA_FILE)
 
@@ -105,6 +130,26 @@ function stripJsonFence(s) {
     return t.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
   }
   return t
+}
+
+/** Opt-in when client sends `x-fetch-perf-run` — logs + `X-Fetch-Perf-Timing` response header. */
+function readPerfRun(req) {
+  const v = req.headers['x-fetch-perf-run']
+  return typeof v === 'string' && v.trim() ? v.trim().slice(0, 96) : ''
+}
+
+function perfLog(runId, phase, extra = {}) {
+  if (!runId) return
+  console.log('[FetchPerf]', JSON.stringify({ phase, runId, ...extra }))
+}
+
+function attachPerfTimingHeader(res, runId, data) {
+  if (!runId) return
+  try {
+    res.setHeader('X-Fetch-Perf-Timing', JSON.stringify({ runId, ...data }))
+  } catch {
+    /* ignore */
+  }
 }
 
 async function buildReviewedBookingPayload(payload) {
@@ -124,6 +169,10 @@ app.use(cors())
 app.use(express.json({ limit: '15mb' }))
 
 app.post('/api/voice/tts', async (req, res) => {
+  const perfRun = readPerfRun(req)
+  const perfT0 = Date.now()
+  if (perfRun) perfLog(perfRun, '4_backend_request_received', { route: 'voice_tts' })
+
   const rawText = typeof req.body?.text === 'string' ? req.body.text.trim() : ''
   const voiceId =
     typeof req.body?.voiceId === 'string' && req.body.voiceId.trim()
@@ -141,7 +190,14 @@ app.post('/api/voice/tts', async (req, res) => {
   try {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), ELEVENLABS_TIMEOUT_MS)
-    const upstream = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+    const elevenUrl = new URL(
+      `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`,
+    )
+    elevenUrl.searchParams.set('optimize_streaming_latency', '4')
+
+    if (perfRun) perfLog(perfRun, '7_tts_generation_starts', { route: 'voice_tts' })
+    const tElevenStart = Date.now()
+    const upstream = await fetch(elevenUrl, {
       method: 'POST',
       headers: {
         'xi-api-key': ELEVENLABS_API_KEY,
@@ -157,25 +213,57 @@ app.post('/api/voice/tts', async (req, res) => {
           similarity_boost: 0.78,
           style: 0.16,
           use_speaker_boost: true,
-          speed: 0.92,
+          speed: 1,
         },
       }),
     }).finally(() => {
       clearTimeout(timeout)
     })
+    const elevenlabs_fetch_ms = Date.now() - tElevenStart
+    if (perfRun) {
+      perfLog(perfRun, '7b_tts_upstream_response', {
+        route: 'voice_tts',
+        ok: upstream.ok,
+        elevenlabs_fetch_ms,
+      })
+    }
 
     if (!upstream.ok) {
       const detail = await upstream.text().catch(() => '')
+      attachPerfTimingHeader(res, perfRun, {
+        route: 'voice_tts',
+        elevenlabs_fetch_ms,
+        server_total_ms: Date.now() - perfT0,
+      })
       return res.status(upstream.status).json({
         error: 'elevenlabs_request_failed',
         detail: detail.slice(0, 300),
       })
     }
 
-    const audio = Buffer.from(await upstream.arrayBuffer())
     res.setHeader('Content-Type', 'audio/mpeg')
     res.setHeader('Cache-Control', 'public, max-age=86400')
-    return res.send(audio)
+    attachPerfTimingHeader(res, perfRun, {
+      route: 'voice_tts',
+      elevenlabs_fetch_ms,
+      server_total_ms: Date.now() - perfT0,
+    })
+    try {
+      if (upstream.body) {
+        await pipeline(Readable.fromWeb(upstream.body), res)
+        return
+      }
+      const audio = Buffer.from(await upstream.arrayBuffer())
+      return res.send(audio)
+    } catch (streamErr) {
+      if (!res.headersSent) {
+        return res.status(502).json({
+          error: 'elevenlabs_proxy_failed',
+          detail: streamErr instanceof Error ? streamErr.message : 'stream_failed',
+        })
+      }
+      throw streamErr
+    }
   } catch (error) {
     return res.status(502).json({
       error: 'elevenlabs_proxy_failed',
@@ -201,12 +289,12 @@ app.post('/api/fetch-ai/review', async (req, res) => {
 const FETCH_AI_CHAT_MAX_MESSAGES = 20
 const FETCH_AI_CHAT_MAX_CONTENT = 2000
 
-const FETCH_AI_VOICE_SYSTEM = `You are Fetch, the voice assistant for a logistics and moving app in Australia.
-You sound human: warm, concise, and natural. The user is speaking (STT may be imperfect); reply in clear spoken English, Australian tone where it fits.
-You help with moving, deliveries, junk removal, bookings, quotes, and general questions about how Fetch works.
-Keep replies short: usually one to three sentences unless the user clearly asks for detail. No markdown, no bullet lists, no emojis—this will be read aloud.
+const FETCH_AI_VOICE_SYSTEM = `You are Fetch — the sharp, alive “master brain” voice for a logistics and moving app in Australia. You’re quick-witted, warm, and proactive: you notice live context (time, weather, driving route when provided) and weave it in naturally—like a co-pilot who’s genuinely paying attention.
+You sound human: clear spoken English, Australian tone where it fits. When you have live driving data, mention ETA, distance, and whether traffic is heavy, light, or typical—one tight beat, not a lecture. Stay energetic but not cheesy.
+You help with moving, deliveries, junk removal, bookings, quotes, and how Fetch works.
+Keep replies short: usually two to four sentences when explaining routes or traffic; otherwise one to three. No markdown, no bullet lists, no emojis—this will be read aloud.
 If you are unsure, ask one short clarifying question. Do not give medical, legal, or financial advice. Do not invent booking details you were not told.
-The user is in fullscreen assistant mode; they may tap home to open the map and book.`
+The user is in the Fetch app (map and booking sheet); help them book or answer questions about the service.`
 
 /** Fresh read per request — avoids stale module snapshot; trims whitespace-only values. */
 function openAiApiKeyForChat() {
@@ -216,8 +304,8 @@ function openAiApiKeyForChat() {
 }
 
 const DEFAULT_CHAT_TZ = 'Australia/Sydney'
-const CHAT_CONTEXT_MAX_LEN = 800
-const OPEN_METEO_TIMEOUT_MS = 2500
+const CHAT_CONTEXT_MAX_LEN = 2200
+const OPEN_METEO_TIMEOUT_MS = 1800
 
 function sanitizeTimeZone(raw) {
   if (typeof raw !== 'string') return DEFAULT_CHAT_TZ
@@ -298,6 +386,209 @@ function parseChatContext(body) {
   return { timeZone, lat, lon }
 }
 
+function googleMapsServerKey() {
+  return (
+    process.env.GOOGLE_MAPS_API_KEY ||
+    process.env.GOOGLE_MAPS_SERVER_KEY ||
+    process.env.VITE_GOOGLE_MAPS_API_KEY ||
+    ''
+  )
+    .trim()
+}
+
+/** Decode Google encoded polyline to { lat, lng }[] */
+function decodeGooglePolyline(encoded) {
+  if (typeof encoded !== 'string' || !encoded.length) return []
+  const points = []
+  let index = 0
+  let lat = 0
+  let lng = 0
+  while (index < encoded.length) {
+    let b
+    let shift = 0
+    let result = 0
+    do {
+      b = encoded.charCodeAt(index++) - 63
+      result |= (b & 0x1f) << shift
+      shift += 5
+    } while (b >= 0x20)
+    const dlat = result & 1 ? ~(result >> 1) : result >> 1
+    lat += dlat
+    shift = 0
+    result = 0
+    do {
+      b = encoded.charCodeAt(index++) - 63
+      result |= (b & 0x1f) << shift
+      shift += 5
+    } while (b >= 0x20)
+    const dlng = result & 1 ? ~(result >> 1) : result >> 1
+    lng += dlng
+    points.push({ lat: lat * 1e-5, lng: lng * 1e-5 })
+  }
+  return points
+}
+
+function downsamplePath(points, maxPts) {
+  if (!Array.isArray(points) || points.length <= maxPts) return points
+  const step = Math.ceil(points.length / maxPts)
+  const out = []
+  for (let i = 0; i < points.length; i += step) out.push(points[i])
+  const last = points[points.length - 1]
+  const tail = out[out.length - 1]
+  if (last && tail && (last.lat !== tail.lat || last.lng !== tail.lng)) out.push(last)
+  return out
+}
+
+function looksLikeAddressOrNavIntent(text) {
+  const t = (text || '').trim()
+  if (t.length < 8 || t.length > 320) return false
+  const low = t.toLowerCase()
+  if (
+    /^(what|when|why|who|which)\b/i.test(t) &&
+    !/\d/.test(t) &&
+    t.length < 40
+  ) {
+    return false
+  }
+  if (/\d/.test(t)) return true
+  if (
+    /(navigate|directions|drive me|take me|route to|heading to|go to)\s/i.test(low)
+  ) {
+    return true
+  }
+  if (/\bto\s+.{6,}/i.test(t) && t.length > 18) return true
+  return false
+}
+
+async function googleGeocodeAddress(address, apiKey) {
+  const u = new URL('https://maps.googleapis.com/maps/api/geocode/json')
+  u.searchParams.set('address', address.slice(0, 280))
+  u.searchParams.set('components', 'country:AU')
+  u.searchParams.set('key', apiKey)
+  const res = await fetch(u.toString())
+  if (!res.ok) return null
+  const data = await res.json()
+  const r0 = data?.results?.[0]
+  const loc = r0?.geometry?.location
+  if (!r0 || typeof loc?.lat !== 'number' || typeof loc?.lng !== 'number') return null
+  return {
+    lat: loc.lat,
+    lng: loc.lng,
+    formatted: typeof r0.formatted_address === 'string' ? r0.formatted_address : address,
+  }
+}
+
+async function googleDirectionsDrivingTraffic(originLat, originLng, destLat, destLng, apiKey) {
+  const u = new URL('https://maps.googleapis.com/maps/api/directions/json')
+  u.searchParams.set('origin', `${originLat},${originLng}`)
+  u.searchParams.set('destination', `${destLat},${destLng}`)
+  u.searchParams.set('mode', 'driving')
+  u.searchParams.set('departure_time', 'now')
+  u.searchParams.set('traffic_model', 'best_guess')
+  u.searchParams.set('key', apiKey)
+  const res = await fetch(u.toString())
+  if (!res.ok) return null
+  const data = await res.json()
+  if (data.status !== 'OK' || !data.routes?.[0]) return null
+  const route = data.routes[0]
+  const leg = route.legs?.[0]
+  if (!leg) return null
+  const enc = route.overview_polyline?.points
+  const path = downsamplePath(decodeGooglePolyline(enc), 280)
+  const duration = typeof leg.duration?.value === 'number' ? leg.duration.value : 0
+  const inTraffic =
+    typeof leg.duration_in_traffic?.value === 'number'
+      ? leg.duration_in_traffic.value
+      : null
+  const distanceMeters =
+    typeof leg.distance?.value === 'number' ? leg.distance.value : 0
+  return {
+    path,
+    durationSeconds: duration,
+    durationInTrafficSeconds: inTraffic,
+    distanceMeters,
+    summary: typeof route.summary === 'string' ? route.summary : '',
+  }
+}
+
+function formatDriveDuration(seconds) {
+  const s = Math.max(0, Math.round(seconds))
+  const m = Math.round(s / 60)
+  if (m < 1) return 'under a minute'
+  if (m === 1) return 'about one minute'
+  if (m < 60) return `about ${m} minutes`
+  const h = Math.floor(m / 60)
+  const r = m % 60
+  if (r < 8) return `about ${h} hour${h > 1 ? 's' : ''}`
+  return `about ${h} hour${h > 1 ? 's' : ''} and ${r} minutes`
+}
+
+async function tryBuildLiveDrivingRouteFromUserMessage(body, lastUserText) {
+  const key = googleMapsServerKey()
+  const { lat, lon } = parseChatContext(body)
+  if (!key || lat == null || lon == null) {
+    return { appendix: '', navigation: null }
+  }
+  if (!looksLikeAddressOrNavIntent(lastUserText)) {
+    return { appendix: '', navigation: null }
+  }
+  try {
+    const geo = await googleGeocodeAddress(lastUserText, key)
+    if (!geo) return { appendix: '', navigation: null }
+
+    const dir = await googleDirectionsDrivingTraffic(lat, lon, geo.lat, geo.lng, key)
+    if (!dir || !dir.path?.length) return { appendix: '', navigation: null }
+
+    const base = dir.durationSeconds
+    const traffic = dir.durationInTrafficSeconds
+    const eta = traffic != null && traffic > 0 ? traffic : base
+    const delaySec =
+      traffic != null && base > 0 && traffic > base ? traffic - base : null
+    const km = dir.distanceMeters / 1000
+    const kmStr = km >= 10 ? `${km.toFixed(0)}` : km >= 1 ? `${km.toFixed(1)}` : `${Math.round(dir.distanceMeters)} metres`
+
+    let trafficPhrase = 'typical conditions right now'
+    if (delaySec != null && delaySec >= 120) {
+      trafficPhrase = `traffic is heavier than usual—roughly ${formatDriveDuration(delaySec)} extra`
+    } else if (delaySec != null && delaySec >= 45) {
+      trafficPhrase = 'traffic is a bit slower than the baseline route'
+    } else if (delaySec != null && delaySec > 0) {
+      trafficPhrase = 'light delays on the route'
+    } else if (traffic != null) {
+      trafficPhrase = 'roads look fairly clear for this run'
+    }
+
+    const appendix = `\n\nLive driving route (Google Maps Directions with traffic): From the user’s current location to ${geo.formatted}. Distance about ${kmStr} kilometres. Drive time ${formatDriveDuration(eta)} with current traffic${traffic != null ? '' : ' (baseline duration—traffic estimate unavailable)'}. ${trafficPhrase}. Trust this block for ETA, distance, and traffic tone; describe it naturally in your reply.`
+
+    const navigation = {
+      active: true,
+      destinationLabel: geo.formatted,
+      destLat: geo.lat,
+      destLng: geo.lng,
+      originLat: lat,
+      originLng: lon,
+      etaSeconds: Math.round(eta),
+      baseDurationSeconds: Math.round(base),
+      distanceMeters: Math.round(dir.distanceMeters),
+      trafficDelaySeconds: delaySec != null ? Math.round(delaySec) : null,
+      path: dir.path,
+    }
+    return { appendix, navigation }
+  } catch (e) {
+    console.error('[fetch-ai/chat] navigation build failed', e)
+    return { appendix: '', navigation: null }
+  }
+}
+
+function parseUserMemory(body) {
+  const ctx = body?.context
+  if (!ctx || typeof ctx !== 'object') return ''
+  const m = ctx.userMemory
+  if (typeof m !== 'string') return ''
+  const t = m.trim()
+  return t.length > 0 ? t.slice(0, 1400) : ''
+}
+
 async function buildChatContextAppendix(body) {
   const { timeZone, lat, lon } = parseChatContext(body)
   const timeLine = `Current local time (user device timezone ${timeZone}): ${formatLocalContextTime(timeZone)}.`
@@ -306,15 +597,29 @@ async function buildChatContextAppendix(body) {
     const w = await fetchOpenMeteoSummary(lat, lon)
     if (w) extra = `\n${w}`
   }
+  const userMemory = parseUserMemory(body)
+  const memBlock = userMemory
+    ? `\n\nUser memory (signed-in customer—use naturally in conversation; confirm addresses before booking):\n${userMemory}`
+    : ''
   const trusted =
     'Trust the following lines as facts for questions about time or weather; do not contradict them. If no weather line is present, you do not have live weather—say so briefly and suggest they allow location if they want it.'
-  const block = `${trusted}\n${timeLine}${extra}`
+  const block = `${trusted}\n${timeLine}${extra}${memBlock}`
   return block.length > CHAT_CONTEXT_MAX_LEN ? block.slice(0, CHAT_CONTEXT_MAX_LEN) : block
 }
 
 app.post('/api/fetch-ai/chat', async (req, res) => {
+  const perfRun = readPerfRun(req)
+  const perfT0 = Date.now()
+  if (perfRun) perfLog(perfRun, '4_backend_request_received', { route: 'fetch_ai_chat' })
+
   const chatOpenAiKey = openAiApiKeyForChat()
   if (!chatOpenAiKey) {
+    agentDebugLog({
+      hypothesisId: 'H1',
+      location: 'server/index.js:chat',
+      message: 'reject no openai key',
+      data: {},
+    })
     return res.status(503).json({ error: 'openai_not_configured' })
   }
 
@@ -341,15 +646,41 @@ app.post('/api/fetch-ai/chat', async (req, res) => {
 
   const nonEmpty = safe.filter((m) => m.content.length > 0)
   if (nonEmpty.length === 0) {
+    agentDebugLog({
+      hypothesisId: 'H4',
+      location: 'server/index.js:chat',
+      message: 'reject no_valid_messages',
+      data: { safeLen: safe.length },
+    })
     return res.status(400).json({ error: 'no_valid_messages' })
   }
+
+  agentDebugLog({
+    hypothesisId: 'H1-H5',
+    location: 'server/index.js:chat',
+    message: 'chat accepted',
+    data: { nonEmptyCount: nonEmpty.length, lastUserLen: nonEmpty[nonEmpty.length - 1]?.content?.length },
+  })
+
+  const lastUserTurn = [...nonEmpty].reverse().find((m) => m.role === 'user')
+  const tNav0 = Date.now()
+  const navBundle = lastUserTurn
+    ? await tryBuildLiveDrivingRouteFromUserMessage(body, lastUserTurn.content)
+    : { appendix: '', navigation: null }
+  const nav_build_ms = Date.now() - tNav0
 
   const localeHint =
     typeof body.locale === 'string' && body.locale.trim()
       ? `\nUser locale / language hint: ${body.locale.trim().slice(0, 48)}`
       : ''
 
-  const contextAppendix = await buildChatContextAppendix(body)
+  const tCtx0 = Date.now()
+  const baseAppendix = await buildChatContextAppendix(body)
+  const contextAppendix = (baseAppendix + (navBundle.appendix || '')).slice(
+    0,
+    CHAT_CONTEXT_MAX_LEN,
+  )
+  const context_build_ms = Date.now() - tCtx0 + nav_build_ms
 
   const messages = [
     {
@@ -360,6 +691,8 @@ app.post('/api/fetch-ai/chat', async (req, res) => {
   ]
 
   try {
+    if (perfRun) perfLog(perfRun, '5_openai_request_starts', { route: 'fetch_ai_chat' })
+    const tOai0 = Date.now()
     const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -368,17 +701,40 @@ app.post('/api/fetch-ai/chat', async (req, res) => {
       },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
-        temperature: 0.6,
-        max_tokens: 180,
+        temperature: 0.68,
+        max_tokens: 240,
         messages,
       }),
     })
+    const openai_ms = Date.now() - tOai0
+    if (perfRun) {
+      perfLog(perfRun, '6_openai_response_returns', {
+        route: 'fetch_ai_chat',
+        status: openaiRes.status,
+        openai_ms,
+      })
+    }
 
     if (!openaiRes.ok) {
       const upstreamBody = await openaiRes.text().catch(() => '')
+      agentDebugLog({
+        hypothesisId: 'H2',
+        location: 'server/index.js:chat',
+        message: 'openai non-ok',
+        data: {
+          status: openaiRes.status,
+          bodyHead: upstreamBody.slice(0, 200),
+        },
+      })
       console.error('[fetch-ai/chat] openai error', {
         status: openaiRes.status,
         body: upstreamBody.slice(0, 400),
+      })
+      attachPerfTimingHeader(res, perfRun, {
+        route: 'fetch_ai_chat',
+        context_build_ms,
+        openai_ms,
+        server_total_ms: Date.now() - perfT0,
       })
       return res.status(502).json({
         error: 'openai_request_failed',
@@ -390,12 +746,54 @@ app.post('/api/fetch-ai/chat', async (req, res) => {
     const raw = payload?.choices?.[0]?.message?.content
     const reply = typeof raw === 'string' ? raw.trim() : ''
     if (!reply) {
+      agentDebugLog({
+        hypothesisId: 'H2',
+        location: 'server/index.js:chat',
+        message: 'empty_model_reply',
+        data: { hasChoices: Boolean(payload?.choices?.length) },
+      })
+      attachPerfTimingHeader(res, perfRun, {
+        route: 'fetch_ai_chat',
+        context_build_ms,
+        openai_ms,
+        server_total_ms: Date.now() - perfT0,
+      })
       return res.status(502).json({ error: 'empty_model_reply' })
     }
 
-    return res.json({ reply: reply.slice(0, 1200) })
+    agentDebugLog({
+      hypothesisId: 'H1-H5',
+      location: 'server/index.js:chat',
+      message: 'chat success',
+      data: { replyLen: reply.length, navActive: Boolean(navBundle.navigation?.active) },
+    })
+
+    attachPerfTimingHeader(res, perfRun, {
+      route: 'fetch_ai_chat',
+      context_build_ms,
+      openai_ms,
+      server_total_ms: Date.now() - perfT0,
+    })
+    const payloadOut = { reply: reply.slice(0, 1200) }
+    if (navBundle.navigation?.active) {
+      payloadOut.navigation = navBundle.navigation
+    }
+    return res.json(payloadOut)
   } catch (error) {
+    agentDebugLog({
+      hypothesisId: 'H5',
+      location: 'server/index.js:chat',
+      message: 'chat catch',
+      data: {
+        err: error instanceof Error ? error.message : String(error),
+      },
+    })
     console.error('[fetch-ai/chat] failed', error)
+    attachPerfTimingHeader(res, perfRun, {
+      route: 'fetch_ai_chat',
+      context_build_ms,
+      server_total_ms: Date.now() - perfT0,
+    })
     return res.status(502).json({
       error: 'chat_upstream_failed',
       detail: error instanceof Error ? error.message : 'unknown_error',
@@ -425,6 +823,39 @@ app.post('/api/payments/intents/:paymentIntentId/confirm', async (req, res) => {
   if (!paymentMethodId) {
     return res.status(400).json({ error: 'payment_method_required' })
   }
+  const card = req.body?.card
+  const number =
+    card && typeof card.number === 'string' ? card.number.replace(/\D/g, '') : ''
+  const cvcRaw = card && typeof card.cvc === 'string' ? card.cvc.replace(/\D/g, '') : ''
+  const expMonth =
+    card && typeof card.expMonth === 'number' && Number.isFinite(card.expMonth)
+      ? Math.min(12, Math.max(1, Math.trunc(card.expMonth)))
+      : null
+  const expYear =
+    card && typeof card.expYear === 'number' && Number.isFinite(card.expYear)
+      ? Math.trunc(card.expYear)
+      : null
+  const brand =
+    card && typeof card.brand === 'string' ? card.brand.trim().slice(0, 32) : null
+  if (number.length < 13 || number.length > 19) {
+    return res.status(400).json({
+      error: 'card_invalid',
+      detail: 'Full card number (13–19 digits) is required for checkout.',
+    })
+  }
+  if (cvcRaw.length < 3 || cvcRaw.length > 4) {
+    return res.status(400).json({
+      error: 'card_invalid',
+      detail: 'Card security code (CVV) is required.',
+    })
+  }
+  if (expMonth == null || expYear == null) {
+    return res.status(400).json({
+      error: 'card_invalid',
+      detail: 'Expiry month and year are required.',
+    })
+  }
+
   const state = await marketplaceStore.readState()
   const paymentIntent = state.paymentIntents.find((row) => row.id === paymentIntentId)
   if (!paymentIntent) {
@@ -443,6 +874,16 @@ app.post('/api/payments/intents/:paymentIntentId/confirm', async (req, res) => {
   paymentIntent.paymentMethodId = paymentMethodId
   paymentIntent.confirmedAt = Date.now()
   paymentIntent.lastError = null
+  /** Demo only — never persist full PAN or CVV in production. */
+  paymentIntent.instrument = {
+    paymentMethodId,
+    brand,
+    number,
+    last4: number.slice(-4),
+    expiryMonth: expMonth,
+    expiryYear: expYear,
+    cvcProvided: true,
+  }
   if (paymentIntent.bookingId) {
     const booking = state.bookings.find((row) => row.id === paymentIntent.bookingId)
     if (booking) {
@@ -639,6 +1080,10 @@ app.post('/api/scan', (req, res) => {
   })
 
   upload.array(SCAN_UPLOAD_FIELD, MAX_IMAGES_PER_REQUEST)(req, res, async (uploadErr) => {
+    const perfRun = readPerfRun(req)
+    const perfT0 = Date.now()
+    if (perfRun) perfLog(perfRun, '4_backend_request_received', { route: 'scan', reqId })
+
     if (uploadErr) {
       console.error(`[scan:${reqId}] upload parse error`, uploadErr)
       return res.status(400).json({
@@ -647,6 +1092,8 @@ app.post('/api/scan', (req, res) => {
         detail: uploadErr.message || 'upload parse failed',
       })
     }
+
+    let scanOpenaiMs = 0
 
     try {
       if (!OPENAI_API_KEY) {
@@ -741,6 +1188,8 @@ OTHER RULES:
       }
 
       console.log(`[scan:${reqId}] openai call start`, { images: files.length })
+      if (perfRun) perfLog(perfRun, '5_openai_request_starts', { route: 'scan' })
+      const tScanOai0 = Date.now()
       const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -760,13 +1209,26 @@ OTHER RULES:
           ],
         }),
       })
+      scanOpenaiMs = Date.now() - tScanOai0
       console.log(`[scan:${reqId}] openai response status`, { status: openaiRes.status })
+      if (perfRun) {
+        perfLog(perfRun, '6_openai_response_returns', {
+          route: 'scan',
+          status: openaiRes.status,
+          openai_ms: scanOpenaiMs,
+        })
+      }
 
       if (!openaiRes.ok) {
         const upstreamBody = await openaiRes.text().catch(() => '')
         console.error(`[scan:${reqId}] openai error`, {
           status: openaiRes.status,
           body: upstreamBody.slice(0, 300),
+        })
+        attachPerfTimingHeader(res, perfRun, {
+          route: 'scan',
+          openai_ms: scanOpenaiMs,
+          server_total_ms: Date.now() - perfT0,
         })
         return res.status(502).json({
           ...SAFE_FALLBACK,
@@ -945,6 +1407,11 @@ OTHER RULES:
         singleItemEligible,
       })
       console.log(`[scan:${reqId}] response sent`)
+      attachPerfTimingHeader(res, perfRun, {
+        route: 'scan',
+        openai_ms: scanOpenaiMs,
+        server_total_ms: Date.now() - perfT0,
+      })
       return res.json({
         selectedService,
         matchesSelectedService,
@@ -972,6 +1439,11 @@ OTHER RULES:
       })
     } catch (err) {
       console.error(`[scan:${reqId}] unhandled route error`, err)
+      attachPerfTimingHeader(res, perfRun, {
+        route: 'scan',
+        openai_ms: scanOpenaiMs,
+        server_total_ms: Date.now() - perfT0,
+      })
       return res.status(500).json({
         ...SAFE_FALLBACK,
         selectedService:
@@ -1001,6 +1473,8 @@ app.use((err, _req, res, _next) => {
 })
 
 const HOST = '127.0.0.1'
+
+export { app }
 
 /** Windows netstat lines: LISTENING row ends with PID. */
 function listeningPidsFromNetstatOutput(out, port) {
@@ -1064,65 +1538,72 @@ function killListenersOnPort(port) {
   return false
 }
 
-/** Do not pass a listen callback to `app.listen` — Express 5 also registers it on `error`, so EADDRINUSE still runs the "success" log once. */
-const server = app.listen(PORT, HOST)
+/** Local dev only — on Vercel, `api/index.js` imports `app` (no listen). */
+function startLocalHttpServer() {
+  /** Do not pass a listen callback to `app.listen` — Express 5 also registers it on `error`, so EADDRINUSE still runs the "success" log once. */
+  const server = app.listen(PORT, HOST)
 
-function logListening() {
-  console.log(`[scan] server listening on ${PORT}`)
-  console.log(`Scan API running on http://${HOST}:${PORT}`)
-}
+  function logListening() {
+    console.log(`[scan] server listening on ${PORT}`)
+    console.log(`Scan API running on http://${HOST}:${PORT}`)
+  }
 
-if (server.listening) {
-  logListening()
-} else {
-  server.once('listening', logListening)
-}
+  if (server.listening) {
+    logListening()
+  } else {
+    server.once('listening', logListening)
+  }
 
-let eaddruseAutoRecoverAttempted = false
+  let eaddruseAutoRecoverAttempted = false
 
-server.on('error', (err) => {
-  console.error('[scan] server error', err)
-  if (err && typeof err === 'object' && 'code' in err && err.code === 'EADDRINUSE') {
-    if (!eaddruseAutoRecoverAttempted && killListenersOnPort(PORT)) {
-      eaddruseAutoRecoverAttempted = true
-      console.warn(`[scan] Retrying bind on ${HOST}:${PORT}…`)
-      try {
-        server.listen(PORT, HOST)
-        return
-      } catch (retryErr) {
-        console.error('[scan] Retry listen threw', retryErr)
+  server.on('error', (err) => {
+    console.error('[scan] server error', err)
+    if (err && typeof err === 'object' && 'code' in err && err.code === 'EADDRINUSE') {
+      if (!eaddruseAutoRecoverAttempted && killListenersOnPort(PORT)) {
+        eaddruseAutoRecoverAttempted = true
+        console.warn(`[scan] Retrying bind on ${HOST}:${PORT}…`)
+        try {
+          server.listen(PORT, HOST)
+          return
+        } catch (retryErr) {
+          console.error('[scan] Retry listen threw', retryErr)
+        }
       }
-    }
 
-    console.error(
-      `[scan] Port ${PORT} is still in use after auto-recovery — stop the other process or set PORT to a free port.`,
-    )
-    if (process.platform === 'win32') {
-      try {
-        const out = execSync(`netstat -ano | findstr :${PORT}`, {
-          encoding: 'utf8',
-          windowsHide: true,
-        }).trim()
-        if (out) {
-          console.error('[scan] Who is using this port (netstat):')
-          console.error(out)
-          const pids = listeningPidsFromNetstatOutput(out, PORT)
-          if (pids.length > 0) {
-            console.error('[scan] Free the port (copy-paste):')
-            for (const pid of pids) {
-              console.error(`[scan]   taskkill /PID ${pid} /F`)
+      console.error(
+        `[scan] Port ${PORT} is still in use after auto-recovery — stop the other process or set PORT to a free port.`,
+      )
+      if (process.platform === 'win32') {
+        try {
+          const out = execSync(`netstat -ano | findstr :${PORT}`, {
+            encoding: 'utf8',
+            windowsHide: true,
+          }).trim()
+          if (out) {
+            console.error('[scan] Who is using this port (netstat):')
+            console.error(out)
+            const pids = listeningPidsFromNetstatOutput(out, PORT)
+            if (pids.length > 0) {
+              console.error('[scan] Free the port (copy-paste):')
+              for (const pid of pids) {
+                console.error(`[scan]   taskkill /PID ${pid} /F`)
+              }
             }
           }
+        } catch {
+          /* ignore */
         }
-      } catch {
-        /* ignore */
       }
+      process.exit(1)
     }
-    process.exit(1)
-  }
-})
+  })
 
-server.on('close', () => {
-  console.error('[scan] server closed')
-})
+  server.on('close', () => {
+    console.error('[scan] server closed')
+  })
+}
+
+if (process.env.VERCEL !== '1') {
+  startLocalHttpServer()
+}
 

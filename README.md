@@ -71,3 +71,13 @@ export default defineConfig([
   },
 ])
 ```
+
+## Performance and production API latency
+
+### Frontend
+
+The app uses **lazy-loaded** views so the **booking / Google Maps** bundle is not downloaded until the user opens Home. The assistant (Fetch AI) screen loads in a separate chunk. For profiling, use Chrome **Lighthouse** (mobile) and the **Network** panel with throttling: note **LCP**, **TBT**, initial JS size, and confirm `maps.googleapis.com` only appears after navigating Home.
+
+### Vercel / API
+
+The first `/api/*` request after a period of idle time may show a **high TTFB** (often on the order of seconds) because of **serverless cold starts** (more noticeable on Hobby). Repeat requests are usually faster. Chat and voice latency also include **OpenAI** and **ElevenLabs** round trips; ensure `maxDuration` in `vercel.json` is sufficient for your longest TTS or chat handler.

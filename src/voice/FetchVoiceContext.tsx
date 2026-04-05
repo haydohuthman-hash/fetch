@@ -10,20 +10,32 @@ import {
   useMemo,
   useState,
 } from 'react'
-import { playVoice, speakLine, subscribeVoiceSpeechPlaying } from './fetchVoice'
+import {
+  playVoice,
+  primeVoicePlaybackFromUserGesture,
+  speakLine,
+  subscribeVoiceSpeechPlaying,
+} from './fetchVoice'
 import { playUiFeedback, type UiFeedbackEvent } from './fetchFeedback'
 import type { SpeakLineOptions, VoiceEventOptions, VoiceEventType } from './fetchVoice'
+import { pickVoiceInstantAck } from './voiceAckPhrases'
 
 const STORAGE_KEY = 'fetch_voice_muted'
+
+/** Opt-in UI bridge only — forwarded `speakLine` calls never receive `withVoiceHold`. */
+export type FetchSpeakLineOptions = SpeakLineOptions & { withVoiceHold?: boolean }
 
 type FetchVoiceContextValue = {
   muted: boolean
   /** True while ElevenLabs speech audio is playing (not chimes). */
   isSpeechPlaying: boolean
+  /** Instant ack line + pulse while a `withVoiceHold` clip is fetching / starting. */
+  voiceHoldCaption: string | null
+  voiceHoldPulseNonce: number
   setMuted: (next: boolean) => void
   toggleMute: () => void
   playEvent: (type: VoiceEventType, options?: VoiceEventOptions) => void
-  speakLine: (text: string, options?: SpeakLineOptions) => Promise<void>
+  speakLine: (text: string, options?: FetchSpeakLineOptions) => Promise<void>
   playUiEvent: (event: UiFeedbackEvent) => void
 }
 
@@ -40,6 +52,8 @@ function readInitialMuted(): boolean {
 export function FetchVoiceProvider({ children }: { children: React.ReactNode }) {
   const [muted, setMutedState] = useState(false)
   const [isSpeechPlaying, setIsSpeechPlaying] = useState(false)
+  const [voiceHoldCaption, setVoiceHoldCaption] = useState<string | null>(null)
+  const [voiceHoldPulseNonce, setVoiceHoldPulseNonce] = useState(0)
 
   useEffect(() => {
     setMutedState(readInitialMuted())
@@ -47,6 +61,21 @@ export function FetchVoiceProvider({ children }: { children: React.ReactNode }) 
 
   useEffect(() => {
     return subscribeVoiceSpeechPlaying(setIsSpeechPlaying)
+  }, [])
+
+  /** Unlock AudioContext on first interaction so the first TTS clip isn’t blocked resuming the graph. */
+  useEffect(() => {
+    const warm = () => {
+      primeVoicePlaybackFromUserGesture()
+    }
+    document.addEventListener('pointerdown', warm, {
+      capture: true,
+      passive: true,
+      once: true,
+    })
+    return () => {
+      document.removeEventListener('pointerdown', warm, { capture: true })
+    }
   }, [])
 
   useEffect(() => {
@@ -76,11 +105,21 @@ export function FetchVoiceProvider({ children }: { children: React.ReactNode }) 
   )
 
   const speakAssistantLine = useCallback(
-    (text: string, options?: SpeakLineOptions) => {
-      if (muted) {
-        return Promise.resolve()
+    async (text: string, options?: FetchSpeakLineOptions) => {
+      const { withVoiceHold, ...rest } = options ?? {}
+      if (withVoiceHold && !muted) {
+        setVoiceHoldCaption(pickVoiceInstantAck())
+        setVoiceHoldPulseNonce((n) => n + 1)
       }
-      return speakLine(text, options)
+      if (muted) {
+        if (withVoiceHold) setVoiceHoldCaption(null)
+        return
+      }
+      try {
+        await speakLine(text, rest)
+      } finally {
+        if (withVoiceHold) setVoiceHoldCaption(null)
+      }
     },
     [muted],
   )
@@ -99,13 +138,25 @@ export function FetchVoiceProvider({ children }: { children: React.ReactNode }) 
     () => ({
       muted,
       isSpeechPlaying,
+      voiceHoldCaption,
+      voiceHoldPulseNonce,
       setMuted,
       toggleMute,
       playEvent,
       speakLine: speakAssistantLine,
       playUiEvent,
     }),
-    [muted, isSpeechPlaying, setMuted, toggleMute, playEvent, speakAssistantLine, playUiEvent],
+    [
+      muted,
+      isSpeechPlaying,
+      voiceHoldCaption,
+      voiceHoldPulseNonce,
+      setMuted,
+      toggleMute,
+      playEvent,
+      speakAssistantLine,
+      playUiEvent,
+    ],
   )
 
   return (

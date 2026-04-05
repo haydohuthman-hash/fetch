@@ -1,5 +1,9 @@
 import type { BookingCoords, BookingFlowStep, BookingJobType, BookingState } from './types'
 
+export function isLaborJobType(jobType: BookingJobType | null): boolean {
+  return jobType === 'helper' || jobType === 'cleaning'
+}
+
 export function requiresDropoff(jobType: BookingJobType | null): boolean {
   return jobType === 'deliveryPickup' || jobType === 'heavyItem' || jobType === 'homeMoving'
 }
@@ -50,6 +54,7 @@ function isAdvancedBookingLifecycle(status: BookingState['bookingStatus']): bool
  */
 export function isRouteTerminalPhase(state: BookingState): boolean {
   if (!isAddressAndRouteCheckpointComplete(state)) return false
+  if (isLaborJobType(state.jobType)) return false
   if (state.jobDetailsStarted) return false
   if (state.mode === 'searching' || state.mode === 'matched' || state.mode === 'live') return false
   if (isAdvancedBookingLifecycle(state.bookingStatus)) return false
@@ -59,6 +64,7 @@ export function isRouteTerminalPhase(state: BookingState): boolean {
 /** Item / scan / describe step after route Next. */
 export function isJobDetailsPhase(state: BookingState): boolean {
   if (!isAddressAndRouteCheckpointComplete(state)) return false
+  if (isLaborJobType(state.jobType)) return false
   if (!state.jobDetailsStarted) return false
   if (state.mode === 'pricing' || state.mode === 'searching' || state.mode === 'matched' || state.mode === 'live') {
     return false
@@ -122,6 +128,9 @@ export function refinementDataReady(state: BookingState): boolean {
   if (state.jobType === 'helper') {
     return state.helperHours != null && Boolean(state.helperType?.trim())
   }
+  if (state.jobType === 'cleaning') {
+    return state.cleaningHours != null && Boolean(state.cleaningType?.trim())
+  }
   if (state.jobType === 'junkRemoval') {
     return state.jobDetailsScanStepComplete && state.scan.images.length > 0
   }
@@ -176,7 +185,7 @@ export function deriveFlowStep(state: BookingState): BookingFlowStep {
   if (!pickupCoordsReady(state)) return 'pickup'
   if (!dropoffCoordsReady(state)) return 'dropoff'
   if (!routeComputedReady(state)) return 'route'
-  if (state.jobType === 'helper') {
+  if (state.jobType === 'helper' || state.jobType === 'cleaning') {
     if (!refinementDataReady(state)) return 'refinement'
   } else {
     if (!refinementDataReady(state)) return 'refinement'
@@ -221,6 +230,13 @@ export function readyForPricing(state: BookingState): boolean {
       Boolean(state.pickupCoords) &&
       state.helperHours != null &&
       Boolean(state.helperType?.trim())
+    )
+  }
+  if (state.jobType === 'cleaning') {
+    return (
+      Boolean(state.pickupCoords) &&
+      state.cleaningHours != null &&
+      Boolean(state.cleaningType?.trim())
     )
   }
   if (!pickupCoordsReady(state)) return false

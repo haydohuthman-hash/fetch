@@ -13,6 +13,8 @@ export function FetchVoiceCommandFab({
   id = 'fetch-voice-command-button',
   onboardingPulse = false,
   compact = false,
+  /** Smaller dock + `homeDock` orb — home booking / sheet layout */
+  homeSheetDock = false,
   orbState,
   pulseNonce = 0,
   typingActive = false,
@@ -24,11 +26,13 @@ export function FetchVoiceCommandFab({
   glowColor,
   voiceLevel,
   expression,
+  orbAppearance,
 }: {
   onOpen: () => void
   id?: string
   onboardingPulse?: boolean
   compact?: boolean
+  homeSheetDock?: boolean
   orbState?: JarvisOrbState
   pulseNonce?: number
   typingActive?: boolean
@@ -40,11 +44,16 @@ export function FetchVoiceCommandFab({
   glowColor?: { r: number; g: number; b: number }
   voiceLevel?: number
   expression?: FetchOrbExpression
+  orbAppearance?: 'night' | 'day'
 }) {
   const { isSpeechPlaying, muted, playUiEvent } = useFetchVoice()
   const [pulseActive, setPulseActive] = useState(false)
   const speaking = isSpeechPlaying && !muted
-  const dim = compact ? 'h-[3.25rem] w-[3.25rem]' : 'h-[9rem] w-[9rem]'
+  const dim = compact
+    ? 'h-[3.25rem] w-[3.25rem]'
+    : homeSheetDock
+      ? 'h-[6.5rem] w-[6.5rem]'
+      : 'h-[9rem] w-[9rem]'
 
   const resolvedState: JarvisOrbState | undefined = (() => {
     if (orbState != null) return orbState
@@ -107,7 +116,7 @@ export function FetchVoiceCommandFab({
       }}
       aria-label="Fetch assistant"
       className={[
-        'fetch-voice-fab fetch-voice-fab--jarvis-solo pointer-events-auto relative z-[45] flex shrink-0 items-center justify-center rounded-full bg-transparent text-white transition-transform duration-300 hover:scale-[1.02] active:scale-[0.97]',
+        'fetch-voice-fab fetch-voice-fab--jarvis-solo pointer-events-auto relative z-0 flex shrink-0 items-center justify-center rounded-full bg-transparent text-white transition-transform duration-300 hover:scale-[1.02] active:scale-[0.97]',
         dim,
         looksDormant ? 'fetch-voice-fab--ambient' : '',
         onboardingPulse ? 'fetch-voice-fab--onboarding' : '',
@@ -129,9 +138,29 @@ export function FetchVoiceCommandFab({
           lookAtCard={lookAtCard && !lookDown}
           lookDown={lookDown}
           glowColor={glowColor}
-          size={compact ? 'sm' : 'dock'}
+          orbAppearance={orbAppearance}
+          size={compact ? 'sm' : homeSheetDock ? 'homeDock' : 'dock'}
           ariaLive={false}
         />
+        {mapAttention === 'navigation' ? (
+          <span
+            className="pointer-events-none absolute bottom-[10%] right-[10%] z-[4] flex h-[26%] w-[26%] min-h-[1.35rem] min-w-[1.35rem] items-center justify-center rounded-full bg-[#0a0a0a] text-white shadow-[0_2px_10px_rgba(0,0,0,0.35)] ring-[1.5px] ring-white/25"
+            aria-hidden
+          >
+            <svg
+              width="42%"
+              height="42%"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 3.5 20 21 12 17 4 21 12 3.5z" />
+            </svg>
+          </span>
+        ) : null}
       </span>
     </button>
   )

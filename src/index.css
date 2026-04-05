@@ -1,10 +1,19 @@
 @import 'tailwindcss';
 
+/* Fallback when --orb-glow is not set on a parent (e.g. shared input styles). */
+:root {
+  --orb-glow: 220, 225, 235;
+}
+
 @theme {
   --color-fetch-red: #e1192d;
   --color-fetch-charcoal: #e8eaed;
   --color-fetch-soft-gray: #0e0f12;
   --color-fetch-muted: #9aa0a6;
+  /* FETCH VISION — neon noir accents (sheet + orb) */
+  --color-fetch-vision-blue: #3b82f6;
+  --color-fetch-vision-violet: #a855f7;
+  --color-fetch-vision-magenta: #c026d3;
 }
 
 @keyframes fetch-matching-pulse {
@@ -216,6 +225,30 @@
   }
 }
 
+@keyframes fetch-orb-glow-sheet-idle-home {
+  0%,
+  100% {
+    filter: blur(16px);
+    transform: translate3d(0, 0, 0) scaleY(1);
+  }
+  50% {
+    filter: blur(16px);
+    transform: translate3d(0, -2px, 0) scaleY(1.015);
+  }
+}
+
+@keyframes fetch-orb-glow-voice-active-home {
+  0%,
+  100% {
+    filter: blur(14px) brightness(1.08) saturate(1.06);
+    transform: translate3d(0, -2px, 0) scale3d(1, 1.02, 1);
+  }
+  50% {
+    filter: blur(14px) brightness(1.14) saturate(1.1);
+    transform: translate3d(0, -5px, 0) scale3d(1.01, 1.035, 1);
+  }
+}
+
 .fetch-orb-ground-glow-layer {
   overflow: visible;
   /* Inherited from parent; fallback matches idle orb */
@@ -242,6 +275,20 @@
 .fetch-ai-composer-input {
   min-width: 0;
   box-sizing: border-box;
+}
+
+/* Mobile: sheet + keyboard — iOS avoids input zoom at 16px; matches visual-viewport lift */
+@media (max-width: 1024px) {
+  .fetch-home-booking-sheet textarea,
+  .fetch-home-booking-sheet .fetch-ai-composer-input,
+  .fetch-home-booking-sheet .fetch-home-address-input,
+  .fetch-home-booking-sheet .fetch-stage-text-input {
+    font-size: 16px !important;
+  }
+}
+
+:root {
+  --fetch-vv-keyboard: 0px;
 }
 
 /* Fullscreen AI — voice mic: white “alien” core + orb-glow halo (inside composer) */
@@ -469,7 +516,7 @@
   }
 }
 
-/* Stage-tinted CTAs — --orb-glow set on HomeView / FetchAIView root */
+/* Stage-tinted CTAs — --orb-glow set on HomeView root */
 .fetch-stage-primary-btn {
   color: #fff;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
@@ -511,27 +558,29 @@
   border-top-color: rgba(var(--orb-glow), 0.92);
 }
 
-/* Text fields — focus ring + outer glow match booking stage (--orb-glow) */
+/* Text fields — stage border tint only (no outer glow) */
 .fetch-stage-text-input {
   outline: none;
-  transition:
-    border-color 0.22s ease,
-    box-shadow 0.22s ease;
+  transition: border-color 0.18s ease;
 }
 
 .fetch-stage-text-input:focus,
 .fetch-stage-text-input:focus-visible {
-  border-color: rgba(var(--orb-glow), 0.5);
-  box-shadow:
-    0 0 0 2px rgba(var(--orb-glow), 0.14),
-    0 0 36px rgba(var(--orb-glow), 0.28),
-    0 6px 18px rgba(0, 0, 0, 0.28);
+  border-color: rgba(var(--orb-glow), 0.48);
+  box-shadow: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .fetch-stage-text-input {
     transition-duration: 0.05s;
   }
+}
+
+/* Labor / generic text fields on light sheet — subtle stage border on focus */
+.fetch-home-booking-sheet .fetch-stage-text-input:not(.fetch-home-address-input):focus,
+.fetch-home-booking-sheet .fetch-stage-text-input:not(.fetch-home-address-input):focus-visible {
+  border-color: rgba(var(--orb-glow), 0.42);
+  box-shadow: none;
 }
 
 /* Fullscreen AI: Home + Voice — halo matches --orb-glow */
@@ -642,6 +691,63 @@
   opacity: 0.48;
 }
 
+/* Home map: narrow pool under dock orb — less full-map wash */
+.fetch-orb-ground-glow-layer--home .fetch-orb-ground-glow-base {
+  left: 14%;
+  right: 14%;
+  width: 72%;
+  height: 72%;
+  bottom: 2%;
+  filter: blur(20px);
+  opacity: 0.9;
+  background:
+    radial-gradient(ellipse 42% 58% at 50% 100%, rgba(var(--orb-glow), 0.26) 0%, rgba(var(--orb-glow), 0.09) 48%, transparent 70%),
+    linear-gradient(
+      to top,
+      rgba(var(--orb-glow), 0.1) 0%,
+      rgba(var(--orb-glow), 0.05) 38%,
+      rgba(var(--orb-glow), 0.02) 72%,
+      transparent 100%
+    );
+}
+
+.fetch-orb-ground-glow-layer--home .fetch-orb-ground-glow-fill {
+  left: 18%;
+  right: 18%;
+  width: 64%;
+  height: 58%;
+  bottom: 5%;
+  filter: blur(16px);
+  opacity: 0.36;
+  animation: fetch-orb-glow-sheet-idle-home 5.75s ease-in-out infinite;
+  background: radial-gradient(
+    ellipse 36% 50% at 50% 100%,
+    rgba(var(--orb-glow), 0.34) 0%,
+    rgba(var(--orb-glow), 0.09) 54%,
+    transparent 74%
+  );
+}
+
+.fetch-orb-ground-glow-layer--home .fetch-orb-ground-glow-voice-sheen {
+  left: 18%;
+  right: 18%;
+  width: 64%;
+  height: 58%;
+  bottom: 5%;
+  filter: blur(14px);
+  animation: fetch-orb-glow-voice-active-home 1.85s ease-in-out infinite;
+  background: radial-gradient(
+    ellipse 36% 50% at 50% 100%,
+    rgba(var(--orb-glow), 0.38) 0%,
+    rgba(var(--orb-glow), 0.12) 54%,
+    transparent 74%
+  );
+}
+
+.fetch-orb-ground-glow-layer--home.fetch-orb-ground-glow-layer--speech .fetch-orb-ground-glow-voice-sheen {
+  opacity: 0.34;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .fetch-home-intro-line {
     animation: none;
@@ -655,6 +761,10 @@
     transform: none;
   }
 
+  .fetch-orb-ground-glow-layer--home .fetch-orb-ground-glow-fill {
+    opacity: 0.3;
+  }
+
   .fetch-orb-ground-glow-voice-sheen {
     animation: none;
     filter: blur(32px);
@@ -662,8 +772,16 @@
     transition-duration: 0.28s;
   }
 
+  .fetch-orb-ground-glow-layer--home .fetch-orb-ground-glow-voice-sheen {
+    filter: blur(14px);
+  }
+
   .fetch-orb-ground-glow-layer--speech .fetch-orb-ground-glow-voice-sheen {
     opacity: 0.42;
+  }
+
+  .fetch-orb-ground-glow-layer--home.fetch-orb-ground-glow-layer--speech .fetch-orb-ground-glow-voice-sheen {
+    opacity: 0.3;
   }
 }
 
@@ -740,6 +858,54 @@
 
 .fetch-fetch-ai-assistant-card--speaking {
   animation: fetch-fetch-ai-card-orb-speak 1.35s cubic-bezier(0.22, 0.88, 0.24, 1) 1;
+}
+
+/* Home assistant card: gentle pulse while TTS is loading (perceived responsiveness). */
+@keyframes fetch-assistant-voice-hold-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 8px 24px rgba(0, 0, 0, 0.34),
+      0 0 0 1px rgba(255, 255, 255, 0.06);
+  }
+  50% {
+    box-shadow:
+      0 10px 28px rgba(0, 0, 0, 0.36),
+      0 0 0 1px rgba(var(--orb-glow), 0.12),
+      0 0 14px rgba(var(--orb-glow), 0.08);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fetch-assistant-card-voice-hold {
+    animation: fetch-assistant-voice-hold-glow 1.65s ease-in-out infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fetch-assistant-card-voice-hold {
+    box-shadow:
+      0 8px 24px rgba(0, 0, 0, 0.34),
+      0 0 0 1px rgba(var(--orb-glow), 0.1);
+  }
+}
+
+@keyframes fetch-voice-bridge-caption-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 4px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fetch-ai-voice-bridge-caption,
+  .fetch-voice-hold-caption {
+    animation: fetch-voice-bridge-caption-in 0.32s cubic-bezier(0.22, 0.88, 0.24, 1) both;
+  }
 }
 
 /* Assistant card copy: exit = slide up + fade out; enter = rise slightly + fade in */
@@ -1111,8 +1277,27 @@
   border: none !important;
   outline: none !important;
   box-shadow: none;
-  filter: drop-shadow(0 6px 22px rgba(0, 0, 0, 0.38))
-    drop-shadow(0 10px 40px rgba(var(--orb-glow), 0.14));
+  filter: drop-shadow(0 2px 7px rgba(0, 0, 0, 0.48))
+    drop-shadow(0 3px 9px rgba(var(--orb-glow), 0.42))
+    drop-shadow(0 1px 4px rgba(var(--orb-glow), 0.26));
+}
+
+/* Seat the face in the sphere — soft inner vignette (home dock) */
+.fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere {
+  isolation: isolate;
+}
+
+.fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 4;
+  box-shadow:
+    inset 0 0 26px rgba(0, 0, 0, 0.48),
+    inset 0 -10px 22px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.035);
 }
 
 /* Fullscreen assistant: canvas face only (no dark orb shell) */
@@ -1123,8 +1308,9 @@
   outline: none !important;
   box-shadow: none;
   background: transparent;
-  filter: drop-shadow(0 4px 18px rgba(0, 0, 0, 0.22))
-    drop-shadow(0 14px 36px rgba(var(--orb-glow), 0.18));
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.34))
+    drop-shadow(0 3px 10px rgba(var(--orb-glow), 0.34))
+    drop-shadow(0 1px 4px rgba(var(--orb-glow), 0.2));
 }
 
 @keyframes fetch-jarvis-autonomous-breathe {
@@ -1142,28 +1328,12 @@
   animation: fetch-jarvis-autonomous-breathe 4.8s ease-in-out infinite;
 }
 
-.fetch-assistant-face-orb__underglow {
-  z-index: 0;
-  pointer-events: none;
-  background: radial-gradient(
-    ellipse 70% 80% at 50% 44%,
-    rgba(var(--orb-glow), 0.3) 0%,
-    rgba(var(--orb-glow), 0.12) 42%,
-    rgba(var(--orb-glow), 0.05) 62%,
-    transparent 78%
-  );
-  opacity: 0.52;
-  transform: translate3d(-50%, 4px, 0);
-  filter: blur(44px);
-  transition: opacity 0.45s ease-out, filter 0.45s ease-out;
-}
-
 .fetch-jarvis-neural-sphere {
   transform-origin: center;
   filter:
-    drop-shadow(0 10px 22px rgba(8, 10, 22, 0.45))
-    drop-shadow(0 14px 38px rgba(var(--orb-glow), 0.48))
-    drop-shadow(0 4px 18px rgba(var(--orb-glow), 0.28));
+    drop-shadow(0 2px 7px rgba(0, 0, 0, 0.48))
+    drop-shadow(0 3px 9px rgba(var(--orb-glow), 0.42))
+    drop-shadow(0 1px 4px rgba(var(--orb-glow), 0.26));
   animation: fetch-jarvis-neural-float 4.2s ease-in-out infinite;
 }
 
@@ -2347,40 +2517,75 @@
   animation: fetch-fab-core-breathe 4.6s ease-in-out infinite;
 }
 
-/* Home dock: circular halo tracks --orb-glow (booking stage) */
-.fetch-voice-fab--jarvis-solo {
+/* Home booking sheet — Jarvis orb: scoped under .fetch-home-vision so generic .fetch-voice-fab--*
+   rules never win on any flow step (pickup, route, confirm, etc.). */
+/* Neutral inset avoids colored “lip” ring; color stays in outer glow */
+.fetch-home-vision .fetch-voice-fab--jarvis-solo {
   box-shadow:
-    0 0 0 1px rgba(var(--orb-glow), 0.42),
-    0 0 0 10px rgba(var(--orb-glow), 0.06),
-    0 12px 40px rgba(var(--orb-glow), 0.12);
+    inset 0 0 0 1px rgba(255, 255, 255, 0.035),
+    0 0 6px 0 rgba(var(--orb-glow), 0.38),
+    0 5px 16px rgba(0, 0, 0, 0.44);
   animation: none;
 }
 
-.fetch-voice-fab--jarvis-solo.fetch-voice-fab--ambient {
+.fetch-home-vision .fetch-voice-fab--jarvis-solo.fetch-voice-fab--ambient {
   animation: none;
 }
 
-.fetch-voice-fab--jarvis-solo:hover {
+.fetch-home-vision .fetch-voice-fab--jarvis-solo:hover {
   box-shadow:
-    0 0 0 1px rgba(var(--orb-glow), 0.52),
-    0 0 0 12px rgba(var(--orb-glow), 0.1),
-    0 14px 44px rgba(var(--orb-glow), 0.16);
+    inset 0 0 0 1px rgba(255, 255, 255, 0.055),
+    0 0 7px 0 rgba(var(--orb-glow), 0.44),
+    0 6px 18px rgba(0, 0, 0, 0.46);
 }
 
-.fetch-voice-fab--jarvis-solo:active {
+.fetch-home-vision .fetch-voice-fab--jarvis-solo:active {
   box-shadow:
-    0 0 0 1px rgba(var(--orb-glow), 0.36),
-    0 0 0 8px rgba(var(--orb-glow), 0.05);
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03),
+    0 0 5px 0 rgba(var(--orb-glow), 0.34),
+    0 4px 14px rgba(0, 0, 0, 0.46);
 }
 
-.fetch-voice-fab--jarvis-solo.fetch-voice-fab--speaking,
-.fetch-voice-fab--jarvis-solo.fetch-voice-fab--pulse,
-.fetch-voice-fab--jarvis-solo.fetch-voice-fab--onboarding,
-.fetch-voice-fab--jarvis-solo.fetch-voice-fab--typing {
+.fetch-home-vision .fetch-voice-fab--jarvis-solo.fetch-voice-fab--speaking,
+.fetch-home-vision .fetch-voice-fab--jarvis-solo.fetch-voice-fab--onboarding {
   box-shadow:
-    0 0 0 1px rgba(var(--orb-glow), 0.55),
-    0 0 0 14px rgba(var(--orb-glow), 0.12),
-    0 0 32px rgba(var(--orb-glow), 0.2);
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 0 7px 0 rgba(var(--orb-glow), 0.48),
+    0 6px 20px rgba(0, 0, 0, 0.46);
+  animation: none;
+}
+
+.fetch-home-vision .fetch-voice-fab--jarvis-solo.fetch-voice-fab--pulse {
+  animation:
+    fetch-fab-core-breathe 2.2s ease-in-out infinite,
+    fetch-fab-premium-pulse-jarvis 280ms cubic-bezier(0.24, 0.9, 0.32, 1);
+}
+
+.fetch-home-vision .fetch-voice-fab--jarvis-solo.fetch-voice-fab--typing {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.045),
+    0 0 6px 0 rgba(var(--orb-glow), 0.4),
+    0 5px 17px rgba(0, 0, 0, 0.44);
+  animation:
+    fetch-fab-core-breathe 4.2s ease-in-out infinite,
+    fetch-fab-typing-shimmer 1.2s ease-in-out infinite;
+}
+
+.fetch-home-vision .fetch-voice-fab--jarvis-solo.fetch-voice-fab--speaking.fetch-voice-fab--typing {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 0 7px 0 rgba(var(--orb-glow), 0.48),
+    0 6px 20px rgba(0, 0, 0, 0.46);
+  animation:
+    fetch-fab-core-breathe 3.2s ease-in-out infinite,
+    fetch-fab-typing-shimmer 1.2s ease-in-out infinite;
+}
+
+.fetch-home-vision .fetch-voice-fab--jarvis-solo.fetch-voice-fab--speaking.fetch-voice-fab--pulse {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+    0 0 7px 0 rgba(var(--orb-glow), 0.48),
+    0 6px 20px rgba(0, 0, 0, 0.46);
   animation: none;
 }
 
@@ -2536,6 +2741,23 @@
   }
 }
 
+/* Jarvis sheet orb: pulse animates glow only (inset rim stays fitted; no spread-ring flash). */
+@keyframes fetch-fab-premium-pulse-jarvis {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 0 0 1px rgba(var(--orb-glow), 0.4),
+      0 0 18px -4px rgba(var(--orb-glow), 0.28),
+      0 10px 32px rgba(0, 0, 0, 0.38);
+  }
+  45% {
+    box-shadow:
+      inset 0 0 0 1px rgba(var(--orb-glow), 0.55),
+      0 0 28px -2px rgba(var(--orb-glow), 0.42),
+      0 12px 38px rgba(0, 0, 0, 0.42);
+  }
+}
+
 .fetch-voice-fab--pulse {
   animation:
     fetch-fab-core-breathe 2.2s ease-in-out infinite,
@@ -2626,11 +2848,801 @@
   border: 1px solid rgba(var(--orb-glow), 0.42);
   background:
     radial-gradient(130% 120% at 50% 0%, rgba(var(--orb-glow), 0.22) 0%, transparent 52%),
-    linear-gradient(180deg, rgba(22, 24, 30, 0.96), rgba(14, 15, 18, 0.98));
-  backdrop-filter: blur(12px);
+    linear-gradient(180deg, #1c1a22, #121118);
   animation:
     fetch-pin-drop-banner-in 520ms cubic-bezier(0.22, 0.88, 0.24, 1) both,
     fetch-pin-drop-banner-pulse 2.4s ease-in-out 520ms infinite;
+}
+
+/* --- Home booking: solid bottom sheet (no frosted glass) --- */
+/* Home orb: horizontally centered with sheet (viewport-centered max-w-lg column); vertical position from sheet measure */
+.fetch-home-orb-sheet-follow {
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fetch-home-orb-sheet-follow {
+    transition: bottom 0.42s cubic-bezier(0.32, 1.22, 0.32, 1);
+  }
+}
+
+.fetch-home-orb-sheet-follow--no-transition {
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fetch-home-orb-sheet-follow {
+    transition: none;
+  }
+}
+
+/* Home address / labor pill inputs — stage-tinted border, no glow */
+.fetch-home-vision .fetch-home-address-input {
+  border-color: rgba(var(--orb-glow), 0.2);
+  background: linear-gradient(180deg, rgba(12, 10, 20, 0.98) 0%, rgba(4, 4, 10, 0.99) 100%);
+  color: rgba(232, 234, 237, 0.96);
+  box-shadow: none;
+}
+
+.fetch-home-vision .fetch-home-address-input::placeholder {
+  color: rgba(154, 160, 166, 0.38);
+}
+
+.fetch-home-vision .fetch-home-address-input:focus,
+.fetch-home-vision .fetch-home-address-input:focus-visible {
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.35);
+  outline: none;
+}
+
+/* Home sheet CTAs — deep base, glassy highlight, violet rim (premium) */
+.fetch-home-vision .fetch-stage-primary-btn {
+  color: rgba(255, 255, 255, 0.98);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  background: linear-gradient(
+    165deg,
+    rgba(var(--orb-glow), 0.42) 0%,
+    rgba(52, 28, 108, 0.9) 32%,
+    rgba(14, 10, 26, 0.99) 68%,
+    rgba(5, 4, 12, 1) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.14) inset,
+    0 0 0 1px rgba(var(--orb-glow), 0.18) inset,
+    0 14px 44px rgba(0, 0, 0, 0.58),
+    0 0 52px rgba(var(--orb-glow), 0.16);
+  transition:
+    box-shadow 0.22s ease,
+    border-color 0.22s ease,
+    transform 0.15s ease;
+}
+
+.fetch-home-vision .fetch-stage-primary-btn:hover {
+  filter: none;
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.17) inset,
+    0 0 0 1px rgba(var(--orb-glow), 0.26) inset,
+    0 18px 52px rgba(0, 0, 0, 0.52),
+    0 0 64px rgba(var(--orb-glow), 0.24);
+}
+
+.fetch-home-vision .fetch-stage-primary-btn:active {
+  filter: none;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.1) inset,
+    0 0 0 1px rgba(var(--orb-glow), 0.12) inset,
+    0 8px 28px rgba(0, 0, 0, 0.55);
+}
+
+.fetch-home-vision .fetch-stage-primary-btn:disabled {
+  opacity: 0.52;
+  filter: saturate(0.65);
+}
+
+.fetch-home-vision .fetch-stage-chip-selected {
+  color: rgba(255, 255, 255, 0.98);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  background: linear-gradient(
+    165deg,
+    rgba(var(--orb-glow), 0.48) 0%,
+    rgba(42, 24, 88, 0.9) 38%,
+    rgba(10, 8, 20, 0.98) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.11) inset,
+    0 10px 36px rgba(0, 0, 0, 0.48),
+    0 0 40px rgba(var(--orb-glow), 0.18);
+}
+
+/* Secondary / ghost actions on home sheet */
+.fetch-home-vision .fetch-home-secondary-btn {
+  background: linear-gradient(180deg, rgba(20, 18, 32, 0.98) 0%, rgba(7, 6, 14, 1) 100%);
+  border: 1px solid rgba(var(--orb-glow), 0.16);
+  color: rgba(232, 234, 237, 0.9);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.05) inset,
+    0 10px 28px rgba(0, 0, 0, 0.42);
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    transform 0.15s ease;
+}
+
+.fetch-home-vision .fetch-home-secondary-btn:hover {
+  border-color: rgba(var(--orb-glow), 0.32);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.07) inset,
+    0 12px 34px rgba(0, 0, 0, 0.48),
+    0 0 22px rgba(var(--orb-glow), 0.14);
+}
+
+.fetch-home-vision .fetch-home-secondary-btn:disabled {
+  opacity: 0.48;
+}
+
+.fetch-home-vision .fetch-home-pill-chip {
+  background: linear-gradient(180deg, rgba(14, 12, 24, 0.96) 0%, rgba(6, 5, 12, 1) 100%);
+  border: 1px solid rgba(var(--orb-glow), 0.14);
+  color: rgba(232, 234, 237, 0.86);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+}
+
+.fetch-home-landing-search .fetch-home-address-input {
+  padding-left: 2.45rem;
+}
+
+/* Connected service rail — solid panels */
+.fetch-home-service-rail {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0;
+  width: 100%;
+  max-width: 100%;
+  border-radius: 1.25rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  background: #14131a;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.fetch-home-service-segment {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 3.45rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.22rem;
+  padding: 0.3rem 0.25rem;
+  border: none;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+  color: inherit;
+  background: #18171f;
+  box-shadow: none;
+}
+
+.fetch-home-service-segment:last-child {
+  border-right: none;
+}
+
+.fetch-home-service-segment--selected {
+  background: #22202c;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.fetch-home-vision .fetch-home-service-segment-icon,
+.fetch-home-vision .fetch-home-service-segment-label {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.fetch-home-service-segment-label {
+  color: rgba(232, 234, 237, 0.82);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fetch-home-service-segment {
+    transition:
+      background 0.22s ease,
+      box-shadow 0.22s ease,
+      transform 0.16s ease;
+  }
+
+  .fetch-home-service-segment:active {
+    transform: scale(0.985);
+  }
+}
+
+/* Collapsed-sheet mic — inset rim + soft halo (matches main orb; inherits --orb-glow from home). */
+.fetch-home-sheet-peek-mic {
+  box-shadow:
+    inset 0 0 0 1px rgba(var(--orb-glow), 0.44),
+    0 0 8px -1px rgba(var(--orb-glow), 0.3),
+    0 4px 12px rgba(0, 0, 0, 0.38);
+}
+
+.fetch-home-sheet-peek-mic:hover {
+  box-shadow:
+    inset 0 0 0 1px rgba(var(--orb-glow), 0.52),
+    0 0 10px 0 rgba(var(--orb-glow), 0.36),
+    0 5px 14px rgba(0, 0, 0, 0.4);
+}
+
+.fetch-home-sheet-peek-mic:active {
+  box-shadow:
+    inset 0 0 0 1px rgba(var(--orb-glow), 0.38),
+    0 0 6px -1px rgba(var(--orb-glow), 0.26),
+    0 3px 10px rgba(0, 0, 0, 0.42);
+}
+
+.fetch-home-booking-sheet__body--compact {
+  /* Orb center sits on sheet top — reserve lower half of orb + gap so content starts clearly below it. */
+  padding-top: calc(6.5rem * 0.5 + 1.35rem);
+  padding-bottom: 0.15rem;
+}
+
+/* Sheet body: scrollbar hidden when scroll is enabled (non–content-fit full snap) */
+.fetch-home-booking-sheet__scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.fetch-home-booking-sheet__scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Google Places suggestions — dark panel (dropdown is portaled to body) */
+.pac-container {
+  margin-top: 4px !important;
+  border-radius: 14px !important;
+  background: #0a0912 !important;
+  border: 1px solid rgba(139, 92, 246, 0.22) !important;
+  box-shadow:
+    0 20px 56px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(59, 130, 246, 0.08) inset !important;
+}
+
+.pac-item {
+  border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
+  color: rgba(232, 234, 237, 0.88) !important;
+  padding: 0.65rem 0.85rem !important;
+}
+
+.pac-item:first-child {
+  border-top: none !important;
+}
+
+.pac-item-query {
+  color: #f4f4f5 !important;
+}
+
+.pac-item:hover,
+.pac-item-selected,
+.pac-item-selected .pac-item-query {
+  background-color: rgba(139, 92, 246, 0.14) !important;
+  color: #fff !important;
+}
+
+.pac-logo:after,
+.hdpi.pac-logo:after {
+  filter: brightness(0.85) contrast(1.1);
+}
+
+/* Sheet: minimal white-tint wash + premium top rim (::before) */
+.fetch-home-booking-sheet {
+  position: relative;
+  --sheet-bg-top: #15141e;
+  --sheet-bg-bottom: #0c0b10;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background-color: var(--sheet-bg-bottom);
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.038) 0%, transparent 42%),
+    linear-gradient(180deg, var(--sheet-bg-top) 0%, var(--sheet-bg-bottom) 100%);
+  box-shadow:
+    0 -2px 14px rgba(0, 0, 0, 0.28),
+    0 0 0 1px rgba(255, 255, 255, 0.035) inset,
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.09);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  will-change: height, transform;
+}
+
+.fetch-home-booking-sheet::before {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 1px;
+  height: 1px;
+  border-radius: 32px 32px 0 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.12) 22%,
+    rgba(255, 255, 255, 0.38) 50%,
+    rgba(255, 255, 255, 0.12) 78%,
+    transparent 100%
+  );
+  pointer-events: none;
+}
+
+/* Snap height ↔ panel depth (opaque) */
+.fetch-home-booking-sheet[data-snap='closed'] {
+  --sheet-bg-top: #111018;
+  --sheet-bg-bottom: #08080c;
+}
+
+.fetch-home-booking-sheet[data-snap='half'] {
+  --sheet-bg-top: #15141e;
+  --sheet-bg-bottom: #0c0b10;
+}
+
+.fetch-home-booking-sheet[data-snap='full'] {
+  --sheet-bg-top: #1a1825;
+  --sheet-bg-bottom: #0f0e14;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fetch-home-booking-sheet:not(.fetch-home-booking-sheet--dragging) {
+    transition:
+      height 0.32s cubic-bezier(0.32, 0.72, 0, 1),
+      transform 0.32s cubic-bezier(0.32, 0.72, 0, 1),
+      background-color 0.36s cubic-bezier(0.22, 0.88, 0.24, 1),
+      border-color 0.36s cubic-bezier(0.22, 0.88, 0.24, 1),
+      box-shadow 0.36s cubic-bezier(0.22, 0.88, 0.24, 1);
+  }
+}
+
+.fetch-home-booking-sheet[data-snap='closed'] {
+  height: auto;
+  max-height: 7rem;
+}
+
+/* Fixed depths when content-fit is off — hug-content steps use [data-content-fit='true'] */
+.fetch-home-booking-sheet:not([data-content-fit='true'])[data-snap='half'] {
+  height: min(60dvh, 32rem);
+}
+
+.fetch-home-booking-sheet:not([data-content-fit='true'])[data-snap='full'] {
+  height: min(78dvh, 32rem);
+}
+
+/* Later booking steps: sheet height follows content; half/full only change the max viewport */
+.fetch-home-booking-sheet[data-content-fit='true'][data-snap='half'] {
+  height: auto;
+  max-height: min(62dvh, 36rem);
+}
+
+.fetch-home-booking-sheet[data-content-fit='true'][data-snap='full'] {
+  height: auto;
+  max-height: min(78dvh, 32rem);
+}
+
+.fetch-home-booking-sheet--hidden {
+  opacity: 0;
+  transform: translate3d(0, 14px, 0) scale(0.97);
+  pointer-events: none;
+  visibility: hidden;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fetch-home-booking-sheet--visible {
+    animation: fetch-home-sheet-enter 0.52s cubic-bezier(0.16, 0.88, 0.25, 1.02) forwards;
+  }
+}
+
+@keyframes fetch-home-sheet-enter {
+  0% {
+    visibility: visible;
+    opacity: 0;
+    transform: translate3d(0, 18px, 0) scale(0.96);
+    box-shadow:
+      0 -2px 12px rgba(0, 0, 0, 0.26),
+      0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+  }
+  55% {
+    opacity: 1;
+    transform: translate3d(0, -1px, 0) scale(1.005);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    box-shadow:
+      0 -2px 14px rgba(0, 0, 0, 0.28),
+      0 0 0 1px rgba(255, 255, 255, 0.035) inset,
+      inset 0 1.5px 0 rgba(255, 255, 255, 0.09);
+  }
+}
+
+.fetch-home-booking-sheet--speaking {
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, transparent 42%),
+    linear-gradient(180deg, #1e1c28 0%, #13121a 100%);
+  box-shadow:
+    0 -2px 16px rgba(0, 0, 0, 0.32),
+    0 0 0 1px rgba(255, 255, 255, 0.055) inset,
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* Idle: cool white halo; awake uses stage --orb-glow (handled via variable on parent). */
+.fetch-home-vision .fetch-home-orb-vision-halo[data-orb-idle='true'] {
+  filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.36)) drop-shadow(0 0 5px rgba(240, 242, 248, 0.22))
+    drop-shadow(0 2px 8px rgba(0, 0, 0, 0.46));
+}
+
+.fetch-home-vision .fetch-home-orb-vision-halo:not([data-orb-idle='true']) {
+  filter: drop-shadow(0 0 2px rgba(var(--orb-glow), 0.36)) drop-shadow(0 0 5px rgba(var(--orb-glow), 0.26))
+    drop-shadow(0 2px 8px rgba(0, 0, 0, 0.48));
+}
+
+@keyframes fetch-home-orb-bubble-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+.fetch-home-orb-speech-bubble {
+  position: relative;
+  border-radius: 1.1rem;
+  border: 1px solid rgba(var(--orb-glow), 0.22);
+  background: linear-gradient(
+    165deg,
+    rgba(var(--orb-glow), 0.16) 0%,
+    rgba(var(--orb-glow), 0.06) 42%,
+    rgba(14, 12, 22, 0.94) 100%
+  );
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(var(--orb-glow), 0.12),
+    0 0 28px rgba(var(--orb-glow), 0.1);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fetch-home-orb-speech-bubble {
+    animation: fetch-home-orb-bubble-rise 0.38s cubic-bezier(0.22, 0.88, 0.32, 1) both;
+  }
+}
+
+.fetch-home-orb-speech-bubble::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  margin-left: -7px;
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-top: 7px solid rgba(16, 14, 24, 0.97);
+  filter: drop-shadow(0 1px 0 rgba(var(--orb-glow), 0.28));
+}
+
+.fetch-home-orb-speech-bubble--speaking {
+  border-color: rgba(var(--orb-glow), 0.4);
+  box-shadow:
+    0 4px 22px rgba(0, 0, 0, 0.38),
+    0 0 32px rgba(var(--orb-glow), 0.2),
+    inset 0 1px 0 rgba(var(--orb-glow), 0.16);
+}
+
+@keyframes fetch-home-orb-chat-bubble-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+/* Orb chat transcript: fills from safe-area top down to above orb; top mask fades oldest lines */
+.fetch-home-orb-chat-stack__mask {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(0, 0, 0, 0.15) 8%,
+    rgba(0, 0, 0, 0.55) 18%,
+    rgba(0, 0, 0, 0.92) 30%,
+    #000 42%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(0, 0, 0, 0.15) 8%,
+    rgba(0, 0, 0, 0.55) 18%,
+    rgba(0, 0, 0, 0.92) 30%,
+    #000 42%
+  );
+}
+
+.fetch-home-orb-chat-bubble--fetch {
+  border-color: rgba(var(--orb-glow), 0.22);
+  background: linear-gradient(
+    165deg,
+    rgba(var(--orb-glow), 0.16) 0%,
+    rgba(var(--orb-glow), 0.06) 42%,
+    rgba(14, 12, 22, 0.94) 100%
+  );
+  box-shadow:
+    0 4px 18px rgba(0, 0, 0, 0.32),
+    inset 0 1px 0 rgba(var(--orb-glow), 0.1);
+}
+
+.fetch-home-orb-chat-bubble--fetch p {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.fetch-home-orb-chat-bubble--user {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(22, 20, 32, 0.88);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+}
+
+.fetch-home-orb-chat-bubble--user p {
+  color: rgba(232, 234, 242, 0.9);
+}
+
+.fetch-home-orb-chat-bubble--speaking {
+  border-color: rgba(var(--orb-glow), 0.42);
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.34),
+    0 0 26px rgba(var(--orb-glow), 0.18),
+    inset 0 1px 0 rgba(var(--orb-glow), 0.14);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fetch-home-orb-chat-bubble {
+    animation: fetch-home-orb-chat-bubble-in 0.34s cubic-bezier(0.22, 0.88, 0.32, 1) both;
+  }
+}
+
+/* Intent landing — compact so half sheet fits without inner scroll */
+.fetch-home-landing-section--intent {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  padding-top: 0.35rem;
+}
+
+.fetch-home-landing-section--intent .fetch-home-service-rail {
+  margin-top: 0.35rem;
+  margin-bottom: 0;
+}
+
+.fetch-home-landing-section--intent .fetch-home-intent-composer {
+  margin-top: 0;
+}
+
+.fetch-sound-wave-bars__bar {
+  transform-origin: center bottom;
+  opacity: 0.42;
+  transition: opacity 0.25s ease;
+  background: rgba(192, 132, 252, 0.92);
+}
+
+.fetch-sound-wave-bars--idle .fetch-sound-wave-bars__bar {
+  opacity: 0.38;
+}
+
+.fetch-sound-wave-bars--active .fetch-sound-wave-bars__bar {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fetch-sound-wave-bars--active .fetch-sound-wave-bars__bar {
+    animation: fetch-sound-wave-bar 0.42s ease-in-out infinite alternate;
+  }
+
+  .fetch-sound-wave-bars--active .fetch-sound-wave-bars__bar:nth-child(1) {
+    animation-duration: 0.38s;
+  }
+  .fetch-sound-wave-bars--active .fetch-sound-wave-bars__bar:nth-child(2) {
+    animation-duration: 0.48s;
+  }
+  .fetch-sound-wave-bars--active .fetch-sound-wave-bars__bar:nth-child(3) {
+    animation-duration: 0.36s;
+  }
+  .fetch-sound-wave-bars--active .fetch-sound-wave-bars__bar:nth-child(4) {
+    animation-duration: 0.52s;
+  }
+  .fetch-sound-wave-bars--active .fetch-sound-wave-bars__bar:nth-child(5) {
+    animation-duration: 0.4s;
+  }
+}
+
+@keyframes fetch-sound-wave-bar {
+  from {
+    transform: scaleY(0.35);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fetch-sound-wave-bars--active .fetch-sound-wave-bars__bar {
+    animation: none;
+    opacity: 0.85;
+  }
+}
+
+/* Intent composer mic: black disc + white bars (no purple core / glow) */
+.fetch-home-vision .fetch-home-intent-composer .fetch-ai-voice-btn__core.fetch-ai-voice-btn__core--waves {
+  background: #0a0a0a !important;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.38) !important;
+  animation: none !important;
+}
+
+.fetch-home-vision .fetch-home-intent-composer .fetch-ai-voice-btn--listening .fetch-ai-voice-btn__core.fetch-ai-voice-btn__core--waves,
+.fetch-home-vision
+  .fetch-home-intent-composer
+  .fetch-ai-voice-btn--speaking:not(.fetch-ai-voice-btn--listening)
+  .fetch-ai-voice-btn__core.fetch-ai-voice-btn__core--waves {
+  background: #0a0a0a !important;
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.45) !important;
+  animation: none !important;
+}
+
+.fetch-home-vision .fetch-home-intent-composer .fetch-ai-voice-btn:focus-visible .fetch-ai-voice-btn__core.fetch-ai-voice-btn__core--waves {
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.35),
+    0 2px 12px rgba(0, 0, 0, 0.35) !important;
+}
+
+.fetch-home-vision .fetch-home-intent-composer .fetch-sound-wave-bars__bar {
+  background: rgba(255, 255, 255, 0.92) !important;
+}
+
+.fetch-home-vision .fetch-home-intent-composer .fetch-ai-voice-btn--send-draft .fetch-ai-voice-btn__ring,
+.fetch-home-vision .fetch-home-intent-composer .fetch-ai-voice-btn--send-draft .fetch-ai-voice-btn__glow {
+  opacity: 0;
+  animation: none;
+}
+
+.fetch-home-vision .fetch-home-intent-composer .fetch-ai-voice-btn__send-icon {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+/* Home intent composer: glass slab — neutral rim + soft shadow (no coloured glow) */
+.fetch-home-vision .fetch-home-intent-composer.fetch-ai-composer-shell {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgba(14, 13, 20, 0.72);
+  background-image: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.06) 0%,
+    rgba(255, 255, 255, 0.03) 40%,
+    transparent 72%
+  );
+  backdrop-filter: blur(18px) saturate(1.15);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.32) inset,
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 6px 20px rgba(0, 0, 0, 0.28);
+}
+
+.fetch-home-vision .fetch-home-intent-composer .fetch-ai-composer-input {
+  color: rgba(248, 250, 252, 0.95);
+}
+
+.fetch-home-vision .fetch-home-intent-composer .fetch-ai-composer-input::placeholder {
+  color: rgba(255, 255, 255, 0.38);
+}
+
+.fetch-home-vision .fetch-home-intent-composer .fetch-ai-composer-input:focus,
+.fetch-home-vision .fetch-home-intent-composer .fetch-ai-composer-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.fetch-home-vision .fetch-home-intent-composer .fetch-ai-composer-plus {
+  color: rgba(248, 250, 252, 0.92);
+  background: transparent;
+  box-shadow: none;
+}
+
+.fetch-home-vision .fetch-home-intent-composer .fetch-ai-composer-plus:hover {
+  color: rgba(248, 250, 252, 0.78);
+  background: transparent;
+}
+
+.fetch-home-vision .fetch-home-intent-composer .fetch-ai-composer-plus:active {
+  color: rgba(248, 250, 252, 0.65);
+  background: transparent;
+}
+
+.fetch-home-vision .fetch-home-intent-composer .fetch-ai-composer-plus:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.28);
+  outline-offset: 2px;
+}
+
+/* Orb speech / chat bubbles + floating waves: black pill, white bars */
+.fetch-home-orb-speech-bubble .fetch-sound-wave-bars,
+.fetch-home-orb-chat-bubble .fetch-sound-wave-bars,
+.fetch-home-orb-floating-waves .fetch-sound-wave-bars {
+  padding: 5px 8px;
+  border-radius: 9999px;
+  background: #0a0a0a;
+  box-sizing: border-box;
+}
+
+.fetch-home-orb-speech-bubble .fetch-sound-wave-bars__bar,
+.fetch-home-orb-chat-bubble .fetch-sound-wave-bars__bar,
+.fetch-home-orb-floating-waves .fetch-sound-wave-bars__bar {
+  background: rgba(255, 255, 255, 0.9) !important;
+}
+
+@keyframes fetch-home-sheet-voice-hold-min {
+  0%,
+  100% {
+    box-shadow:
+      0 -2px 14px rgba(0, 0, 0, 0.28),
+      0 0 0 1px rgba(255, 255, 255, 0.035) inset,
+      inset 0 1.5px 0 rgba(255, 255, 255, 0.09);
+  }
+  50% {
+    box-shadow:
+      0 -2px 16px rgba(0, 0, 0, 0.3),
+      0 0 0 1px rgba(255, 255, 255, 0.055) inset,
+      inset 0 1.5px 0 rgba(255, 255, 255, 0.11),
+      0 0 12px rgba(255, 255, 255, 0.045);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fetch-home-booking-sheet--voice-hold {
+    animation: fetch-home-sheet-voice-hold-min 2.4s ease-in-out infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fetch-home-booking-sheet--voice-hold {
+    animation: none;
+    box-shadow:
+      0 -2px 14px rgba(0, 0, 0, 0.28),
+      0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+      inset 0 1.5px 0 rgba(255, 255, 255, 0.09);
+  }
+}
+
+.fetch-home-booking-sheet__body {
+  transition: opacity 0.28s cubic-bezier(0.22, 0.88, 0.24, 1);
+}
+
+.fetch-home-sheet-inner {
+  transition: opacity 0.22s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fetch-home-booking-sheet {
+    transition: none !important;
+  }
+  .fetch-home-booking-sheet--visible {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+    visibility: visible;
+  }
 }
 
 .fetch-assistant-card--map-focus {

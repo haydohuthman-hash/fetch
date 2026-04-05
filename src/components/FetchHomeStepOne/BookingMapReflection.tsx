@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Circle, Marker, Polygon, Polyline } from '@react-google-maps/api'
+import { Circle, Marker } from '@react-google-maps/api'
 import type { BookingStage } from '../../lib/assistant'
-import { SEQ_BOUNDARY } from './brisbaneMap'
+import { fitPickupAndDropoff, nudgeMapCenterTowardTop } from './brisbaneMap'
 
 export type MapAccentRgb = { r: number; g: number; b: number }
 
@@ -26,6 +26,8 @@ type BookingMapReflectionProps = {
   stage: BookingStage
   /** Pin rings, pulses, marker fill — match booking stage. */
   accentRgb?: MapAccentRgb
+  /** Shown as a distinct blue pin when geolocation is allowed. */
+  userLocationCoords?: google.maps.LatLngLiteral | null
 }
 
 /**
@@ -41,6 +43,7 @@ export function BookingMapReflection({
   map,
   stage,
   accentRgb: accentRgbProp,
+  userLocationCoords = null,
 }: BookingMapReflectionProps) {
   const accentRgb = accentRgbProp ?? DEFAULT_ACCENT
   const accentHex = useMemo(
@@ -53,8 +56,6 @@ export function BookingMapReflection({
 
   const [showPickupPin, setShowPickupPin] = useState(false)
   const [showDropoffPin, setShowDropoffPin] = useState(false)
-  const [routeHintOpacity, setRouteHintOpacity] = useState(0)
-  const [routeFlowOffsetPct, setRouteFlowOffsetPct] = useState(0)
   const [routeRevealCenter, setRouteRevealCenter] = useState<google.maps.LatLngLiteral | null>(null)
   const [routeRevealRadius, setRouteRevealRadius] = useState(0)
   const [routeRevealOpacity, setRouteRevealOpacity] = useState(0)
@@ -81,29 +82,23 @@ export function BookingMapReflection({
   const [anticipationPulseRadius, setAnticipationPulseRadius] = useState(0)
   const [anticipationPulseOpacity, setAnticipationPulseOpacity] = useState(0)
 
-  const [driverToPickupPath, setDriverToPickupPath] = useState<google.maps.LatLngLiteral[]>([])
   const [driverPos, setDriverPos] = useState<google.maps.LatLngLiteral | null>(null)
-  const [driverProgress, setDriverProgress] = useState(0)
+  const driverAnimProgressRef = useRef(0)
   const [driverRevealPulseRadius, setDriverRevealPulseRadius] = useState(0)
   const [driverRevealPulseOpacity, setDriverRevealPulseOpacity] = useState(0)
   const [showDriverMarker, setShowDriverMarker] = useState(false)
   const [driverMarkerOpacity, setDriverMarkerOpacity] = useState(0)
   const [driverMarkerScale, setDriverMarkerScale] = useState(0.86)
-  const worldPresenceTick = 0
-
   const routeAnimTimer = useRef<number | null>(null)
   const searchSweepTimer = useRef<number | null>(null)
   const searchPulseTimer = useRef<number | null>(null)
   const driverMoveTimer = useRef<number | null>(null)
   const conversationPulseTimer = useRef<number | null>(null)
-  const routeHintFadeTimer = useRef<number | null>(null)
-  const routeFlowTimer = useRef<number | null>(null)
   const routeRevealPulseTimer = useRef<number | null>(null)
   const anticipationPulseTimer = useRef<number | null>(null)
   const searchActivityTimer = useRef<number | null>(null)
   const driverRevealPulseTimer = useRef<number | null>(null)
   const driverMarkerIntroTimer = useRef<number | null>(null)
-  const worldPresenceTimer = useRef<number | null>(null)
   const lastDriverRevealKeyRef = useRef<string | null>(null)
   const revealTimersRef = useRef<number[]>([])
   const lastPickupKeyRef = useRef<string | null>(null)
@@ -119,6 +114,18 @@ export function BookingMapReflection({
       strokeWeight: 2,
     }),
     [accentHex],
+  )
+
+  const userLocationIcon = useMemo(
+    () => ({
+      path: google.maps.SymbolPath.CIRCLE,
+      scale: 7,
+      fillColor: '#0d8bd9',
+      fillOpacity: 1,
+      strokeColor: '#ffffff',
+      strokeWeight: 2.5,
+    }),
+    [],
   )
 
   const clearRevealTimers = () => {
@@ -198,25 +205,15 @@ export function BookingMapReflection({
       if (searchPulseTimer.current != null) window.clearInterval(searchPulseTimer.current)
       if (driverMoveTimer.current != null) window.clearInterval(driverMoveTimer.current)
       if (conversationPulseTimer.current != null) window.clearInterval(conversationPulseTimer.current)
-      if (routeHintFadeTimer.current != null) window.clearInterval(routeHintFadeTimer.current)
-      if (routeFlowTimer.current != null) window.clearInterval(routeFlowTimer.current)
       if (routeRevealPulseTimer.current != null) window.clearInterval(routeRevealPulseTimer.current)
       if (anticipationPulseTimer.current != null) window.clearInterval(anticipationPulseTimer.current)
       if (searchActivityTimer.current != null) window.clearInterval(searchActivityTimer.current)
       if (driverRevealPulseTimer.current != null) window.clearInterval(driverRevealPulseTimer.current)
       if (driverMarkerIntroTimer.current != null) window.clearInterval(driverMarkerIntroTimer.current)
-      if (worldPresenceTimer.current != null) window.clearInterval(worldPresenceTimer.current)
       clearRevealTimers()
     },
     [],
   )
-
-  useEffect(() => {
-    return () => {
-      if (worldPresenceTimer.current != null) window.clearInterval(worldPresenceTimer.current)
-      worldPresenceTimer.current = null
-    }
-  }, [])
 
   const geocodeAddress = (address: string): Promise<google.maps.LatLngLiteral | null> => {
     return new Promise((resolve) => {
@@ -241,7 +238,6 @@ export function BookingMapReflection({
       setShowDropoffPin(false)
       lastPickupKeyRef.current = null
       lastDropoffKeyRef.current = null
-      setRouteHintOpacity(0)
       setAnticipatedDropoffPos(null)
       return
     }
@@ -255,7 +251,6 @@ export function BookingMapReflection({
       if (!dropoff || pickup.trim() === dropoff.trim()) {
         setDropoffPos(null)
         setRoutePath([])
-        setRouteHintOpacity(0)
         return
       }
 
@@ -298,10 +293,7 @@ export function BookingMapReflection({
 
   useEffect(() => {
     if (!map || !pickupPos || !dropoffPos) return
-    const bounds = new google.maps.LatLngBounds()
-    bounds.extend(pickupPos)
-    bounds.extend(dropoffPos)
-    map.fitBounds(bounds, 140)
+    fitPickupAndDropoff(map, pickupPos, dropoffPos)
   }, [map, pickupPos?.lat, pickupPos?.lng, dropoffPos?.lat, dropoffPos?.lng, realRoutePath])
 
   useEffect(() => {
@@ -363,6 +355,8 @@ export function BookingMapReflection({
       map.setZoom(16)
       try { map.setTilt(60) } catch { /* vector only */ }
       try { map.setHeading(40) } catch { /* vector only */ }
+      const nudge = () => nudgeMapCenterTowardTop(map, 0.34)
+      requestAnimationFrame(() => requestAnimationFrame(nudge))
     }, 300)
     revealTimersRef.current.push(showPin, cameraZoom)
   }, [pickupPos?.lat, pickupPos?.lng, map])
@@ -394,16 +388,15 @@ export function BookingMapReflection({
         map.panTo(dropoffPos)
       }
       map.setZoom(Math.min(17, z + 0.32))
+      const frac = pickupPos ? 0.22 : 0.34
+      requestAnimationFrame(() => requestAnimationFrame(() => nudgeMapCenterTowardTop(map, frac)))
     }, 340)
     revealTimersRef.current.push(showPin, cameraNudge)
   }, [dropoffPos?.lat, dropoffPos?.lng, pickupPos?.lat, pickupPos?.lng, map])
 
   useEffect(() => {
     if (!pickupPos || !dropoffPos) {
-      setRouteHintOpacity(0)
       setRouteRevealOpacity(0)
-      if (routeHintFadeTimer.current != null) window.clearInterval(routeHintFadeTimer.current)
-      routeHintFadeTimer.current = null
       if (routeRevealPulseTimer.current != null) window.clearInterval(routeRevealPulseTimer.current)
       routeRevealPulseTimer.current = null
       return
@@ -429,41 +422,11 @@ export function BookingMapReflection({
       setRouteRevealRadius(56 + t * 140)
       setRouteRevealOpacity(0.14 * (1 - t))
     }, 26)
-    setRouteHintOpacity(0)
-    const start = Date.now()
-    if (routeHintFadeTimer.current != null) window.clearInterval(routeHintFadeTimer.current)
-    routeHintFadeTimer.current = window.setInterval(() => {
-      const t = Math.min(1, (Date.now() - start) / 360)
-      setRouteHintOpacity(0.12 + t * 0.76)
-      if (t >= 1) {
-        if (routeHintFadeTimer.current != null) window.clearInterval(routeHintFadeTimer.current)
-        routeHintFadeTimer.current = null
-      }
-    }, 24)
     return () => {
-      if (routeHintFadeTimer.current != null) window.clearInterval(routeHintFadeTimer.current)
-      routeHintFadeTimer.current = null
       if (routeRevealPulseTimer.current != null) window.clearInterval(routeRevealPulseTimer.current)
       routeRevealPulseTimer.current = null
     }
   }, [pickupPos?.lat, pickupPos?.lng, dropoffPos?.lat, dropoffPos?.lng])
-
-  useEffect(() => {
-    if (routePath.length < 2) {
-      setRouteFlowOffsetPct(0)
-      if (routeFlowTimer.current != null) window.clearInterval(routeFlowTimer.current)
-      routeFlowTimer.current = null
-      return
-    }
-    if (routeFlowTimer.current != null) window.clearInterval(routeFlowTimer.current)
-    routeFlowTimer.current = window.setInterval(() => {
-      setRouteFlowOffsetPct((v) => (v + 3.5) % 100)
-    }, 200)
-    return () => {
-      if (routeFlowTimer.current != null) window.clearInterval(routeFlowTimer.current)
-      routeFlowTimer.current = null
-    }
-  }, [routePath])
 
   useEffect(() => {
     if (stage !== 'searching' || !pickupPos) {
@@ -513,9 +476,8 @@ export function BookingMapReflection({
   useEffect(() => {
     if ((stage !== 'matched' && stage !== 'searching') || !pickupPos) {
       if (driverMoveTimer.current != null) window.clearInterval(driverMoveTimer.current)
-      setDriverToPickupPath([])
       setDriverPos(null)
-      setDriverProgress(0)
+      driverAnimProgressRef.current = 0
       setShowDriverMarker(false)
       return
     }
@@ -536,18 +498,15 @@ export function BookingMapReflection({
       })
     }
 
-    setDriverToPickupPath(points)
     setDriverPos(points[0] ?? null)
-    setDriverProgress(stage === 'matched' ? 0.36 : 0.14)
+    driverAnimProgressRef.current = stage === 'matched' ? 0.36 : 0.14
 
     if (driverMoveTimer.current != null) window.clearInterval(driverMoveTimer.current)
     driverMoveTimer.current = window.setInterval(() => {
-      setDriverProgress((p) => {
-        const next = Math.min(0.96, p + 0.012)
-        const idx = Math.max(0, Math.min(points.length - 1, Math.round(next * (points.length - 1))))
-        setDriverPos(points[idx] ?? null)
-        return next
-      })
+      const next = Math.min(0.96, driverAnimProgressRef.current + 0.012)
+      driverAnimProgressRef.current = next
+      const idx = Math.max(0, Math.min(points.length - 1, Math.round(next * (points.length - 1))))
+      setDriverPos(points[idx] ?? null)
     }, 120)
 
     return () => {
@@ -622,146 +581,8 @@ export function BookingMapReflection({
         ]
       : []
 
-  const worldPresenceAnchors = useMemo(() => {
-    const base =
-      pickupPos && dropoffPos
-        ? {
-            lat: (pickupPos.lat + dropoffPos.lat) / 2,
-            lng: (pickupPos.lng + dropoffPos.lng) / 2,
-          }
-        : pickupPos ?? dropoffPos ?? { lat: -27.4698, lng: 153.0251 }
-    return [
-      { lat: base.lat + 0.0048, lng: base.lng - 0.0039 },
-      { lat: base.lat - 0.0036, lng: base.lng + 0.0045 },
-      { lat: base.lat + 0.0012, lng: base.lng + 0.0062 },
-    ]
-  }, [pickupPos?.lat, pickupPos?.lng, dropoffPos?.lat, dropoffPos?.lng])
-
-  const worldPresenceMarkers = useMemo(
-    () =>
-      worldPresenceAnchors.map((anchor, idx) => {
-        const drift = worldPresenceTick / 24 + idx * 1.8
-        return {
-          lat: anchor.lat + Math.sin(drift) * 0.00022,
-          lng: anchor.lng + Math.cos(drift * 0.92) * 0.00024,
-          scale: 2.2 + ((Math.sin(drift * 1.3) + 1) / 2) * 1.4,
-          opacity: 0.1 + ((Math.cos(drift * 0.9) + 1) / 2) * 0.08,
-          radius: 32 + ((Math.sin(drift * 0.8) + 1) / 2) * 36,
-        }
-      }),
-    [worldPresenceAnchors, worldPresenceTick],
-  )
-
-  const driverSlice =
-    driverToPickupPath.length > 1
-      ? driverToPickupPath.slice(
-          0,
-          Math.max(2, Math.round(driverProgress * (driverToPickupPath.length - 1))),
-        )
-      : []
-
-  const seqExclusionPaths = useMemo(() => {
-    const outer: google.maps.LatLngLiteral[] = [
-      { lat: -10, lng: 140 },
-      { lat: -10, lng: 160 },
-      { lat: -40, lng: 160 },
-      { lat: -40, lng: 140 },
-    ]
-    const hole = [...SEQ_BOUNDARY].reverse()
-    return [outer, hole]
-  }, [])
-
   return (
     <>
-      <Polygon
-        paths={seqExclusionPaths}
-        options={{
-          fillColor: accentHex,
-          fillOpacity: 0.22,
-          strokeColor: accentHex,
-          strokeOpacity: 0.7,
-          strokeWeight: 3,
-          clickable: false,
-          zIndex: 0,
-        }}
-      />
-      {stage !== 'searching' && stage !== 'matched'
-        ? worldPresenceMarkers.map((point, idx) => (
-            <Circle
-              key={`world-presence-area-${idx}`}
-              center={{ lat: point.lat, lng: point.lng }}
-              radius={point.radius}
-              options={{
-                fillColor: '#1f6feb',
-                fillOpacity: 0.03,
-                strokeOpacity: 0,
-                clickable: false,
-                zIndex: -1,
-              }}
-            />
-          ))
-        : null}
-      {stage !== 'searching' && stage !== 'matched'
-        ? worldPresenceMarkers.map((point, idx) => (
-            <Marker
-              key={`world-presence-dot-${idx}`}
-              position={{ lat: point.lat, lng: point.lng }}
-              icon={{
-                path: google.maps.SymbolPath.CIRCLE,
-                scale: point.scale,
-                fillColor: '#1f6feb',
-                fillOpacity: point.opacity,
-                strokeColor: '#ffffff',
-                strokeWeight: 1,
-              }}
-              zIndex={0}
-            />
-          ))
-        : null}
-      {routePath.length >= 2 ? (
-        <Polyline
-          path={routePath}
-          options={{
-            strokeColor: accentHex,
-            strokeOpacity: 0.14 * routeHintOpacity,
-            strokeWeight: 8,
-            zIndex: 0,
-          }}
-        />
-      ) : null}
-      {routePath.length >= 2 ? (
-        <Polyline
-          path={routePath}
-          options={{
-            strokeColor: accentHex,
-            strokeOpacity: 0.74 * routeHintOpacity,
-            strokeWeight: 2,
-            zIndex: 1,
-          }}
-        />
-      ) : null}
-      {routePath.length >= 2 ? (
-        <Polyline
-          path={routePath}
-          options={{
-            strokeOpacity: 0,
-            strokeWeight: 2,
-            zIndex: 2,
-            icons: [
-              {
-                icon: {
-                  path: 'M 0,-1 0,1',
-                  strokeOpacity: 1,
-                  strokeColor: '#ffffff',
-                  scale: 2.2,
-                },
-                offset: `${routeFlowOffsetPct}%`,
-                repeat: '14px',
-              },
-            ],
-          }}
-        />
-      ) : null}
       {routeRevealCenter && routeRevealOpacity > 0 ? (
         <Circle
           center={routeRevealCenter}
@@ -788,38 +609,13 @@ export function BookingMapReflection({
           }}
         />
       ) : null}
-      {anticipatedDropoffPos && pickupPos && !dropoffPos ? (
-        <Polyline
-          path={[pickupPos, anticipatedDropoffPos]}
-          options={{
-            strokeColor: '#252a35',
-            strokeOpacity: 0.25,
-            strokeWeight: 1.5,
-            zIndex: 1,
-            icons: [
-              {
-                icon: {
-                  path: 'M 0,-1 0,1',
-                  strokeOpacity: 1,
-                  strokeColor: '#252a35',
-                  scale: 1.8,
-                },
-                offset: '0',
-                repeat: '16px',
-              },
-            ],
-          }}
-        />
-      ) : null}
-      {driverSlice.length >= 2 ? (
-        <Polyline
-          path={driverSlice}
-          options={{
-            strokeColor: '#1f6feb',
-            strokeOpacity: 0.82,
-            strokeWeight: 3,
-            zIndex: 2,
-          }}
+      {userLocationCoords ? (
+        <Marker
+          position={userLocationCoords}
+          title="Your location"
+          icon={userLocationIcon}
+          animation={google.maps.Animation.DROP}
+          zIndex={2}
         />
       ) : null}
       {showPickupPin && pickupPos ? (

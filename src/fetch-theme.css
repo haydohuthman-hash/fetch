@@ -1,0 +1,578 @@
+/**
+ * Day (light) vs night (dark) — toggled via html[data-fetch-theme].
+ * System schedule: light 5:00–17:59, dark otherwise (see fetchThemeStorage).
+ */
+
+html {
+  --fetch-chrome-bg: #030308;
+  --fetch-app-bg: #030308;
+  --fetch-shell-ring: rgba(139, 92, 246, 0.08);
+  --fetch-map-placeholder-bg: #0e0f12;
+}
+
+.fetch-theme-chrome {
+  background-color: var(--fetch-chrome-bg);
+}
+
+html[data-fetch-theme='light'] {
+  --fetch-chrome-bg: #e8ecf4;
+  --fetch-app-bg: #dce6f0;
+  --fetch-shell-ring: rgba(14, 116, 144, 0.12);
+  --fetch-map-placeholder-bg: #d0dde8;
+  --color-fetch-charcoal: #121826;
+  --color-fetch-muted: #5a6578;
+  --color-fetch-soft-gray: #eef2f9;
+  --orb-glow: 56, 189, 248;
+}
+
+/* --- Account / auth chrome --- */
+.fetch-theme-chrome {
+  background-color: var(--fetch-chrome-bg);
+}
+
+/* --- App shell (optional class) --- */
+.fetch-app-shell-bg {
+  background-color: var(--fetch-chrome-bg);
+}
+
+.fetch-app-shell-inner {
+  background-color: var(--fetch-chrome-bg);
+  box-shadow: 0 0 0 1px var(--fetch-shell-ring);
+}
+
+/* --- Map overlay (time / weather pill) --- */
+html[data-fetch-theme='light'] .fetch-map-time-weather-pill {
+  border-color: rgba(14, 116, 144, 0.18);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow:
+    0 6px 22px rgba(15, 80, 120, 0.12),
+    0 0 0 1px rgba(255, 255, 255, 0.9) inset;
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+}
+
+html[data-fetch-theme='light'] .fetch-map-time-weather-pill .fetch-map-time-weather-time {
+  color: rgba(18, 24, 38, 0.92);
+}
+
+html[data-fetch-theme='light'] .fetch-map-time-weather-pill .fetch-map-time-weather-wx {
+  color: rgba(30, 64, 90, 0.82);
+}
+
+html[data-fetch-theme='light'] .fetch-map-time-weather-pill .fetch-map-time-weather-muted {
+  color: rgba(30, 64, 90, 0.52);
+}
+
+html[data-fetch-theme='light'] .fetch-map-time-weather-pill .fetch-map-time-weather-divider {
+  background: rgba(14, 116, 144, 0.2);
+}
+
+/* --- Home sheet: light glass --- */
+html[data-fetch-theme='light'] .fetch-home-booking-sheet {
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  --sheet-bg-top: #ffffff;
+  --sheet-bg-bottom: #f3f6fb;
+  background-color: var(--sheet-bg-bottom);
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, transparent 38%),
+    linear-gradient(180deg, var(--sheet-bg-top) 0%, var(--sheet-bg-bottom) 100%);
+  box-shadow:
+    0 -8px 36px rgba(15, 80, 120, 0.1),
+    0 0 0 1px rgba(14, 116, 144, 0.06) inset,
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.95);
+}
+
+html[data-fetch-theme='light'] .fetch-home-booking-sheet[data-snap='closed'] {
+  --sheet-bg-top: #fbfcfe;
+  --sheet-bg-bottom: #eef3f9;
+}
+
+html[data-fetch-theme='light'] .fetch-home-booking-sheet[data-snap='half'] {
+  --sheet-bg-top: #ffffff;
+  --sheet-bg-bottom: #f3f6fb;
+}
+
+html[data-fetch-theme='light'] .fetch-home-booking-sheet[data-snap='full'] {
+  --sheet-bg-top: #ffffff;
+  --sheet-bg-bottom: #edf2f8;
+}
+
+html[data-fetch-theme='light'] .fetch-home-booking-sheet::before {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(56, 189, 248, 0.2) 22%,
+    rgba(52, 211, 153, 0.35) 50%,
+    rgba(56, 189, 248, 0.2) 78%,
+    transparent 100%
+  );
+}
+
+html[data-fetch-theme='light'] .fetch-home-booking-sheet--speaking {
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88) 0%, transparent 40%),
+    linear-gradient(180deg, #ffffff 0%, #e8f4fc 100%);
+  box-shadow:
+    0 -8px 32px rgba(15, 100, 140, 0.14),
+    0 0 0 1px rgba(56, 189, 248, 0.12) inset,
+    inset 0 1.5px 0 rgba(255, 255, 255, 0.9);
+}
+
+/* Address + inputs */
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-address-input {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 252, 255, 0.96) 100%);
+  border-color: rgba(15, 20, 30, 0.12);
+  color: rgba(18, 24, 38, 0.94);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset;
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-address-input::placeholder {
+  color: rgba(90, 101, 120, 0.45);
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-address-input:focus,
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-address-input:focus-visible {
+  border-color: rgba(15, 20, 30, 0.2);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.85) inset,
+    0 2px 12px rgba(0, 0, 0, 0.06);
+  outline: none;
+}
+
+/* Primary CTA — Uber-like teal / blue */
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-stage-primary-btn {
+  color: rgba(255, 255, 255, 0.99);
+  text-shadow: 0 1px 2px rgba(0, 60, 80, 0.25);
+  background: linear-gradient(
+    165deg,
+    rgba(56, 189, 248, 0.95) 0%,
+    rgba(14, 165, 180, 0.92) 38%,
+    rgba(5, 122, 108, 0.96) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.35) inset,
+    0 10px 32px rgba(14, 100, 120, 0.28),
+    0 0 24px rgba(52, 211, 153, 0.18);
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-stage-primary-btn:hover {
+  border-color: rgba(255, 255, 255, 0.5);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.45) inset,
+    0 14px 40px rgba(14, 100, 120, 0.32),
+    0 0 32px rgba(52, 211, 153, 0.22);
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-stage-chip-selected {
+  color: rgba(255, 255, 255, 0.98);
+  background: linear-gradient(
+    165deg,
+    rgba(45, 170, 220, 0.95) 0%,
+    rgba(16, 140, 130, 0.92) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.25) inset,
+    0 8px 26px rgba(14, 100, 120, 0.22);
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-secondary-btn {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(236, 244, 250, 0.98) 100%);
+  border: 1px solid rgba(14, 116, 144, 0.2);
+  color: rgba(24, 40, 56, 0.88);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 6px 18px rgba(15, 80, 100, 0.08);
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-secondary-btn:hover {
+  border-color: rgba(56, 189, 248, 0.45);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 1) inset,
+    0 8px 22px rgba(15, 100, 120, 0.12);
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-pill-chip {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(240, 249, 255, 0.95) 100%);
+  border: 1px solid rgba(14, 116, 144, 0.16);
+  color: rgba(24, 40, 56, 0.85);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.85) inset;
+}
+
+/* Service rail */
+html[data-fetch-theme='light'] .fetch-home-service-rail {
+  border: 1px solid rgba(14, 116, 144, 0.14);
+  background: linear-gradient(180deg, #ffffff 0%, #f0f6fb 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+html[data-fetch-theme='light'] .fetch-home-service-segment {
+  border-right: 1px solid rgba(14, 116, 144, 0.1);
+  background: transparent;
+}
+
+html[data-fetch-theme='light'] .fetch-home-service-segment--selected {
+  background: linear-gradient(180deg, rgba(224, 242, 254, 0.9) 0%, rgba(204, 251, 241, 0.55) 100%);
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.22);
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-service-segment-icon,
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-service-segment-label {
+  color: rgba(24, 40, 56, 0.88);
+}
+
+html[data-fetch-theme='light'] .fetch-home-service-segment-label {
+  color: rgba(30, 55, 75, 0.78);
+}
+
+/* Orb halo — bright white / sky in daylight */
+/* Day orb: light inner rim on white sphere (canvas draws white + black face) */
+.fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere[data-orb-appearance='day']::after {
+  box-shadow:
+    inset 0 0 24px rgba(255, 255, 255, 0.45),
+    inset 0 6px 16px rgba(180, 210, 230, 0.14),
+    inset 0 -8px 18px rgba(40, 70, 90, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-orb-vision-halo[data-orb-idle='true'] {
+  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.85)) drop-shadow(0 0 12px rgba(186, 230, 253, 0.55))
+    drop-shadow(0 2px 10px rgba(14, 100, 120, 0.18));
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-orb-vision-halo:not([data-orb-idle='true']) {
+  filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.35)) drop-shadow(0 2px 12px rgba(20, 100, 90, 0.2));
+}
+
+/* Speech bubble */
+html[data-fetch-theme='light'] .fetch-home-orb-speech-bubble {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(14, 116, 144, 0.14);
+  box-shadow:
+    0 12px 36px rgba(15, 80, 120, 0.12),
+    0 0 0 1px rgba(255, 255, 255, 0.8) inset;
+}
+
+html[data-fetch-theme='light'] .fetch-home-orb-speech-bubble p {
+  color: rgba(18, 28, 42, 0.92) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-orb-chat-stack__mask {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(0, 0, 0, 0.12) 8%,
+    rgba(0, 0, 0, 0.5) 18%,
+    rgba(0, 0, 0, 0.9) 30%,
+    #000 42%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(0, 0, 0, 0.12) 8%,
+    rgba(0, 0, 0, 0.5) 18%,
+    rgba(0, 0, 0, 0.9) 30%,
+    #000 42%
+  );
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-orb-chat-bubble--fetch {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(14, 116, 144, 0.16);
+  box-shadow:
+    0 10px 32px rgba(15, 80, 120, 0.1),
+    0 0 0 1px rgba(255, 255, 255, 0.75) inset;
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-orb-chat-bubble--fetch p {
+  color: rgba(18, 28, 42, 0.9) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-orb-chat-bubble--user {
+  background: rgba(224, 242, 254, 0.88);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  box-shadow: 0 8px 24px rgba(15, 90, 110, 0.08);
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-orb-chat-bubble--user p {
+  color: rgba(15, 50, 70, 0.92) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-orb-chat-bubble--speaking {
+  border-color: rgba(56, 189, 248, 0.45);
+  box-shadow:
+    0 10px 36px rgba(15, 90, 110, 0.12),
+    0 0 24px rgba(52, 211, 153, 0.12);
+}
+
+/* Intent composer */
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-intent-composer.fetch-ai-composer-shell {
+  border: 1px solid rgba(15, 20, 30, 0.1);
+  background-color: rgba(255, 255, 255, 0.82);
+  background-image: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.95) 0%,
+    rgba(248, 250, 252, 0.88) 50%,
+    rgba(255, 255, 255, 0.78) 100%
+  );
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.75) inset,
+    0 4px 18px rgba(0, 0, 0, 0.06);
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-intent-composer .fetch-ai-composer-input {
+  color: rgba(18, 24, 38, 0.94);
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-intent-composer .fetch-ai-composer-input::placeholder {
+  color: rgba(90, 101, 120, 0.45);
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-intent-composer .fetch-ai-composer-plus {
+  color: rgba(12, 14, 20, 0.9);
+  background: transparent;
+  box-shadow: none;
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-intent-composer .fetch-ai-composer-plus:hover {
+  color: rgba(12, 14, 20, 0.62);
+  background: transparent;
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-intent-composer .fetch-ai-composer-plus:active {
+  color: rgba(12, 14, 20, 0.48);
+  background: transparent;
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-intent-composer .fetch-ai-composer-plus:focus-visible {
+  outline: 2px solid rgba(12, 14, 20, 0.22);
+  outline-offset: 2px;
+}
+
+/* Sound wave bars — default light tint only where not overridden */
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-sound-wave-bars__bar {
+  background: linear-gradient(
+    180deg,
+    rgba(56, 189, 248, 0.85) 0%,
+    rgba(52, 211, 153, 0.65) 100%
+  );
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-intent-composer .fetch-ai-voice-btn__core.fetch-ai-voice-btn__core--waves {
+  background: #0a0a0a !important;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-intent-composer .fetch-sound-wave-bars__bar {
+  background: rgba(255, 255, 255, 0.92) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-home-orb-speech-bubble .fetch-sound-wave-bars__bar,
+html[data-fetch-theme='light'] .fetch-home-orb-chat-bubble .fetch-sound-wave-bars__bar,
+html[data-fetch-theme='light'] .fetch-home-orb-floating-waves .fetch-sound-wave-bars__bar {
+  background: rgba(255, 255, 255, 0.9) !important;
+}
+
+/* Google Places dropdown */
+html[data-fetch-theme='light'] .pac-container {
+  background: #ffffff !important;
+  border: 1px solid rgba(14, 116, 144, 0.18) !important;
+  box-shadow:
+    0 16px 40px rgba(15, 80, 120, 0.14),
+    0 0 0 1px rgba(255, 255, 255, 0.9) inset !important;
+}
+
+html[data-fetch-theme='light'] .pac-item {
+  border-top: 1px solid rgba(14, 116, 144, 0.08) !important;
+  color: rgba(24, 40, 56, 0.9) !important;
+}
+
+html[data-fetch-theme='light'] .pac-item-query {
+  color: rgba(12, 24, 38, 0.95) !important;
+}
+
+html[data-fetch-theme='light'] .pac-item:hover,
+html[data-fetch-theme='light'] .pac-item-selected,
+html[data-fetch-theme='light'] .pac-item-selected .pac-item-query {
+  background-color: rgba(224, 242, 254, 0.85) !important;
+  color: rgba(12, 24, 38, 1) !important;
+}
+
+/* Sheet peek mic */
+html[data-fetch-theme='light'] .fetch-home-sheet-peek-mic {
+  box-shadow:
+    inset 0 0 0 1px rgba(56, 189, 248, 0.35),
+    0 0 10px rgba(52, 211, 153, 0.2),
+    0 4px 14px rgba(15, 80, 100, 0.12);
+}
+
+/* Stage text inputs inside sheet (non-address) */
+html[data-fetch-theme='light'] .fetch-home-booking-sheet .fetch-stage-text-input:not(.fetch-home-address-input) {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(15, 20, 30, 0.12);
+  color: rgba(18, 24, 38, 0.92);
+}
+
+html[data-fetch-theme='light']
+  .fetch-home-booking-sheet
+  .fetch-stage-text-input:not(.fetch-home-address-input):focus,
+html[data-fetch-theme='light']
+  .fetch-home-booking-sheet
+  .fetch-stage-text-input:not(.fetch-home-address-input):focus-visible {
+  border-color: rgba(15, 20, 30, 0.22);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  outline: none;
+}
+
+/* --- Account (light) --- */
+html[data-fetch-theme='light'] .fetch-account-screen .fetch-account-page-title,
+html[data-fetch-theme='light'] .fetch-account-screen .fetch-account-appearance-hint {
+  color: rgba(15, 20, 30, 0.92);
+}
+
+html[data-fetch-theme='light'] .fetch-account-screen .fetch-account-kicker {
+  color: rgba(14, 116, 144, 0.85);
+}
+
+html[data-fetch-theme='light'] .fetch-account-screen .fetch-account-lede {
+  color: rgba(40, 55, 72, 0.78);
+}
+
+html[data-fetch-theme='light'] .fetch-account-field-label {
+  color: rgba(50, 65, 82, 0.65) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-account-input {
+  border-color: rgba(14, 116, 144, 0.2) !important;
+  background: rgba(255, 255, 255, 0.94) !important;
+  color: rgba(15, 20, 30, 0.92) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-account-input::placeholder {
+  color: rgba(70, 85, 100, 0.45) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-account-card {
+  border-color: rgba(14, 116, 144, 0.12) !important;
+  background: rgba(255, 255, 255, 0.88) !important;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 8px 28px rgba(15, 80, 100, 0.08) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-account-btn-ghost {
+  border-color: rgba(14, 116, 144, 0.22) !important;
+  color: rgba(25, 45, 62, 0.88) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-account-btn-ghost:hover {
+  background: rgba(224, 242, 254, 0.65) !important;
+  color: rgba(12, 24, 38, 0.95) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-account-appearance-summary {
+  color: rgba(15, 20, 30, 0.92) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-account-appearance-badge {
+  color: rgba(70, 88, 105, 0.65) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-account-appearance-copy {
+  color: rgba(45, 60, 75, 0.78) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-account-theme-opt {
+  border-color: rgba(14, 116, 144, 0.18) !important;
+  background: rgba(255, 255, 255, 0.82) !important;
+  color: rgba(28, 48, 65, 0.88) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-account-theme-opt--active {
+  border-color: rgba(14, 165, 180, 0.45) !important;
+  background: linear-gradient(180deg, rgba(224, 242, 254, 0.95), rgba(204, 251, 241, 0.78)) !important;
+  color: rgba(10, 45, 55, 0.95) !important;
+  box-shadow: 0 0 18px rgba(56, 189, 248, 0.22) !important;
+}
+
+/* Account panels: override white text utilities inside light cards */
+html[data-fetch-theme='light'] .fetch-account-panel p:not([class*='violet']),
+html[data-fetch-theme='light'] .fetch-account-panel summary,
+html[data-fetch-theme='light'] .fetch-account-panel label span {
+  color: rgba(28, 40, 55, 0.88) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-account-panel .font-mono {
+  color: rgba(15, 50, 68, 0.92) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-account-panel select,
+html[data-fetch-theme='light'] .fetch-account-panel option {
+  color: rgba(18, 28, 42, 0.92) !important;
+  background-color: #fff !important;
+}
+
+html[data-fetch-theme='light'] .fetch-account-panel .border-white\/12 {
+  border-color: rgba(14, 116, 144, 0.14) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-account-panel .bg-black\/35,
+html[data-fetch-theme='light'] .fetch-account-panel .bg-white\/\[0\.03\] {
+  background: rgba(255, 255, 255, 0.72) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-account-panel button.text-white\/80,
+html[data-fetch-theme='light'] .fetch-account-panel button.text-white\/50 {
+  color: rgba(35, 55, 75, 0.82) !important;
+}
+
+/* --- Auth (light) --- */
+html[data-fetch-theme='light'] .fetch-auth-heading {
+  color: rgba(12, 20, 32, 0.94) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-auth-lede {
+  color: rgba(45, 62, 78, 0.78) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-auth-back {
+  color: rgba(35, 55, 72, 0.82) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-auth-label {
+  color: rgba(70, 88, 105, 0.72) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-auth-label-note {
+  color: rgba(90, 105, 120, 0.55) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-auth-input {
+  border-color: rgba(14, 116, 144, 0.2) !important;
+  background: rgba(255, 255, 255, 0.95) !important;
+  color: rgba(15, 22, 32, 0.92) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-auth-input::placeholder {
+  color: rgba(85, 100, 115, 0.45) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-auth-tabs {
+  border-color: rgba(14, 116, 144, 0.15) !important;
+  background: rgba(255, 255, 255, 0.65) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-auth-tab-inactive {
+  color: rgba(55, 75, 92, 0.62) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-auth-tab-active {
+  background: rgba(224, 242, 254, 0.92) !important;
+  color: rgba(10, 45, 58, 0.95) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-auth-back:hover {
+  background: rgba(224, 242, 254, 0.75) !important;
+  color: rgba(12, 28, 42, 0.95) !important;
+}

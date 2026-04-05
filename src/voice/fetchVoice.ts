@@ -1,4 +1,12 @@
 import { fetchApiAbsoluteUrl } from '../lib/fetchApiBase'
+import {
+  fetchPerfEmitSummary,
+  fetchPerfHeaders,
+  fetchPerfIsEnabled,
+  fetchPerfMark,
+  fetchPerfSetServerTiming,
+  parseFetchPerfTimingHeader,
+} from '../lib/fetchPerf'
 import { voiceFlowDebug, voiceFlowFallbackText } from './voiceFlowDebug'
 import { patchVoiceSourceDebug } from './voiceSourceDebug'
 
@@ -34,11 +42,14 @@ export type VoiceEventOptions = {
   summary?: string
   /** Optional custom assistant intro line. */
   line?: string
+  perfRunId?: string
 }
 
 export type SpeakLineOptions = {
   debounceKey?: string
   debounceMs?: number
+  /** When perf logging is on, ties TTS + playback to `[FetchPerf]` run. */
+  perfRunId?: string
 }
 
 /**
@@ -52,7 +63,10 @@ function resolvedVoiceId(): string {
 }
 const VOICE_FETCH_TIMEOUT_MS = 9000
 
-const DEBOUNCE_MS = 900
+/** `playVoice` system events — short window to block accidental double-fires only */
+const EVENT_DEBOUNCE_MS = 320
+/** `speakLine` when caller omits `debounceMs` — keep low so voice feels immediate */
+const LINE_DEBOUNCE_MS = 45
 
 let lastPlayByEvent = new Map<string, number>()
 let currentAudio: HTMLAudioElement | null = null
@@ -179,7 +193,12 @@ function startBrowserLipShim() {
       0.16 +
       0.38 * Math.abs(Math.sin(tt * 6.2)) +
       0.12 * Math.abs(Math.sin(tt * 2.1))
-    speechAmpSmoothed = speechAmpSmoothed * 0.84 + Math.min(1, raw) * 0.16
+    const tgt = Math.min(1, raw)
+    if (tgt > speechAmpSmoothed) {
+      speechAmpSmoothed = speechAmpSmoothed * 0.55 + tgt * 0.45
+    } else {
+      speechAmpSmoothed = speechAmpSmoothed * 0.8 + tgt * 0.2
+    }
     browserLipShimRaf = window.requestAnimationFrame(tick)
   }
   browserLipShimRaf = window.requestAnimationFrame(tick)
@@ -196,29 +215,54 @@ function attachTtsAnalyser(audio: HTMLAudioElement) {
     }
     const ctx = ttsAudioCtx
     ttsAnalyser = ctx.createAnalyser()
-    ttsAnalyser.fftSize = 512
-    ttsAnalyser.smoothingTimeConstant = 0.94
+    /* Smaller FFT + lower smoothing = lip sync tracks syllables faster */
+    ttsAnalyser.fftSize = 256
+    ttsAnalyser.smoothingTimeConstant = 0.72
     ttsMediaSource = ctx.createMediaElementSource(audio)
     ttsMediaSource.connect(ttsAnalyser)
     ttsAnalyser.connect(ctx.destination)
 
     void ctx.resume()
 
-    const buf = new Float32Array(ttsAnalyser.fftSize)
+    const floatBuf = new Float32Array(ttsAnalyser.fftSize)
+    const byteBuf = new Uint8Array(ttsAnalyser.frequencyBinCount)
     const tick = () => {
       if (currentAudio !== audio || !ttsAnalyser) {
         ttsAmpRaf = 0
         return
       }
-      ttsAnalyser.getFloatTimeDomainData(buf)
+      ttsAnalyser.getFloatTimeDomainData(floatBuf)
       let sum = 0
-      for (let i = 0; i < buf.length; i += 1) {
-        const v = buf[i]!
+      for (let i = 0; i < floatBuf.length; i += 1) {
+        const v = floatBuf[i]!
         sum += v * v
       }
-      const rms = Math.sqrt(sum / buf.length)
-      const shaped = Math.min(1, Math.pow(rms * 5.9, 0.62))
-      speechAmpSmoothed = speechAmpSmoothed * 0.91 + shaped * 0.09
+      const rms = Math.sqrt(sum / floatBuf.length)
+      const amp = rms * 6.8
+      const shapedTime = Math.min(1, Math.pow(amp, 0.52))
+
+      ttsAnalyser.getByteFrequencyData(byteBuf)
+      const sr = ctx.sampleRate
+      const binHz = sr / ttsAnalyser.fftSize
+      const iLo = Math.max(1, Math.floor(280 / binHz))
+      const iHi = Math.min(byteBuf.length - 1, Math.ceil(3200 / binHz))
+      let band = 0
+      let n = 0
+      for (let i = iLo; i <= iHi; i += 1) {
+        band += byteBuf[i]!
+        n += 1
+      }
+      const bandAvg = n > 0 ? band / n / 255 : 0
+      const shapedBand = Math.min(1, Math.pow(bandAvg * 2.4, 0.65))
+
+      const shaped = Math.min(1, shapedTime * 0.52 + shapedBand * 0.48)
+
+      /* Fast attack / slower release so opens hit consonants, closes track pauses */
+      if (shaped > speechAmpSmoothed) {
+        speechAmpSmoothed = speechAmpSmoothed * 0.58 + shaped * 0.42
+      } else {
+        speechAmpSmoothed = speechAmpSmoothed * 0.82 + shaped * 0.18
+      }
       ttsAmpRaf = window.requestAnimationFrame(tick)
     }
     ttsAmpRaf = window.requestAnimationFrame(tick)
@@ -424,7 +468,11 @@ function stopCurrentPlayback() {
  * Prefers en-GB with a measured rate/pitch as a rough Jarvis-style fallback.
  * Only call after ElevenLabs fetch or HTML audio playback has definitively failed.
  */
-function speakWithBrowserTTS(text: string, browserFallbackReason: string): Promise<void> {
+function speakWithBrowserTTS(
+  text: string,
+  browserFallbackReason: string,
+  perfRunId?: string,
+): Promise<void> {
   voiceDevWarn('[FetchVoice] using browser fallback', { reason: browserFallbackReason })
   patchVoiceSourceDebug({
     active: { kind: 'browser_fallback', reason: browserFallbackReason },
@@ -485,6 +533,11 @@ function speakWithBrowserTTS(text: string, browserFallbackReason: string): Promi
         ) || voices.find((v) => /^en-gb/i.test(v.lang))
       if (gb) u.voice = gb
       u.onstart = () => {
+        if (perfRunId && fetchPerfIsEnabled()) {
+          fetchPerfMark(perfRunId, '8_audio_element_ready', { path: 'browser_tts' })
+          fetchPerfMark(perfRunId, '9_first_playback_start', { path: 'browser_tts' })
+          fetchPerfEmitSummary(perfRunId, 'voice_browser_tts')
+        }
         setSpeechPlaying(true)
         startBrowserLipShim()
       }
@@ -509,7 +562,7 @@ function speakWithBrowserTTS(text: string, browserFallbackReason: string): Promi
     if (synth.getVoices().length) start()
     else {
       synth.addEventListener('voiceschanged', start, { once: true })
-      window.setTimeout(start, 500)
+      window.setTimeout(start, 200)
     }
   })
 }
@@ -521,6 +574,7 @@ function speakWithBrowserTTS(text: string, browserFallbackReason: string): Promi
  */
 async function fetchElevenLabsSpeechDetailed(
   text: string,
+  perfRunId?: string,
 ): Promise<{ blob: Blob | null; failureSummary: string }> {
   const voiceId = resolvedVoiceId()
   if (!text.trim()) {
@@ -546,6 +600,9 @@ async function fetchElevenLabsSpeechDetailed(
     voiceId,
   })
   try {
+    if (perfRunId) {
+      fetchPerfMark(perfRunId, '7_tts_fetch_start', { route: 'proxy' })
+    }
     const controller = new AbortController()
     const timeout = window.setTimeout(() => controller.abort(), VOICE_FETCH_TIMEOUT_MS)
     const res = await fetch(ttsUrl, {
@@ -553,6 +610,7 @@ async function fetchElevenLabsSpeechDetailed(
       headers: {
         'Content-Type': 'application/json',
         Accept: 'audio/mpeg',
+        ...fetchPerfHeaders(perfRunId),
       },
       signal: controller.signal,
       body: JSON.stringify({
@@ -564,6 +622,10 @@ async function fetchElevenLabsSpeechDetailed(
     })
     if (res.ok) {
       const blob = await res.blob()
+      if (perfRunId) {
+        fetchPerfMark(perfRunId, '7b_tts_blob_ready', { route: 'proxy' })
+        fetchPerfSetServerTiming(perfRunId, parseFetchPerfTimingHeader(res))
+      }
       voiceDevLog('[FetchVoice] ElevenLabs request success', { route: 'proxy' })
       return { blob, failureSummary: '' }
     }
@@ -589,35 +651,42 @@ async function fetchElevenLabsSpeechDetailed(
 
   voiceDevLog('[FetchVoice] attempting ElevenLabs', { route: 'direct', voiceId })
   try {
+    if (perfRunId) {
+      fetchPerfMark(perfRunId, '7_tts_fetch_start', { route: 'direct' })
+    }
     const controller = new AbortController()
     const timeout = window.setTimeout(() => controller.abort(), VOICE_FETCH_TIMEOUT_MS)
-    const res = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
-      {
-        method: 'POST',
-        headers: {
-          'xi-api-key': apiKey,
-          'Content-Type': 'application/json',
-          Accept: 'audio/mpeg',
-        },
-        signal: controller.signal,
-        body: JSON.stringify({
-          text,
-          model_id: 'eleven_turbo_v2_5',
-          voice_settings: {
-            stability: 0.72,
-            similarity_boost: 0.78,
-            style: 0.16,
-            use_speaker_boost: true,
-            speed: 0.92,
-          },
-        }),
+    const directUrl = new URL(
+      `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`,
+    )
+    directUrl.searchParams.set('optimize_streaming_latency', '4')
+    const res = await fetch(directUrl, {
+      method: 'POST',
+      headers: {
+        'xi-api-key': apiKey,
+        'Content-Type': 'application/json',
+        Accept: 'audio/mpeg',
       },
-    ).finally(() => {
+      signal: controller.signal,
+      body: JSON.stringify({
+        text,
+        model_id: 'eleven_turbo_v2_5',
+        voice_settings: {
+          stability: 0.72,
+          similarity_boost: 0.78,
+          style: 0.16,
+          use_speaker_boost: true,
+          speed: 1,
+        },
+      }),
+    }).finally(() => {
       window.clearTimeout(timeout)
     })
     if (res.ok) {
       const blob = await res.blob()
+      if (perfRunId) {
+        fetchPerfMark(perfRunId, '7b_tts_blob_ready', { route: 'direct' })
+      }
       voiceDevLog('[FetchVoice] ElevenLabs request success', { route: 'direct' })
       return { blob, failureSummary: '' }
     }
@@ -641,14 +710,19 @@ async function fetchElevenLabsSpeechDetailed(
 
 async function audioUrlForPhrase(
   phrase: string,
+  perfRunId?: string,
 ): Promise<{ url: string | null; elevenLabsFailure: string | null }> {
   const cacheKey = `${resolvedVoiceId()}::${phrase}`
   const hit = phraseBlobUrlCache.get(cacheKey)
   if (hit) {
+    if (perfRunId && fetchPerfIsEnabled()) {
+      fetchPerfMark(perfRunId, '7_tts_fetch_start', { route: 'cache' })
+      fetchPerfMark(perfRunId, '7b_tts_blob_ready', { route: 'cache' })
+    }
     voiceDevLog('[FetchVoice] ElevenLabs request success', { route: 'cache' })
     return { url: hit, elevenLabsFailure: null }
   }
-  const { blob, failureSummary } = await fetchElevenLabsSpeechDetailed(phrase)
+  const { blob, failureSummary } = await fetchElevenLabsSpeechDetailed(phrase, perfRunId)
   if (!blob) {
     return {
       url: null,
@@ -664,13 +738,15 @@ async function playPhrase(
   phrase: string,
   key: string,
   {
-    debounceMs = DEBOUNCE_MS,
+    debounceMs = EVENT_DEBOUNCE_MS,
     prelude,
     skipSpeechFallback = false,
+    perfRunId,
   }: {
     debounceMs?: number
     prelude?: () => Promise<void> | void
     skipSpeechFallback?: boolean
+    perfRunId?: string
   } = {},
 ): Promise<void> {
   const text = phrase.trim()
@@ -700,7 +776,7 @@ async function playPhrase(
   let url: string | null = null
   let elevenLabsFailure: string | null = null
   try {
-    const out = await audioUrlForPhrase(text)
+    const out = await audioUrlForPhrase(text, perfRunId)
     url = out.url
     elevenLabsFailure = out.elevenLabsFailure
   } catch (e) {
@@ -745,6 +821,7 @@ async function playPhrase(
       await speakWithBrowserTTS(
         text,
         elevenLabsFailure ?? 'ElevenLabs did not return audio (see console for proxy/direct errors)',
+        perfRunId,
       )
     } catch {
       /* errors surfaced inside speakWithBrowserTTS */
@@ -757,9 +834,26 @@ async function playPhrase(
   const audio = new Audio(url)
   audio.volume = 0.8
   audio.preload = 'auto'
+  if (perfRunId && fetchPerfIsEnabled()) {
+    audio.addEventListener(
+      'canplaythrough',
+      () => {
+        fetchPerfMark(perfRunId, '8_audio_element_ready', { path: 'html_audio' })
+      },
+      { once: true },
+    )
+    audio.addEventListener(
+      'playing',
+      () => {
+        fetchPerfMark(perfRunId, '9_first_playback_start', { path: 'html_audio' })
+        fetchPerfEmitSummary(perfRunId, 'voice_elevenlabs')
+      },
+      { once: true },
+    )
+  }
   currentAudio = audio
-  attachTtsAnalyser(audio)
   ensureTtsAudioContextResumed()
+  attachTtsAnalyser(audio)
 
   const onEnded = () => {
     if (currentAudio === audio) {
@@ -796,6 +890,7 @@ async function playPhrase(
           await speakWithBrowserTTS(
             text,
             `ElevenLabs MP3 decode/playback error (HTMLMediaElement): ${msg}`,
+            perfRunId,
           )
         } catch {
           /* inner handler shows fallback */
@@ -827,6 +922,7 @@ async function playPhrase(
       await speakWithBrowserTTS(
         text,
         `ElevenLabs audio.play() blocked or rejected: ${msg}`,
+        perfRunId,
       )
     } catch {
       /* inner handler shows fallback */
@@ -842,7 +938,10 @@ export async function speakLine(text: string, options?: SpeakLineOptions): Promi
   }
   const key = options?.debounceKey?.trim() || `line:${phrase}`
   try {
-    await playPhrase(phrase, key, { debounceMs: options?.debounceMs })
+    await playPhrase(phrase, key, {
+      debounceMs: options?.debounceMs ?? LINE_DEBOUNCE_MS,
+      perfRunId: options?.perfRunId,
+    })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     // eslint-disable-next-line no-console
@@ -872,11 +971,12 @@ export async function playVoice(
       if (type === 'booting_welcome') {
         playBootChime()
         await new Promise<void>((resolve) => {
-          window.setTimeout(resolve, 360)
+          window.setTimeout(resolve, 55)
         })
       }
     },
     skipSpeechFallback: type === 'location_confirmed',
+    perfRunId: options?.perfRunId,
   })
 }
 

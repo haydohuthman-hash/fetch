@@ -34,6 +34,15 @@ export async function reviewBookingDraft(draft: FetchAiBookingDraft): Promise<Fe
   })
 }
 
+/** Card snapshot for demo confirm — never log or persist CVV server-side. */
+export type PaymentCardConfirmPayload = {
+  number: string
+  cvc: string
+  expMonth: number
+  expYear: number
+  brand: string
+}
+
 export async function createPaymentIntent(params: {
   bookingId?: string | null
   amount: number
@@ -49,12 +58,22 @@ export async function createPaymentIntent(params: {
 export async function confirmPaymentIntent(
   paymentIntentId: string,
   paymentMethodId: string,
+  card: PaymentCardConfirmPayload,
 ): Promise<BookingPaymentIntent> {
   const payload = await requestJson<{ paymentIntent: BookingPaymentIntent }>(
     `/api/payments/intents/${paymentIntentId}/confirm`,
     {
       method: 'POST',
-      body: JSON.stringify({ paymentMethodId }),
+      body: JSON.stringify({
+        paymentMethodId,
+        card: {
+          number: card.number,
+          cvc: card.cvc,
+          expMonth: card.expMonth,
+          expYear: card.expYear,
+          brand: card.brand,
+        },
+      }),
     },
   )
   return payload.paymentIntent

@@ -17,6 +17,8 @@ interface ImportMetaEnv {
   readonly VITE_ELEVENLABS_API_KEY?: string
   /** Optional override; default premade is Daniel (measured assistant-style). */
   readonly VITE_ELEVENLABS_VOICE_ID?: string
+  /** Set to `1` to log `[FetchPerf]` timings (see `fetchPerf.ts`). Or use localStorage `fetchPerfLogs=1`. */
+  readonly VITE_FETCH_PERF_LOGS?: string
 }
 
 interface ImportMeta {

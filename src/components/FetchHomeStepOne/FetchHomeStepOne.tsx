@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import type { BookingStage } from '../../lib/assistant'
+import { useFetchTheme } from '../../theme/FetchThemeContext'
 import { FakeMapBackground } from './FakeMapBackground'
 import { GoogleMapLayer } from './GoogleMapLayer'
 import { BookingMapReflection, type MapAccentRgb } from './BookingMapReflection'
+import { MapTimeWeatherOverlay } from './MapTimeWeatherOverlay'
 
 export type { MapAccentRgb } from './BookingMapReflection'
 
@@ -17,12 +19,14 @@ export type FetchHomeStepOneProps = {
   mapStage?: BookingStage
   /** Pin drop pulse + marker tint — match booking stage glow. */
   mapAccentRgb?: MapAccentRgb
+  /** Device location when the user allows it — “you are here” pin on the map. */
+  userLocationCoords?: google.maps.LatLngLiteral | null
 }
 
 /**
  * Full-screen map shell only (no booking flow). Hero map for the starting screen.
  */
-export function FetchHomeStepOne({
+function FetchHomeStepOneInner({
   onMapsJavaScriptReady,
   pickup = null,
   dropoff = null,
@@ -31,12 +35,14 @@ export function FetchHomeStepOne({
   routePath = null,
   mapStage = 'idle',
   mapAccentRgb,
+  userLocationCoords = null,
 }: FetchHomeStepOneProps) {
   const [map, setMap] = useState<google.maps.Map | null>(null)
   const mapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ?? ''
+  const { resolved: theme } = useFetchTheme()
 
   return (
-    <div className="relative h-full min-h-dvh w-full overflow-hidden bg-[#0e0f12]">
+    <div className="relative h-full min-h-dvh w-full overflow-hidden bg-[var(--fetch-app-bg,#030308)]">
       <div className="absolute inset-0" role="presentation" aria-label="Job map preview">
         {mapsApiKey ? (
           <GoogleMapLayer
@@ -53,22 +59,17 @@ export function FetchHomeStepOne({
               map={map}
               stage={mapStage}
               accentRgb={mapAccentRgb}
+              userLocationCoords={userLocationCoords}
             />
           </GoogleMapLayer>
         ) : (
-          <FakeMapBackground />
+          <FakeMapBackground variant={theme === 'light' ? 'light' : 'dark'} />
         )}
       </div>
-      <div
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-[30%] bg-[radial-gradient(ellipse_110%_78%_at_50%_100%,rgba(0,0,0,0.5)_0%,rgba(0,0,0,0.28)_32%,rgba(0,0,0,0.12)_54%,transparent_76%)]"
-        aria-hidden
-      />
-      <div
-        className="pointer-events-none absolute inset-x-0 bottom-0 h-[22%] bg-[linear-gradient(to_top,rgba(14,15,18,0.55)_0%,rgba(14,15,18,0.25)_44%,transparent_100%)]"
-        aria-hidden
-      />
+      <MapTimeWeatherOverlay />
     </div>
   )
 }
 
+export const FetchHomeStepOne = memo(FetchHomeStepOneInner)
 export default FetchHomeStepOne

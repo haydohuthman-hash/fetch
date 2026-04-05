@@ -17,6 +17,8 @@ function buildMissingFields(draft) {
   if (!draft.pickupAddressText?.trim()) missing.push('pickupAddressText')
   if (draft.serviceType === 'helpers' && draft.helperHours == null) missing.push('helperHours')
   if (draft.serviceType === 'helpers' && !draft.helperType?.trim()) missing.push('helperType')
+  if (draft.serviceType === 'cleaning' && draft.cleaningHours == null) missing.push('cleaningHours')
+  if (draft.serviceType === 'cleaning' && !draft.cleaningType?.trim()) missing.push('cleaningType')
   if ((draft.serviceType === 'move' || draft.serviceType === 'pickup') && !draft.dropoffAddressText?.trim()) {
     missing.push('dropoffAddressText')
   }
@@ -104,6 +106,8 @@ function buildHeuristicReview(draft) {
     moveSize: 'Confirm move size or bedroom count.',
     helperHours: 'Confirm how long help is needed.',
     helperType: 'Confirm what kind of help is needed.',
+    cleaningHours: 'Confirm how long cleaning is needed.',
+    cleaningType: 'Confirm what type of cleaning is needed.',
   }
 
   const blockers = missingFields.map((field) => blockerMap[field]).filter(Boolean)
@@ -242,6 +246,9 @@ export async function reviewBookingDraft(draft, { openAiApiKey } = {}) {
     helperHours: typeof draft?.helperHours === 'number' ? draft.helperHours : null,
     helperType: typeof draft?.helperType === 'string' ? draft.helperType : null,
     helperNotes: typeof draft?.helperNotes === 'string' ? draft.helperNotes : null,
+    cleaningHours: typeof draft?.cleaningHours === 'number' ? draft.cleaningHours : null,
+    cleaningType: typeof draft?.cleaningType === 'string' ? draft.cleaningType : null,
+    cleaningNotes: typeof draft?.cleaningNotes === 'string' ? draft.cleaningNotes : null,
     specialItemType: typeof draft?.specialItemType === 'string' ? draft.specialItemType : null,
     isHeavyItem: Boolean(draft?.isHeavyItem),
     isBulky: Boolean(draft?.isBulky),

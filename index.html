@@ -3,8 +3,29 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content"
+    />
     <title>Fetch</title>
+    <script>
+      (function () {
+        try {
+          var k = 'fetch.themePreference'
+          var p = localStorage.getItem(k)
+          var r = 'dark'
+          if (p === 'light') r = 'light'
+          else if (p === 'dark') r = 'dark'
+          else {
+            var h = new Date().getHours()
+            r = h >= 5 && h < 18 ? 'light' : 'dark'
+          }
+          document.documentElement.setAttribute('data-fetch-theme', r)
+        } catch (e) {
+          document.documentElement.setAttribute('data-fetch-theme', 'dark')
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

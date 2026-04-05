@@ -99,6 +99,33 @@ export function computeQuoteBreakdown(state) {
       autoHelpers: 0,
     }
   }
+  if (state.serviceType === 'cleaning') {
+    const hours = Math.max(1, state.cleaningHours ?? 1)
+    const baseCleaningFee = 36
+    const hourlyRate = 48
+    const supportFee = /\bdeep\b/i.test(state.cleaningType ?? '')
+      ? 14
+      : /\b(end of lease|bond)\b/i.test(state.cleaningType ?? '')
+        ? 22
+        : 0
+    const subtotal = baseCleaningFee + hours * hourlyRate + supportFee
+    const spread = Math.max(12, subtotal * 0.12)
+
+    return {
+      baseFee: Math.round(baseCleaningFee),
+      routeFee: 0,
+      routeTimeFee: 0,
+      inventoryFee: 0,
+      accessFee: 0,
+      disposalFee: 0,
+      helperFee: Math.round(hours * hourlyRate + supportFee),
+      moveSizeMultiplier: 1,
+      subtotal: Math.round(subtotal),
+      spread: Math.round(spread),
+      totalItems: 0,
+      autoHelpers: 0,
+    }
+  }
   const subtotal =
     (baseFee + routeFee + routeTimeFee + inventoryFee + accessFee + disposalFee + helperFee + heavyItemFee) *
     moveSizeFactor
@@ -134,6 +161,10 @@ export function computePricing(state) {
     explanationParts.splice(0, explanationParts.length, 'helpers job', `${Math.max(1, state.helperHours ?? 1)} hr`)
     if (state.helperType?.trim()) explanationParts.push(state.helperType.trim())
   }
+  if (state.serviceType === 'cleaning') {
+    explanationParts.splice(0, explanationParts.length, 'cleaning job', `${Math.max(1, state.cleaningHours ?? 1)} hr`)
+    if (state.cleaningType?.trim()) explanationParts.push(state.cleaningType.trim())
+  }
   if (state.jobType === 'heavyItem') {
     explanationParts.splice(
       0,
@@ -148,7 +179,7 @@ export function computePricing(state) {
   if (state.accessDetails?.stairs) explanationParts.push('stairs')
   if (state.accessDetails?.disassembly) explanationParts.push('disassembly')
   if (state.serviceType === 'remove' && state.disposalRequired) explanationParts.push('disposal')
-  if (state.serviceType !== 'helpers' && breakdown.autoHelpers > 0) {
+  if (state.serviceType !== 'helpers' && state.serviceType !== 'cleaning' && breakdown.autoHelpers > 0) {
     explanationParts.push(`${breakdown.autoHelpers} helper${breakdown.autoHelpers > 1 ? 's' : ''}`)
   }
 
@@ -159,7 +190,9 @@ export function computePricing(state) {
     estimatedDuration:
       state.serviceType === 'helpers'
         ? Math.max(3600, Math.round((state.helperHours ?? 1) * 3600))
-        : Math.max(1800, Math.round((state.durationSeconds ?? 0) + 1200 + totalItems * 120)),
+        : state.serviceType === 'cleaning'
+          ? Math.max(3600, Math.round((state.cleaningHours ?? 1) * 3600))
+          : Math.max(1800, Math.round((state.durationSeconds ?? 0) + 1200 + totalItems * 120)),
     explanation: explanationParts.join(' · '),
   }
 }

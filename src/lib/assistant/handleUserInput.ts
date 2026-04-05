@@ -31,6 +31,7 @@ function laneToServiceType(lane: ReturnType<typeof classifyJobLane>): BookingSer
 function jobTypeForServiceType(type: BookingServiceType, current: BookingState): BookingJobType {
   if (type === 'remove') return 'junkRemoval'
   if (type === 'helpers') return 'helper'
+  if (type === 'cleaning') return 'cleaning'
   if (type === 'move') return 'homeMoving'
   if (current.isHeavyItem || current.specialItemType) return 'heavyItem'
   return 'deliveryPickup'
@@ -53,6 +54,15 @@ function parseJobTypeSelection(text: string): BookingJobType | null {
     return 'homeMoving'
   }
   if (t === 'helper' || t === 'helpers' || t === 'need helpers') return 'helper'
+  if (
+    t === 'cleaning' ||
+    t === 'cleaner' ||
+    t === 'house cleaning' ||
+    t === 'home cleaning' ||
+    t === 'end of lease clean'
+  ) {
+    return 'cleaning'
+  }
   return null
 }
 
@@ -60,6 +70,7 @@ function serviceModeForJobType(jobType: BookingJobType): BookingServiceMode {
   if (jobType === 'junkRemoval') return 'junk'
   if (jobType === 'homeMoving') return 'move'
   if (jobType === 'helper') return 'helpers'
+  if (jobType === 'cleaning') return 'cleaning'
   return 'pickup'
 }
 
@@ -67,6 +78,7 @@ function serviceTypeForJobType(jobType: BookingJobType): BookingServiceType {
   if (jobType === 'junkRemoval') return 'remove'
   if (jobType === 'homeMoving') return 'move'
   if (jobType === 'helper') return 'helpers'
+  if (jobType === 'cleaning') return 'cleaning'
   return 'pickup'
 }
 
@@ -108,6 +120,59 @@ export function selectHomeJobType(
   const plan = deriveNextQuestion(next)
   next.currentQuestion = plan.question
   next.suggestions = plan.suggestions
+  return { bookingState: next, reply: plan.question ?? 'Done.' }
+}
+
+/** Sheet submit: set labor fields, compute quote (no photo scan). */
+export function applyLaborDetailsFromSheet(
+  state: BookingState,
+  payload: { hours: number; taskType: string; notes: string },
+): HandleUserInputResult {
+  if (state.jobType !== 'helper' && state.jobType !== 'cleaning') {
+    return { bookingState: state, reply: 'Done.' }
+  }
+  const hours = Math.max(1, Math.min(12, Math.round(Number(payload.hours) || 1)))
+  const taskType = payload.taskType.trim()
+  const notesTrim = payload.notes.trim()
+  let next: BookingState = {
+    ...state,
+    jobDetailsStarted: true,
+    jobDetailsScanStepComplete: true,
+  }
+  if (state.jobType === 'helper') {
+    next = { ...next, helperHours: hours, helperType: taskType, helperNotes: notesTrim || null }
+  } else {
+    next = {
+      ...next,
+      cleaningHours: hours,
+      cleaningType: taskType,
+      cleaningNotes: notesTrim || null,
+    }
+  }
+  next = syncIntentState(next)
+  if (readyForPricing(next) && !isRouteTerminalPhase(next) && !next.pricing) {
+    next.quoteBreakdown = computeBookingQuoteBreakdown(next)
+    next.pricing = computeBookingPricing(next)
+    if (
+      next.pricing &&
+      !(
+        next.jobType === 'junkRemoval' &&
+        (!next.junkQuoteAcknowledged || !next.junkConfirmStepComplete)
+      )
+    ) {
+      next.mode = 'pricing'
+    }
+  }
+  next = syncIntentState(next)
+  const plan = deriveNextQuestion(next)
+  next.currentQuestion = plan.question
+  next.suggestions = plan.suggestions
+  if (next.mode === 'pricing' && next.pricing) {
+    return {
+      bookingState: next,
+      reply: `Perfect. $${next.pricing.minPrice} to $${next.pricing.maxPrice} - about ${Math.round(next.pricing.estimatedDuration / 60)} min.`,
+    }
+  }
   return { bookingState: next, reply: plan.question ?? 'Done.' }
 }
 
@@ -464,6 +529,7 @@ export function handleUserInput(input: UserInput, bookingState: BookingState): H
   const explicitHelpers = /\b(helpers?|need help|lifting help|loading help|assembly help|general labour)\b/i.test(
     text,
   )
+  const explicitCleaning = /\b(clean(ing|er)?|housekeeping|bond clean|end of lease clean)\b/i.test(text)
   const wantsDriverMatch = /\b(find driver|dispatch|match|book now|confirm booking)\b/i.test(text)
   const saysSmall = /\bsmall\b/i.test(text)
   const saysMedium = /\bmedium\b/i.test(text)
@@ -507,6 +573,7 @@ export function handleUserInput(input: UserInput, bookingState: BookingState): H
     next.isHeavyItem = true
   }
   else if (explicitHelpers) next.serviceType = 'helpers'
+  else if (explicitCleaning) next.serviceType = 'cleaning'
   else if (!isScanInput && !next.serviceType && parsed.service) next.serviceType = serviceTypeFromIntent
   else if (
     !next.serviceType &&
@@ -598,6 +665,7 @@ export function handleUserInput(input: UserInput, bookingState: BookingState): H
       'Heavy item',
       'Home moving',
       'Helper',
+      'Cleaning',
     ]
     next.mode = 'building'
     return { bookingState: next, reply: next.currentQuestion }
@@ -643,6 +711,7 @@ export function handleUserInput(input: UserInput, bookingState: BookingState): H
     else if (/\bpickup|pick up|collect|delivery\b/i.test(text)) next.jobType = 'deliveryPickup'
     else if (/\bheavy|piano|safe|spa|pool table|marble\b/i.test(text)) next.jobType = 'heavyItem'
     else if (/\bmove|moving\b/i.test(text)) next.jobType = 'homeMoving'
+    else if (/\bclean(ing|er)?|housekeeping|bond clean\b/i.test(text)) next.jobType = 'cleaning'
   }
 
   const answeringPickupQuestion = /grabbing it from|pickup/.test(question)
@@ -693,8 +762,9 @@ export function handleUserInput(input: UserInput, bookingState: BookingState): H
   const answeringHelperLocation = /need a hand|enter location|pick the location/.test(question)
   const answeringHelperLocationFallback =
     /set the location|choose the location|where do you need help/.test(question)
+  const answeringCleaningLocation = /where should we clean/.test(question)
   if (
-    (answeringHelperLocation || answeringHelperLocationFallback) &&
+    (answeringHelperLocation || answeringHelperLocationFallback || answeringCleaningLocation) &&
     !hasAddressSelection &&
     !parsed.affirmative &&
     !parsed.negative &&
@@ -717,15 +787,36 @@ export function handleUserInput(input: UserInput, bookingState: BookingState): H
     }
   }
 
+  const answeringCleaningHours = /how many hours of cleaning/.test(question)
+  if (answeringCleaningHours) {
+    const match = text.match(/\b(\d+)\s*(?:hour|hr)/i)
+    if (match) {
+      next.cleaningHours = Math.max(1, Math.min(12, Number.parseInt(match[1] ?? '1', 10) || 1))
+    } else if (/4\+|four\+|four plus/i.test(text)) {
+      next.cleaningHours = 4
+    }
+  }
+
   const answeringHelperType = /what kind of help/.test(question)
   if (answeringHelperType && text.length > 1) {
     next.helperType = text
+  }
+
+  const answeringCleaningType = /what kind of clean/.test(question)
+  if (answeringCleaningType && text.length > 1) {
+    next.cleaningType = text
   }
 
   const answeringHelperNotes =
     next.serviceType === 'helpers' && /extra details|anything else/i.test(question)
   if (answeringHelperNotes && text.length > 1) {
     next.helperNotes = /no extra details|no notes|nothing else/i.test(text) ? 'No extra details' : text
+  }
+
+  const answeringCleaningNotes =
+    next.serviceType === 'cleaning' && /notes for the cleaner|extra details|anything else/i.test(question)
+  if (answeringCleaningNotes && text.length > 1) {
+    next.cleaningNotes = /no extra details|no notes|nothing else/i.test(text) ? 'No extra details' : text
   }
 
   const answeringDisposalQuestion = /disposal|dispose/i.test(question)
@@ -855,6 +946,9 @@ export function handleUserInput(input: UserInput, bookingState: BookingState): H
   }
   if (next.mode === 'building' && next.jobType === 'helper' && !next.pickupAddressText) {
     return { bookingState: next, reply: 'Where do you need help?' }
+  }
+  if (next.mode === 'building' && next.jobType === 'cleaning' && !next.pickupAddressText) {
+    return { bookingState: next, reply: 'Where should we clean?' }
   }
   if (plan.question) {
     return { bookingState: next, reply: plan.question }

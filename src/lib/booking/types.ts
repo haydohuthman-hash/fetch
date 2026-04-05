@@ -41,6 +41,9 @@ export type FetchAiBookingDraft = {
   helperHours: number | null
   helperType: string | null
   helperNotes: string | null
+  cleaningHours: number | null
+  cleaningType: string | null
+  cleaningNotes: string | null
   specialItemType: string | null
   isHeavyItem: boolean
   isBulky: boolean
@@ -97,6 +100,9 @@ export type BookingRecord = {
   helperHours: number | null
   helperType: string | null
   helperNotes: string | null
+  cleaningHours: number | null
+  cleaningType: string | null
+  cleaningNotes: string | null
   specialItemType: string | null
   isHeavyItem: boolean
   isBulky: boolean
@@ -149,6 +155,9 @@ export function bookingStateToDraft(state: BookingState): FetchAiBookingDraft {
     helperHours: state.helperHours,
     helperType: state.helperType,
     helperNotes: state.helperNotes,
+    cleaningHours: state.cleaningHours,
+    cleaningType: state.cleaningType,
+    cleaningNotes: state.cleaningNotes,
     specialItemType: state.specialItemType,
     isHeavyItem: state.isHeavyItem,
     isBulky: state.isBulky,
@@ -196,6 +205,9 @@ export function bookingRecordToStatePatch(record: BookingRecord): Partial<Bookin
     helperHours: record.helperHours,
     helperType: record.helperType,
     helperNotes: record.helperNotes,
+    cleaningHours: record.cleaningHours,
+    cleaningType: record.cleaningType,
+    cleaningNotes: record.cleaningNotes,
     specialItemType: record.specialItemType,
     isHeavyItem: record.isHeavyItem,
     isBulky: record.isBulky,
