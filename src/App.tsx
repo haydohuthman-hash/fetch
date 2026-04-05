@@ -1,6 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { loadSession } from './lib/fetchUserSession'
 import { FetchVoiceProvider } from './voice/FetchVoiceContext'
+import { FetchBootstrappingProvider } from './boot/FetchBootstrappingContext'
+import { FetchBootstrapOverlay } from './components/FetchBootstrapOverlay'
 import SplashScreen from './views/SplashScreen'
 
 const homeChunk = () => import('./views/HomeView')
@@ -19,20 +21,41 @@ const DriverDashboardView = lazy(driverChunk)
 
 type AppPhase = 'splash' | 'home' | 'auth' | 'account' | 'driver'
 
+/**
+ * Page-load–scoped handoff flags (not sessionStorage): they survive React 18 Strict Mode
+ * remounts in dev so we don’t snap back to splash mid-handoff, but reset on a full refresh
+ * so splash + skeleton run again every time you reload the tab.
+ */
+let fetchAppSplashHandoffDone = false
+let fetchAppBootstrapExitDone = false
+
 function hasDriverQuery() {
   if (typeof window === 'undefined') return false
   return new URLSearchParams(window.location.search).has('driver')
 }
 
-/** Short splash; home chunk prefetches in parallel so Suspense resolves quickly. */
-const SPLASH_MS = 220
+function initialAppPhase(): AppPhase {
+  if (typeof window === 'undefined') return 'splash'
+  if (hasDriverQuery()) return 'driver'
+  if (fetchAppSplashHandoffDone) return 'home'
+  return 'splash'
+}
+
+/** After splash, show bootstrap until map ready + min time, unless overlay already finished this load. */
+function initialHomeBootstrapOpen(): boolean {
+  if (typeof window === 'undefined') return false
+  if (!fetchAppSplashHandoffDone) return false
+  return !fetchAppBootstrapExitDone
+}
 
 function PhaseFallback() {
   return <div className="fetch-app-shell-bg min-h-dvh" aria-hidden />
 }
 
 function App() {
-  const [phase, setPhase] = useState<AppPhase>(() => (hasDriverQuery() ? 'driver' : 'splash'))
+  const [phase, setPhase] = useState<AppPhase>(initialAppPhase)
+  const [homeBootstrapOpen, setHomeBootstrapOpen] = useState(initialHomeBootstrapOpen)
+  const [homeMapBootReady, setHomeMapBootReady] = useState(false)
 
   useEffect(() => {
     void homeChunk()
@@ -59,28 +82,55 @@ function App() {
     setPhase('driver')
   }, [])
 
+  const handleSplashComplete = useCallback(() => {
+    if (fetchAppSplashHandoffDone) return
+    fetchAppSplashHandoffDone = true
+    fetchAppBootstrapExitDone = false
+    setHomeMapBootReady(false)
+    setHomeBootstrapOpen(true)
+    setPhase('home')
+  }, [])
+
   useEffect(() => {
-    if (phase !== 'splash') return
-    const readyTimer = window.setTimeout(() => setPhase('home'), SPLASH_MS)
-    return () => {
-      window.clearTimeout(readyTimer)
+    if (phase !== 'home') {
+      setHomeBootstrapOpen(false)
+      setHomeMapBootReady(false)
     }
   }, [phase])
+
+  const handleHomeMapsBootReady = useCallback((ready: boolean) => {
+    if (ready) setHomeMapBootReady(true)
+  }, [])
+
+  const handleBootstrapExitComplete = useCallback(() => {
+    fetchAppBootstrapExitDone = true
+    setHomeBootstrapOpen(false)
+  }, [])
 
   return (
     <FetchVoiceProvider>
       <div className="fetch-app-shell-bg flex min-h-dvh min-h-[100dvh] w-full justify-center">
         <div className="fetch-app-shell-inner relative mx-auto min-h-dvh min-h-[100dvh] w-full max-w-[1024px] overflow-x-clip overflow-y-visible">
           {phase === 'splash' ? (
-            <SplashScreen />
+            <SplashScreen onComplete={handleSplashComplete} />
           ) : phase === 'driver' ? (
             <Suspense fallback={<PhaseFallback />}>
               <DriverDashboardView onBack={leaveDriverDashboard} />
             </Suspense>
           ) : phase === 'home' ? (
-            <Suspense fallback={<PhaseFallback />}>
-              <HomeView onAccountNavigate={goAccountFromHome} />
-            </Suspense>
+            <FetchBootstrappingProvider value={homeBootstrapOpen}>
+              <Suspense fallback={<PhaseFallback />}>
+                <HomeView
+                  onAccountNavigate={goAccountFromHome}
+                  onMapsBootReady={handleHomeMapsBootReady}
+                />
+              </Suspense>
+              <FetchBootstrapOverlay
+                open={homeBootstrapOpen}
+                mapReady={homeMapBootReady}
+                onExitComplete={handleBootstrapExitComplete}
+              />
+            </FetchBootstrappingProvider>
           ) : phase === 'auth' ? (
             <Suspense fallback={<PhaseFallback />}>
               <AuthScreen

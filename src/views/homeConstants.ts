@@ -1,4 +1,5 @@
 import type { BookingJobType, BookingLifecycleStatus, BookingState } from '../lib/assistant'
+import { getSessionPhaseJobCard, sessionPhaseFromWireStatus } from '../lib/booking/bookingSessionPhase'
 
 /** Legacy short line; home TTS uses `buildHomeWelcomeLine` (time + weather). */
 export const INTRO_COPY = 'Fetch activated. What can I do for you today?'
@@ -31,11 +32,12 @@ export const LANDING_PRIMARY_SERVICES = [
       'Hayden, what are we moving today — and where are we taking it?',
   },
   {
-    id: 'junk-removal',
-    label: 'Junk',
-    jobType: 'junkRemoval' as const,
-    tone: 'orange' as const,
-    fetchPersonalityExample: 'Where is the junk located, Hayden?',
+    id: 'cleaning',
+    label: 'Cleaning',
+    jobType: 'cleaning' as const,
+    tone: 'teal' as const,
+    fetchPersonalityExample:
+      'Hayden, which place are we cleaning — regular tidy or a bond clean?',
   },
   {
     id: 'delivery-pickup',
@@ -46,19 +48,18 @@ export const LANDING_PRIMARY_SERVICES = [
       'Hayden, what needs picking up, and where should we deliver it?',
   },
   {
+    id: 'junk-removal',
+    label: 'Junk removal',
+    jobType: 'junkRemoval' as const,
+    tone: 'orange' as const,
+    fetchPersonalityExample: 'Where is the junk located, Hayden?',
+  },
+  {
     id: 'helper',
     label: 'Helper',
     jobType: 'helper' as const,
     tone: 'purple' as const,
     fetchPersonalityExample: 'Hayden, what do you need an extra pair of hands for?',
-  },
-  {
-    id: 'cleaning',
-    label: 'Cleaning',
-    jobType: 'cleaning' as const,
-    tone: 'teal' as const,
-    fetchPersonalityExample:
-      'Hayden, which place are we cleaning — regular tidy or a bond clean?',
   },
 ] as const
 
@@ -68,6 +69,49 @@ export const SERVICE_OPTIONS = [
   { id: 'home-moving', label: 'Home moving', jobType: 'homeMoving' as const },
   { id: 'helper', label: 'Helper', jobType: 'helper' as const },
   { id: 'cleaning', label: 'Cleaning', jobType: 'cleaning' as const },
+] as const
+
+/** Full list for the “advanced” service sheet (includes heavy item + longer labels). */
+export const ADVANCED_SERVICE_MENU_OPTIONS = [
+  {
+    id: 'junk-removal',
+    label: 'Junk removal',
+    jobType: 'junkRemoval' as const,
+    personalityLine: 'Where is the junk located, Hayden?',
+  },
+  {
+    id: 'delivery-pickup',
+    label: 'Delivery / pickup',
+    jobType: 'deliveryPickup' as const,
+    personalityLine:
+      'Hayden, what needs picking up, and where should we deliver it?',
+  },
+  {
+    id: 'home-moving',
+    label: 'Home moving',
+    jobType: 'homeMoving' as const,
+    personalityLine: 'Hayden, what are we moving today — and where are we taking it?',
+  },
+  {
+    id: 'heavy-item',
+    label: 'Heavy item',
+    jobType: 'heavyItem' as const,
+    personalityLine:
+      'What heavy item are we moving, Hayden — pianos, safes, and awkward loads?',
+  },
+  {
+    id: 'helper',
+    label: 'Helper / labour',
+    jobType: 'helper' as const,
+    personalityLine: 'Hayden, what do you need an extra pair of hands for?',
+  },
+  {
+    id: 'cleaning',
+    label: 'Cleaning',
+    jobType: 'cleaning' as const,
+    personalityLine:
+      'Hayden, which place are we cleaning — regular tidy or a bond clean?',
+  },
 ] as const
 
 export const JOB_TYPE_TO_SERVICE_ID: Record<BookingJobType, string> = {
@@ -83,27 +127,7 @@ export function junkLiveJobCopy(
   status: BookingLifecycleStatus,
   driver: BookingState['driver'],
 ): { title: string; line: string } {
-  switch (status) {
-    case 'dispatching':
-      return { title: 'Finding a driver', line: 'Matching you with someone nearby…' }
-    case 'matched':
-      return {
-        title: 'Driver matched',
-        line: driver
-          ? `${driver.name} · ~${driver.etaMinutes ?? '—'} min away`
-          : 'A driver is on the way.',
-      }
-    case 'en_route':
-      return { title: 'On the way', line: 'Heading to your pickup address.' }
-    case 'arrived':
-      return { title: 'Arrived', line: 'Your driver is at the pickup.' }
-    case 'in_progress':
-      return { title: 'In progress', line: 'Loading and clearing your items.' }
-    case 'completed':
-      return { title: 'Completed', line: 'Thanks for booking with Fetch.' }
-    default:
-      return { title: 'Job update', line: '' }
-  }
+  return getSessionPhaseJobCard({ phase: sessionPhaseFromWireStatus(status), driver })
 }
 
 export const IDLE_TO_SLEEPY_MS = 60_000

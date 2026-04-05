@@ -16,9 +16,6 @@ import {
 import type { BrainNode } from '../lib/fetchBrainGraph'
 import { getSpeechAmplitude } from '../voice/fetchVoice'
 
-const FIELD_GRID_CELL = 36
-const CORTEX_GRID_CELL = 22
-
 type Props = {
   theme: 'light' | 'dark'
   mind: FetchBrainMindState
@@ -49,6 +46,8 @@ export function FetchBrainParticleCanvas({
   const bufRef = useRef<BrainParticleBuffers | null>(null)
   const ingestBufRef = useRef<BrainMemoryIngestBuffers | null>(null)
   const scratchRef = useRef<BrainParticleScratch | null>(null)
+  const graphNodesRef = useRef(graphNodes)
+  graphNodesRef.current = graphNodes
   const rafRef = useRef(0)
   const t0Ref = useRef(0)
   const lastRef = useRef(0)
@@ -56,13 +55,14 @@ export function FetchBrainParticleCanvas({
   const runningRef = useRef(running)
   runningRef.current = running
   const wasListeningRef = useRef(false)
+  const wasSpeakingRef = useRef(false)
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
 
     const resize = () => {
-      const dpr = Math.min(1.5, window.devicePixelRatio || 1)
+      const dpr = Math.min(1.1, window.devicePixelRatio || 1)
       const w = canvas.clientWidth
       const h = canvas.clientHeight
       if (w < 2 || h < 2) return
@@ -112,8 +112,7 @@ export function FetchBrainParticleCanvas({
         rafRef.current = requestAnimationFrame(tick)
         return
       }
-      const cellSz = cortexCalm ? CORTEX_GRID_CELL : FIELD_GRID_CELL
-      scratch = ensureBrainParticleScratch(w, h, scratch, cellSz)
+      scratch = ensureBrainParticleScratch(w, h, scratch)
       scratchRef.current = scratch
 
       const dissolve01 = skipEntryDissolve
@@ -127,6 +126,7 @@ export function FetchBrainParticleCanvas({
         window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
       const listeningNow = mind === 'listening' && !cortexCalm
+      const speakingBurst = mind === 'speaking' && !cortexCalm
       let ingestStrength = 0
       if (!reduceMotion && listeningNow) {
         if (!ingestBufRef.current) ingestBufRef.current = createBrainMemoryIngestBuffers()
@@ -134,9 +134,19 @@ export function FetchBrainParticleCanvas({
           resetBrainMemoryIngest(ingestBufRef.current, w, h)
         }
         wasListeningRef.current = true
+        wasSpeakingRef.current = false
         ingestStrength = 0.88 + 0.12 * Math.sin(now / 260)
+      } else if (!reduceMotion && speakingBurst) {
+        if (!ingestBufRef.current) ingestBufRef.current = createBrainMemoryIngestBuffers()
+        if (!wasSpeakingRef.current) {
+          resetBrainMemoryIngest(ingestBufRef.current, w, h)
+        }
+        wasSpeakingRef.current = true
+        wasListeningRef.current = false
+        ingestStrength = 0.52 + 0.48 * speechAmp * (0.92 + 0.08 * Math.sin(now / 200))
       } else {
         wasListeningRef.current = false
+        wasSpeakingRef.current = false
       }
 
       const tcx = w * 0.5
@@ -146,12 +156,13 @@ export function FetchBrainParticleCanvas({
       }
 
       const spread = Math.max(0, Math.min(1, cortexSpread01))
-      stepBrainParticles(buf, w, h, t, mind, dissolve01, speechAmp, dt, cortexCalm, spread)
+      stepBrainParticles(buf, w, h, t, mind, dissolve01, speechAmp, dt, cortexCalm, spread, reduceMotion)
       drawBrainParticles(
         ctx,
         buf,
         w,
         h,
+        t,
         theme,
         mind,
         dissolve01,
@@ -160,8 +171,9 @@ export function FetchBrainParticleCanvas({
         scratch,
         cortexCalm,
         spread,
-        cellSz,
+        36,
         reduceMotion,
+        graphNodesRef.current,
       )
 
       if (ingestStrength > 0.02 && ingestBufRef.current) {

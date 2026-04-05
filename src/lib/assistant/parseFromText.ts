@@ -67,12 +67,6 @@ export function estimateRouteKmDuration(pickup: string, dropoff: string): {
   return { distanceKm, durationMin }
 }
 
-export function estimatePriceAud(distanceKm: number, service: 'move' | 'junk'): number {
-  const base = service === 'junk' ? 95 : 75
-  const perKm = service === 'junk' ? 2.8 : 4.2
-  return Math.round(base + distanceKm * perKm)
-}
-
 export function parseFromText(raw: string): ParsedExtraction {
   const text = raw.trim()
 

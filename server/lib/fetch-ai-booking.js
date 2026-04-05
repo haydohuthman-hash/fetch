@@ -1,4 +1,4 @@
-import { computePricing, computeQuoteBreakdown } from './pricing.js'
+import { computePriceForDraft } from '../../src/lib/booking/quoteEngine.ts'
 
 function makeId(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -62,23 +62,21 @@ function buildMissingFields(draft) {
   ) {
     missing.push('disassembly')
   }
-  if (draft.serviceType === 'move' && draft.homeBedrooms == null && draft.moveSize == null) {
+  if (
+    draft.serviceType === 'move' &&
+    draft.homeBedrooms == null &&
+    draft.moveSize == null &&
+    !draft.scanEstimatedSize
+  ) {
     missing.push('moveSize')
   }
   return missing
 }
 
 function buildHeuristicReview(draft) {
-  const pricing = computePricing({
-    ...draft,
-    distanceMeters: draft.route?.distanceMeters ?? null,
-    durationSeconds: draft.route?.durationSeconds ?? null,
-  })
-  const quoteBreakdown = computeQuoteBreakdown({
-    ...draft,
-    distanceMeters: draft.route?.distanceMeters ?? null,
-    durationSeconds: draft.route?.durationSeconds ?? null,
-  })
+  const priceResult = computePriceForDraft(draft, { allowRouteFallback: true })
+  const pricing = priceResult.ok ? priceResult.pricing : null
+  const quoteBreakdown = priceResult.ok ? priceResult.breakdown : null
   const missingFields = buildMissingFields(draft)
   const totalItems =
     Object.values(draft.itemCounts ?? {}).reduce((sum, qty) => sum + Math.max(0, qty || 0), 0) ||
@@ -260,6 +258,13 @@ export async function reviewBookingDraft(draft, { openAiApiKey } = {}) {
         : null,
     moveSize: draft?.moveSize ?? null,
     homeBedrooms: typeof draft?.homeBedrooms === 'number' ? draft.homeBedrooms : null,
+    scanEstimatedSize:
+      draft?.scanEstimatedSize === 'small' ||
+      draft?.scanEstimatedSize === 'medium' ||
+      draft?.scanEstimatedSize === 'large' ||
+      draft?.scanEstimatedSize === 'whole_home'
+        ? draft.scanEstimatedSize
+        : null,
     scanConfidence: typeof draft?.scanConfidence === 'number' ? draft.scanConfidence : null,
     bookingId: typeof draft?.bookingId === 'string' ? draft.bookingId : null,
   }

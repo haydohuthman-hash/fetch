@@ -1,14 +1,18 @@
-import { memo, useEffect, useState } from 'react'
+import { memo, useEffect, useState, type CSSProperties } from 'react'
 import type { BookingStage } from '../../lib/assistant'
 import { useFetchTheme } from '../../theme/FetchThemeContext'
 import { FakeMapBackground } from './FakeMapBackground'
 import { GoogleMapLayer } from './GoogleMapLayer'
 import type { ExploreMapPoi } from '../../lib/mapsExplorePlaces'
-import { BookingMapReflection, type MapAccentRgb } from './BookingMapReflection'
+import {
+  BookingMapReflection,
+  type LiveTrackingMapFit,
+  type MapAccentRgb,
+} from './BookingMapReflection'
 import type { HardwareProduct } from '../../lib/hardwareCatalog'
 import { MapTimeWeatherOverlay, type MapNavStatusStrip } from './MapTimeWeatherOverlay'
 
-export type { MapAccentRgb } from './BookingMapReflection'
+export type { LiveTrackingMapFit, MapAccentRgb } from './BookingMapReflection'
 
 export type FetchHomeStepOneProps = {
   onMapsJavaScriptReady?: (ready: boolean) => void
@@ -27,7 +31,7 @@ export type FetchHomeStepOneProps = {
   mapTunnelPhase?: 'tunnel' | null
   /** Pause BookingMapReflection camera automation while the tunnel owns the map. */
   suspendMapCameraAutomation?: boolean
-  /** ETA / next-turn strip above the clock+weather pill when a route is active. */
+  /** ETA / next-turn strip below the top brand bar when a route is active. */
   mapNavStrip?: MapNavStatusStrip | null
   /** Traffic-aware driver → pickup polyline during dispatch. */
   driverToPickupPath?: google.maps.LatLngLiteral[] | null
@@ -54,6 +58,8 @@ export type FetchHomeStepOneProps = {
   /** Driver dashboard map overlay (slim menu, help copy). */
   mapOverlayContext?: 'home' | 'driver'
   onDriverMapExit?: () => void
+  /** Live trip: keep driver + destination in frame. */
+  liveTrackingFit?: LiveTrackingMapFit | null
 }
 
 /**
@@ -85,6 +91,7 @@ function FetchHomeStepOneInner({
   homeMapHardwareCatalog,
   mapOverlayContext = 'home',
   onDriverMapExit,
+  liveTrackingFit = null,
 }: FetchHomeStepOneProps) {
   const [map, setMap] = useState<google.maps.Map | null>(null)
   const mapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ?? ''
@@ -102,74 +109,90 @@ function FetchHomeStepOneInner({
   const appleNavChrome = mapNavStrip?.navChrome === 'apple'
 
   return (
-    <div className="relative h-full min-h-dvh w-full overflow-hidden bg-[var(--fetch-app-bg,#030308)]">
+    <div className="relative h-full min-h-dvh w-full overflow-hidden bg-white">
       <div
         className={[
-          'fetch-home-map-tunnel-layer absolute inset-0 will-change-[filter,transform]',
+          'fetch-home-map-tunnel-layer absolute inset-0 flex min-h-0 flex-col will-change-[filter,transform]',
           tunnelPhase === 'tunnel' ? 'fetch-home-map-tunnel-layer--active' : '',
         ].join(' ')}
         data-map-tunnel={tunnelPhase}
         role="presentation"
+        style={
+          {
+            ['--fetch-map-header-h' as string]:
+              'calc(env(safe-area-inset-top, 0px) + 3.5rem)',
+          } as CSSProperties
+        }
       >
-        <div className="absolute inset-0" role="presentation" aria-label="Job map preview">
-          {mapsApiKey ? (
-            <GoogleMapLayer
-              apiKey={mapsApiKey}
-              onMapReady={setMap}
-              onJavaScriptReady={onMapsJavaScriptReady}
-            >
-              <BookingMapReflection
-                pickup={pickup}
-                dropoff={dropoff}
-                pickupCoords={pickupCoords}
-                dropoffCoords={dropoffCoords}
-                routePath={routePath}
-                map={map}
-                stage={mapStage}
-                accentRgb={mapAccentRgb}
-                userLocationCoords={userLocationCoords}
-                suspendCameraAutomation={suspendMapCameraAutomation}
-                cameraFollowUser={mapFollowUser}
-                showTrafficLayer={showTrafficLayer}
-                explorePois={explorePois}
-                navigationRouteActive={navigationRouteActive}
-                droppedPinCoords={droppedPinCoords}
-                driverToPickupPath={driverToPickupPath}
-                driverLivePosition={driverLivePosition}
-              />
-            </GoogleMapLayer>
-          ) : (
-            <FakeMapBackground variant={theme === 'light' ? 'light' : 'dark'} />
-          )}
-        </div>
-        {showRouteChrome && onMapFollowUserChange ? (
-          <div className="pointer-events-auto absolute bottom-[max(6.5rem,env(safe-area-inset-bottom)+5rem)] right-4 z-[42]">
-            <button
-              type="button"
-              onClick={() => onMapFollowUserChange(!mapFollowUser)}
-              className={[
-                'rounded-full border px-3.5 py-2 text-[11px] font-semibold shadow-lg transition-[transform,colors] active:scale-[0.97]',
-                appleNavChrome
-                  ? mapFollowUser
-                    ? 'border-black/10 bg-white/95 text-neutral-900 shadow-[0_4px_20px_rgba(0,0,0,0.12)] backdrop-blur-md'
-                    : 'border-black/8 bg-white/90 text-neutral-800 shadow-[0_4px_20px_rgba(0,0,0,0.1)] backdrop-blur-md'
-                  : mapFollowUser
-                    ? 'border-emerald-400/35 bg-emerald-950/55 text-emerald-100 backdrop-blur-md'
-                    : 'border-white/15 bg-black/40 text-white/88 backdrop-blur-md',
-              ].join(' ')}
-              aria-pressed={mapFollowUser}
-            >
-              {mapFollowUser ? 'Overview' : 'Follow me'}
-            </button>
+        <div
+          className="fetch-home-map-viewport relative mt-[var(--fetch-map-header-h)] min-h-0 flex-1 overflow-hidden rounded-t-[1.375rem] bg-white shadow-[0_-4px_28px_rgba(15,23,42,0.05)] ring-1 ring-white"
+          role="presentation"
+        >
+          <div
+            className="absolute inset-0 overflow-hidden rounded-t-[1.375rem]"
+            role="presentation"
+            aria-label="Job map preview"
+          >
+            {mapsApiKey ? (
+              <GoogleMapLayer
+                apiKey={mapsApiKey}
+                onMapReady={setMap}
+                onJavaScriptReady={onMapsJavaScriptReady}
+              >
+                <BookingMapReflection
+                  pickup={pickup}
+                  dropoff={dropoff}
+                  pickupCoords={pickupCoords}
+                  dropoffCoords={dropoffCoords}
+                  routePath={routePath}
+                  map={map}
+                  stage={mapStage}
+                  accentRgb={mapAccentRgb}
+                  userLocationCoords={userLocationCoords}
+                  suspendCameraAutomation={suspendMapCameraAutomation}
+                  cameraFollowUser={mapFollowUser}
+                  showTrafficLayer={showTrafficLayer}
+                  explorePois={explorePois}
+                  navigationRouteActive={navigationRouteActive}
+                  droppedPinCoords={droppedPinCoords}
+                  driverToPickupPath={driverToPickupPath}
+                  driverLivePosition={driverLivePosition}
+                  liveTrackingFit={liveTrackingFit}
+                />
+              </GoogleMapLayer>
+            ) : (
+              <FakeMapBackground variant={theme === 'light' ? 'light' : 'dark'} />
+            )}
           </div>
-        ) : null}
-        <MapTimeWeatherOverlay
-          navStrip={mapNavStrip}
-          onMenuAccount={onHomeMapMenuAccount}
-          hardwareProducts={homeMapHardwareCatalog}
-          overlayContext={mapOverlayContext}
-          onDriverExit={onDriverMapExit}
-        />
+          {showRouteChrome && onMapFollowUserChange ? (
+            <div className="pointer-events-auto absolute bottom-[max(6.5rem,env(safe-area-inset-bottom)+5rem)] right-4 z-[42]">
+              <button
+                type="button"
+                onClick={() => onMapFollowUserChange(!mapFollowUser)}
+                className={[
+                  'rounded-full border px-3.5 py-2 text-[11px] font-semibold shadow-lg transition-[transform,colors] active:scale-[0.97]',
+                  appleNavChrome
+                    ? mapFollowUser
+                      ? 'border-black/10 bg-white/95 text-neutral-900 shadow-[0_4px_20px_rgba(0,0,0,0.12)] backdrop-blur-md'
+                      : 'border-black/8 bg-white/90 text-neutral-800 shadow-[0_4px_20px_rgba(0,0,0,0.1)] backdrop-blur-md'
+                    : mapFollowUser
+                      ? 'border-emerald-400/35 bg-emerald-950/55 text-emerald-100 backdrop-blur-md'
+                      : 'border-white/15 bg-black/40 text-white/88 backdrop-blur-md',
+                ].join(' ')}
+                aria-pressed={mapFollowUser}
+              >
+                {mapFollowUser ? 'Overview' : 'Follow me'}
+              </button>
+            </div>
+          ) : null}
+          <MapTimeWeatherOverlay
+            navStrip={mapNavStrip}
+            onMenuAccount={onHomeMapMenuAccount}
+            hardwareProducts={homeMapHardwareCatalog}
+            overlayContext={mapOverlayContext}
+            onDriverExit={onDriverMapExit}
+          />
+        </div>
       </div>
     </div>
   )

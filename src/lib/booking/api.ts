@@ -1,4 +1,5 @@
 import type {
+  BookingCustomerRating,
   BookingDriver,
   BookingLifecycleStatus,
   BookingPaymentIntent,
@@ -109,6 +110,32 @@ export async function dispatchBooking(bookingId: string): Promise<BookingRecord>
   return payload.booking
 }
 
+export type DriverPresenceRecord = {
+  driverId: string
+  online: boolean
+  lat: number | null
+  lng: number | null
+  rating: number | null
+  completedJobs: number | null
+  updatedAt: number
+}
+
+/** Register driver online/GPS for matching rank (demo marketplace). */
+export async function postDriverPresence(body: {
+  driverId: string
+  online: boolean
+  lat?: number | null
+  lng?: number | null
+  rating?: number | null
+  completedJobs?: number | null
+}): Promise<DriverPresenceRecord> {
+  const payload = await requestJson<{ presence: DriverPresenceRecord }>('/api/marketplace/drivers/presence', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+  return payload.presence
+}
+
 export async function fetchBookings(): Promise<BookingRecord[]> {
   const payload = await requestJson<{ bookings: BookingRecord[] }>('/api/marketplace/bookings')
   return payload.bookings
@@ -143,6 +170,20 @@ export async function patchBookingStatus(
 ): Promise<BookingRecord> {
   const payload = await requestJson<{ booking: BookingRecord }>(
     `/api/marketplace/bookings/${bookingId}/status`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    },
+  )
+  return payload.booking
+}
+
+export async function submitCustomerBookingRating(
+  bookingId: string,
+  body: { stars: BookingCustomerRating['stars']; note?: string | null },
+): Promise<BookingRecord> {
+  const payload = await requestJson<{ booking: BookingRecord }>(
+    `/api/marketplace/bookings/${bookingId}/customer-rating`,
     {
       method: 'PATCH',
       body: JSON.stringify(body),

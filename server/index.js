@@ -88,11 +88,13 @@ const ALLOWED_BOOKING_PATCH_STATUSES = new Set([
   'payment_required',
   'confirmed',
   'dispatching',
+  'pending_match',
   'matched',
   'en_route',
   'arrived',
   'in_progress',
   'completed',
+  'match_failed',
   'cancelled',
 ])
 const SAFE_FALLBACK = {
@@ -1102,6 +1104,44 @@ app.patch('/api/marketplace/bookings/:bookingId/status', async (req, res) => {
   if (req.body?.driverControlled !== undefined) {
     booking.driverControlled = Boolean(req.body.driverControlled)
   }
+  if (status === 'matched') {
+    for (const o of state.offers) {
+      if (o.bookingId !== booking.id || o.status !== 'pending') continue
+      o.status = 'expired'
+      o.updatedAt = Date.now()
+    }
+    booking.matchingMeta = null
+  }
+  marketplaceStore.materializeState(state)
+  await marketplaceStore.writeState(state)
+  return res.json({ booking })
+})
+
+app.patch('/api/marketplace/bookings/:bookingId/customer-rating', async (req, res) => {
+  const { bookingId } = req.params
+  const starsRaw = req.body?.stars
+  const stars =
+    typeof starsRaw === 'number' && Number.isFinite(starsRaw) ? Math.trunc(starsRaw) : null
+  if (stars == null || stars < 1 || stars > 5) {
+    return res.status(400).json({ error: 'invalid_stars', detail: 'stars must be 1–5' })
+  }
+  let note = null
+  if (typeof req.body?.note === 'string') {
+    const t = req.body.note.trim().slice(0, 280)
+    note = t.length ? t : null
+  }
+  const state = await marketplaceStore.readState()
+  const booking = state.bookings.find((b) => b.id === bookingId)
+  if (!booking) return res.status(404).json({ error: 'booking_not_found' })
+  if (booking.customerRating) {
+    return res.status(409).json({ error: 'rating_already_submitted' })
+  }
+  booking.customerRating = {
+    stars,
+    note,
+    submittedAt: Date.now(),
+  }
+  booking.updatedAt = Date.now()
   marketplaceStore.materializeState(state)
   await marketplaceStore.writeState(state)
   return res.json({ booking })
@@ -1127,6 +1167,7 @@ app.post('/api/marketplace/offers', async (req, res) => {
   const without = state.offers.filter((o) => o.offerId !== payload.offerId)
   const offer = { ...payload, updatedAt: Date.now() }
   state.offers = [offer, ...without]
+  marketplaceStore.materializeState(state)
   await marketplaceStore.writeState(state)
   return res.json({ offer })
 })
@@ -1139,6 +1180,7 @@ app.patch('/api/marketplace/offers/:offerId', async (req, res) => {
   if (!offer) return res.status(404).json({ error: 'offer_not_found' })
   offer.status = status ?? offer.status
   offer.updatedAt = Date.now()
+  marketplaceStore.materializeState(state)
   await marketplaceStore.writeState(state)
   return res.json({ offer })
 })

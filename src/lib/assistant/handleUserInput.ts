@@ -1,3 +1,4 @@
+import { isWireStatusTreatedAsPaid } from '../booking/bookingWireConstants'
 import {
   accessDetailsComplete,
   deriveFlowStep,
@@ -901,14 +902,7 @@ export function handleUserInput(input: UserInput, bookingState: BookingState): H
   }
 
   const paymentConfirmed =
-    next.paymentIntent?.status === 'succeeded' ||
-    next.bookingStatus === 'confirmed' ||
-    next.bookingStatus === 'dispatching' ||
-    next.bookingStatus === 'matched' ||
-    next.bookingStatus === 'en_route' ||
-    next.bookingStatus === 'arrived' ||
-    next.bookingStatus === 'in_progress' ||
-    next.bookingStatus === 'completed'
+    next.paymentIntent?.status === 'succeeded' || isWireStatusTreatedAsPaid(next.bookingStatus)
 
   if (next.mode === 'pricing' && next.pricing && paymentConfirmed && wantsDriverMatch) {
     return { bookingState: next, reply: 'Tap Find driver to dispatch this booking.' }

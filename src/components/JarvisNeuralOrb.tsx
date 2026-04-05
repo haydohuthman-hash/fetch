@@ -10,6 +10,31 @@ import {
 } from '../lib/orb/fetchOrbExpressions'
 import { getSpeechAmplitude } from '../voice/fetchVoice'
 
+/** Four-point sparkle — reference-style glow dust near the sphere rim. */
+function drawOrbSparkle(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  s: number,
+  a: number,
+) {
+  ctx.save()
+  ctx.strokeStyle = `rgba(224, 245, 255, ${a})`
+  ctx.lineWidth = Math.max(0.55, s * 0.24)
+  ctx.lineCap = 'round'
+  ctx.beginPath()
+  ctx.moveTo(x - s, y)
+  ctx.lineTo(x + s, y)
+  ctx.moveTo(x, y - s * 0.92)
+  ctx.lineTo(x, y + s * 0.92)
+  ctx.stroke()
+  ctx.fillStyle = `rgba(255, 255, 255, ${a * 0.9})`
+  ctx.beginPath()
+  ctx.arc(x, y, s * 0.12, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.restore()
+}
+
 export type {
   FetchOrbExpression,
   FetchOrbFlowMoment,
@@ -825,6 +850,8 @@ export function JarvisNeuralOrb({
     const ro = new ResizeObserver(resize)
     ro.observe(host)
 
+    const homeMagicalDock = size === 'homeDock'
+
     const render = (now: number) => {
       const speak = speakingRef.current
       const act = activityRef.current
@@ -1028,6 +1055,106 @@ export function JarvisNeuralOrb({
             ctx.fill()
             ctx.globalCompositeOperation = 'source-over'
           }
+        }
+
+        if (homeMagicalDock) {
+          const pulse = 0.88 + Math.sin(t * 1.2) * 0.12
+          ctx.save()
+          const blueFill = ctx.createRadialGradient(
+            cx,
+            cy + R * 0.05,
+            R * 0.06,
+            cx,
+            cy,
+            R * 0.91,
+          )
+          const b0 = (dayOrb ? 0.26 : 0.34) * pulse
+          const b1 = (dayOrb ? 0.16 : 0.22) * pulse
+          const b2 = (dayOrb ? 0.075 : 0.12) * pulse
+          blueFill.addColorStop(0, `rgba(56, 189, 248, ${b0})`)
+          blueFill.addColorStop(0.38, `rgba(129, 140, 246, ${b1})`)
+          blueFill.addColorStop(0.72, `rgba(59, 130, 246, ${b2})`)
+          blueFill.addColorStop(1, dayOrb ? 'rgba(255,255,255,0)' : 'rgba(0,0,0,0)')
+          ctx.fillStyle = blueFill
+          ctx.globalCompositeOperation = dayOrb ? 'soft-light' : 'lighter'
+          ctx.beginPath()
+          ctx.arc(cx, cy, R * 0.99, 0, Math.PI * 2)
+          ctx.fill()
+
+          const edgeBlue = ctx.createRadialGradient(cx, cy, R * 0.62, cx, cy, R * 0.995)
+          edgeBlue.addColorStop(0, 'rgba(56, 189, 248, 0)')
+          edgeBlue.addColorStop(0.72, dayOrb ? 'rgba(125, 211, 252, 0.08)' : 'rgba(56, 189, 248, 0.12)')
+          edgeBlue.addColorStop(1, dayOrb ? 'rgba(96, 165, 250, 0.2)' : 'rgba(56, 189, 248, 0.22)')
+          ctx.fillStyle = edgeBlue
+          ctx.globalCompositeOperation = dayOrb ? 'source-over' : 'lighter'
+          ctx.beginPath()
+          ctx.arc(cx, cy, R * 0.99, 0, Math.PI * 2)
+          ctx.fill()
+
+          ctx.globalCompositeOperation = 'source-over'
+          ctx.strokeStyle = dayOrb ? 'rgba(147, 197, 253, 0.38)' : 'rgba(125, 211, 252, 0.32)'
+          ctx.lineWidth = Math.max(1, R * 0.018)
+          ctx.beginPath()
+          ctx.arc(cx, cy, R * 0.985, 0, Math.PI * 2)
+          ctx.stroke()
+
+          /* Rim catch-light — upper-left border only (no broad top shine). */
+          const lx = cx - R * 0.76
+          const ly = cy - R * 0.7
+          const rimGlow = ctx.createRadialGradient(lx, ly, 0, lx, ly, R * 0.28)
+          if (dayOrb) {
+            rimGlow.addColorStop(0, `rgba(255,255,255,${0.42 * pulse})`)
+            rimGlow.addColorStop(0.35, `rgba(224, 242, 254, ${0.22 * pulse})`)
+            rimGlow.addColorStop(0.65, `rgba(125, 211, 252, ${0.08 * pulse})`)
+            rimGlow.addColorStop(1, 'rgba(255,255,255,0)')
+          } else {
+            rimGlow.addColorStop(0, `rgba(255,255,255,${0.2 * pulse})`)
+            rimGlow.addColorStop(0.4, `rgba(147, 197, 253, ${0.12 * pulse})`)
+            rimGlow.addColorStop(1, 'rgba(0,0,0,0)')
+          }
+          ctx.fillStyle = rimGlow
+          ctx.globalCompositeOperation = dayOrb ? 'source-over' : 'lighter'
+          ctx.beginPath()
+          ctx.arc(cx, cy, R * 0.99, 0, Math.PI * 2)
+          ctx.fill()
+
+          ctx.globalCompositeOperation = dayOrb ? 'source-over' : 'lighter'
+          const dustAlphaMul = 1 - act * 0.38
+          const dustN = 11
+          for (let i = 0; i < dustN; i++) {
+            const th = i * 2.513 + t * 0.088 * (0.72 + (i % 4) * 0.09)
+            const rr = R * (0.22 + (i % 6) * 0.08)
+            const px =
+              cx + Math.cos(th) * rr * 0.78 + Math.sin(t * 0.17 + i * 0.4) * R * 0.026
+            const py =
+              cy + Math.sin(th * 1.09) * rr * 0.58 + Math.cos(t * 0.21 + i * 0.55) * R * 0.02
+            const d2 = (px - cx) ** 2 + (py - cy) ** 2
+            if (d2 > (R * 0.88) ** 2) continue
+            const pr = 0.42 + (i % 3) * 0.2
+            const alpha =
+              (0.042 + Math.sin(t * 0.76 + i * 1.13) * 0.022) * dustAlphaMul
+            ctx.fillStyle = `rgba(199, 210, 254, ${alpha})`
+            ctx.beginPath()
+            ctx.arc(px, py, pr, 0, Math.PI * 2)
+            ctx.fill()
+          }
+
+          const sparkN = 11
+          for (let j = 0; j < sparkN; j++) {
+            const ang = j * 1.127 + t * 0.14 + j * 0.31
+            const rad = R * (0.78 + (j % 4) * 0.035 + Math.sin(t * 0.4 + j) * 0.02)
+            const sx = cx + Math.cos(ang) * rad
+            const sy = cy + Math.sin(ang * 0.97) * rad * 0.92
+            const d2s = (sx - cx) ** 2 + (sy - cy) ** 2
+            if (d2s < (R * 0.52) ** 2 || d2s > (R * 0.94) ** 2) continue
+            const sz = R * (0.055 + (j % 3) * 0.018)
+            const sa =
+              (0.32 + Math.sin(t * 1.05 + j * 1.4) * 0.18) * dustAlphaMul * (dayOrb ? 0.85 : 1)
+            drawOrbSparkle(ctx, sx, sy, sz, sa)
+          }
+
+          ctx.globalCompositeOperation = 'source-over'
+          ctx.restore()
         }
 
         ctx.restore()

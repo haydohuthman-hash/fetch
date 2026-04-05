@@ -1,0 +1,305 @@
+import { useId, type CSSProperties } from 'react'
+import type { BookingJobType } from '../../lib/assistant/types'
+import homeMovingTruck from '../../assets/icons/home-moving-truck.png'
+import junkRemovalScene from '../../assets/icons/junk-removal.png'
+import deliveryPickupScene from '../../assets/icons/delivery-pickup.png'
+import cleaningEssentials from '../../assets/icons/cleaning-essentials.jpg'
+
+/**
+ * ChatGPT / JPEG exports have no alpha — “transparent” becomes black. Same-image
+ * luminance mask on the wrapper knocks out that plate while keeping full color on the inner `<img>`.
+ * Replace with a real PNG (RGBA) anytime; the mask remains safe for typical exports.
+ */
+function cleaningIconLuminanceMaskStyle(src: string): CSSProperties {
+  const u = `url(${src})`
+  return {
+    maskImage: u,
+    WebkitMaskImage: u,
+    maskSize: 'contain',
+    WebkitMaskSize: 'contain',
+    maskRepeat: 'no-repeat',
+    WebkitMaskRepeat: 'no-repeat',
+    maskPosition: 'center',
+    WebkitMaskPosition: 'center',
+    maskMode: 'luminance',
+    WebkitMaskSourceType: 'luminance',
+  } as CSSProperties
+}
+
+export type HomeServiceIllustrationProps = {
+  jobType: BookingJobType
+  className?: string
+}
+
+function useSvgIds() {
+  const raw = useId().replace(/:/g, '')
+  return (name: string) => `hsi-${raw}-${name}`
+}
+
+/** Service marks: vector illustrations where specified; PNGs for moving, junk, delivery; cleaning art is JPEG + luminance knockout (see `cleaningIconLuminanceMaskStyle`). */
+export function HomeServiceTypeIllustration({
+  jobType,
+  className,
+}: HomeServiceIllustrationProps) {
+  const id = useSvgIds()
+
+  const common = {
+    viewBox: '0 0 24 24' as const,
+    xmlns: 'http://www.w3.org/2000/svg' as const,
+    className,
+    'aria-hidden': true as const,
+  }
+
+  const shadowFilter = (
+    <filter
+      id={id('shadow')}
+      x="-45%"
+      y="-45%"
+      width="190%"
+      height="190%"
+      colorInterpolationFilters="sRGB"
+    >
+      <feDropShadow
+        dx="0"
+        dy="1.1"
+        stdDeviation="0.65"
+        floodColor="#0f172a"
+        floodOpacity="0.22"
+      />
+      <feDropShadow
+        dx="0"
+        dy="0.35"
+        stdDeviation="0.2"
+        floodColor="#0f172a"
+        floodOpacity="0.18"
+      />
+    </filter>
+  )
+
+  switch (jobType) {
+    case 'homeMoving':
+      return (
+        <img
+          src={homeMovingTruck}
+          alt=""
+          width={54}
+          height={54}
+          draggable={false}
+          className={[
+            'shrink-0 bg-transparent object-contain object-center select-none',
+            className,
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          aria-hidden
+        />
+      )
+
+    case 'junkRemoval':
+      return (
+        <img
+          src={junkRemovalScene}
+          alt=""
+          width={54}
+          height={54}
+          draggable={false}
+          className={[
+            'shrink-0 bg-transparent object-contain object-center select-none',
+            className,
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          aria-hidden
+        />
+      )
+
+    case 'deliveryPickup':
+      return (
+        <img
+          src={deliveryPickupScene}
+          alt=""
+          width={54}
+          height={54}
+          draggable={false}
+          className={[
+            'shrink-0 bg-transparent object-contain object-center select-none',
+            className,
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          aria-hidden
+        />
+      )
+
+    case 'helper':
+      return (
+        <svg {...common}>
+          <defs>
+            {shadowFilter}
+            <radialGradient id={id('hp-skin')} cx="38%" cy="28%" r="72%">
+              <stop offset="0%" stopColor="#ffedd5" />
+              <stop offset="70%" stopColor="#fdba74" />
+              <stop offset="100%" stopColor="#ea580c" stopOpacity="0.35" />
+            </radialGradient>
+            <linearGradient id={id('hp-vest')} x1="12%" y1="0%" x2="88%" y2="100%">
+              <stop offset="0%" stopColor="#60a5fa" />
+              <stop offset="50%" stopColor="#2563eb" />
+              <stop offset="100%" stopColor="#1e3a8a" />
+            </linearGradient>
+            <linearGradient id={id('hp-hat')} x1="30%" y1="0%" x2="70%" y2="100%">
+              <stop offset="0%" stopColor="#fef08a" />
+              <stop offset="100%" stopColor="#ca8a04" />
+            </linearGradient>
+            <linearGradient id={id('hp-wrench')} x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#f8fafc" />
+              <stop offset="40%" stopColor="#94a3b8" />
+              <stop offset="100%" stopColor="#475569" />
+            </linearGradient>
+          </defs>
+          <g filter={`url(#${id('shadow')})`}>
+            <path
+              d="M8.1 20.9v-6.95c0-1.05.85-1.9 1.9-1.9h3.95c1.05 0 1.9.85 1.9 1.9v6.95"
+              fill={`url(#${id('hp-vest')})`}
+            />
+            <path d="M9.85 12.05h4.35v1.9H9.85V12.05Z" fill="#172554" opacity="0.45" />
+            <path d="M10.3 20.9v-4.55h3.35v4.55" fill="#1e40af" opacity="0.55" />
+            <path
+              d="M8.1 14.85c-.85 0-1.55.7-1.55 1.55v2.95"
+              stroke="#fdba74"
+              strokeWidth="1.2"
+              strokeLinecap="round"
+              fill="none"
+            />
+            <path
+              d="M15.9 14.85c.85 0 1.55.7 1.55 1.55v1.15"
+              stroke="#fdba74"
+              strokeWidth="1.2"
+              strokeLinecap="round"
+              fill="none"
+            />
+            <circle cx="12" cy="9.35" r="3.08" fill={`url(#${id('hp-skin')})`} stroke="#c2410c" strokeWidth="0.2" opacity="0.4" />
+            <ellipse cx="10.55" cy="8.35" rx="0.95" ry="0.55" fill="#ffffff" opacity="0.22" />
+            <circle cx="10.62" cy="9.42" r="0.4" fill="#1e293b" />
+            <circle cx="13.38" cy="9.42" r="0.4" fill="#1e293b" />
+            <circle cx="10.78" cy="9.28" r="0.12" fill="#f8fafc" opacity="0.65" />
+            <circle cx="13.52" cy="9.28" r="0.12" fill="#f8fafc" opacity="0.65" />
+            <path
+              d="M10.82 10.68c.55.48 1.28.48 1.85 0"
+              stroke="#9a3412"
+              strokeWidth="0.38"
+              strokeLinecap="round"
+              fill="none"
+            />
+            <path
+              d="M7.82 8.38c0-1.65 1.35-3 3-3h2.32c1.65 0 3 1.35 3 3v0.62H7.82V8.38Z"
+              fill={`url(#${id('hp-hat')})`}
+              stroke="#a16207"
+              strokeWidth="0.28"
+            />
+            <path d="M7.32 8.98h9.35" stroke="#ca8a04" strokeWidth="0.82" strokeLinecap="round" />
+            <ellipse cx="12" cy="6.32" rx="2.88" ry="1.18" fill="#fde047" stroke="#d97706" strokeWidth="0.22" />
+            <g transform="translate(15.15 12.45) rotate(32)">
+              <rect x="-0.35" y="-0.42" width="4.95" height="0.88" rx="0.2" fill={`url(#${id('hp-wrench')})`} stroke="#64748b" strokeWidth="0.18" />
+              <path
+                d="M4.6-0.42h1.38c.46 0 .84.38.84.84v1.72c0 .46-.38.84-.84.84H4.6V-.42Z"
+                fill="#64748b"
+                stroke="#334155"
+                strokeWidth="0.18"
+              />
+              <circle cx="5.52" cy="0.98" r="0.38" fill="#1e293b" />
+              <ellipse cx="5.35" cy="0.82" rx="0.15" ry="0.08" fill="#f8fafc" opacity="0.35" />
+            </g>
+          </g>
+        </svg>
+      )
+
+    case 'cleaning':
+      return (
+        <div
+          className={[
+            'fetch-home-service-illustration--cleaning relative block shrink-0 overflow-hidden bg-transparent',
+            className,
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          style={cleaningIconLuminanceMaskStyle(cleaningEssentials)}
+          aria-hidden
+        >
+          <img
+            src={cleaningEssentials}
+            alt=""
+            width={104}
+            height={104}
+            draggable={false}
+            className="pointer-events-none absolute inset-0 h-full w-full object-contain object-center select-none"
+          />
+        </div>
+      )
+
+    case 'heavyItem':
+      return (
+        <svg {...common}>
+          <defs>
+            {shadowFilter}
+            <linearGradient id={id('hv-bar')} x1="0.5" y1="0" x2="0.5" y2="1">
+              <stop offset="0%" stopColor="#e2e8f0" />
+              <stop offset="45%" stopColor="#94a3b8" />
+              <stop offset="100%" stopColor="#475569" />
+            </linearGradient>
+            <linearGradient id={id('hv-plate-out')} x1="22%" y1="18%" x2="78%" y2="82%">
+              <stop offset="0%" stopColor="#64748b" />
+              <stop offset="55%" stopColor="#1e293b" />
+              <stop offset="100%" stopColor="#020617" />
+            </linearGradient>
+            <linearGradient id={id('hv-plate-in')} x1="35%" y1="25%" x2="65%" y2="75%">
+              <stop offset="0%" stopColor="#52525b" />
+              <stop offset="100%" stopColor="#18181b" />
+            </linearGradient>
+            <linearGradient id={id('hv-wood-f')} x1="15%" y1="0%" x2="85%" y2="100%">
+              <stop offset="0%" stopColor="#d97706" />
+              <stop offset="50%" stopColor="#92400e" />
+              <stop offset="100%" stopColor="#451a03" />
+            </linearGradient>
+            <linearGradient id={id('hv-wood-grain')} x1="0" y1="0.5" x2="1" y2="0.5">
+              <stop offset="0%" stopColor="#78350f" stopOpacity="0.35" />
+              <stop offset="50%" stopColor="#78350f" stopOpacity="0" />
+              <stop offset="100%" stopColor="#451a03" stopOpacity="0.4" />
+            </linearGradient>
+          </defs>
+          <g filter={`url(#${id('shadow')})`}>
+            <path
+              d="M4.25 19.38V12.82l3.68-2.18 3.68 2.18v6.56H4.25Z"
+              fill={`url(#${id('hv-wood-f')})`}
+              stroke="#3f2a1d"
+              strokeWidth="0.32"
+              strokeLinejoin="round"
+            />
+            <path d="M4.25 14.88 7.93 12.68l3.68 2.2M7.93 12.68v6.7" stroke="#451a03" strokeWidth="0.28" opacity="0.5" />
+            <path d="M7.93 19.38V16.05l3.68-2.08" stroke="#451a03" strokeWidth="0.28" opacity="0.5" />
+            <rect x="5.55" y="14.95" width="4.75" height="3.65" fill={`url(#${id('hv-wood-grain')})`} opacity="0.35" />
+            <path d="M5.58 16.52h4.7M5.58 17.92h4.7" stroke="#78350f" strokeWidth="0.22" opacity="0.55" />
+            <rect x="1.65" y="7.82" width="20.7" height="1.38" rx="0.38" fill={`url(#${id('hv-bar')})`} stroke="#475569" strokeWidth="0.28" />
+            <path
+              d="M2.35 8.05h18.3"
+              stroke="#ffffff"
+              strokeWidth="0.22"
+              strokeLinecap="round"
+              strokeDasharray="0.35 0.55"
+              opacity="0.25"
+            />
+            <rect x="1.28" y="5.58" width="1.38" height="5.92" rx="0.26" fill="#27272a" stroke="#0f172a" strokeWidth="0.22" />
+            <circle cx="3.82" cy="8.52" r="2.48" fill={`url(#${id('hv-plate-out')})`} stroke="#020617" strokeWidth="0.32" />
+            <circle cx="3.82" cy="8.52" r="1.48" fill={`url(#${id('hv-plate-in')})`} stroke="#3f3f46" strokeWidth="0.22" />
+            <circle cx="3.82" cy="8.52" r="0.58" fill="#52525b" stroke="#71717a" strokeWidth="0.12" />
+            <rect x="21.34" y="5.58" width="1.38" height="5.92" rx="0.26" fill="#27272a" stroke="#0f172a" strokeWidth="0.22" />
+            <circle cx="20.18" cy="8.52" r="2.48" fill={`url(#${id('hv-plate-out')})`} stroke="#020617" strokeWidth="0.32" />
+            <circle cx="20.18" cy="8.52" r="1.48" fill={`url(#${id('hv-plate-in')})`} stroke="#3f3f46" strokeWidth="0.22" />
+            <circle cx="20.18" cy="8.52" r="0.58" fill="#52525b" stroke="#71717a" strokeWidth="0.12" />
+          </g>
+        </svg>
+      )
+
+    default:
+      return null
+  }
+}

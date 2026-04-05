@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import os from 'node:os'
 import path from 'node:path'
 import fs from 'node:fs/promises'
+import { computePriceForDraft } from '../../src/lib/booking/quoteEngine.ts'
 import { createPaymentIntentRecord, reviewBookingDraft } from './fetch-ai-booking.js'
 import { createMarketplaceStore } from './marketplace-store.js'
 
@@ -136,13 +137,16 @@ test('marketplace lifecycle materializes dispatch updates and notifications', as
   assert.ok(dispatchResult.booking)
   const booking = state.bookings.find((row) => row.id === 'bk_test')
   assert.ok(booking?.dispatchMeta?.startedAt)
-  store.materializeState(state, booking.dispatchMeta.startedAt + 12000)
+  assert.equal(booking?.status, 'pending_match')
+  assert.equal(booking?.matchedDriver, null)
+  assert.equal(booking?.driverControlled, true)
+  store.materializeState(state, booking.dispatchMeta.startedAt + 120_000)
 
   const updated = state.bookings.find((row) => row.id === 'bk_test')
-  assert.equal(updated?.status, 'en_route')
-  assert.ok(updated?.matchedDriver?.name)
+  assert.equal(updated?.status, 'pending_match')
+  assert.equal(updated?.matchedDriver, null)
   assert.ok(state.notifications.some((notification) => notification.bookingId === 'bk_test'))
-  assert.ok(updated?.timeline.some((entry) => entry.kind === 'matched'))
+  assert.ok(updated?.timeline.some((entry) => entry.kind === 'pending_match'))
 
   await fs.rm(tempDir, { recursive: true, force: true })
   assert.ok(dispatchStarted > 0)
@@ -230,11 +234,111 @@ test('driverControlled skips demo dispatch timer progression', async () => {
   assert.equal(dispatchResult.error, null)
   const booking = state.bookings.find((row) => row.id === 'bk_dc')
   assert.ok(booking)
-  booking.driverControlled = true
+  assert.equal(booking.driverControlled, true)
   store.materializeState(state, booking.dispatchMeta.startedAt + 120_000)
 
   const updated = state.bookings.find((row) => row.id === 'bk_dc')
-  assert.equal(updated?.status, 'dispatching')
+  assert.equal(updated?.status, 'pending_match')
+
+  await fs.rm(tempDir, { recursive: true, force: true })
+})
+
+test('matching engine issues offer when driverControlled is false and a driver is online', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'fetch-booking-flow-'))
+  const dataFile = path.join(tempDir, 'marketplace-data.json')
+  const store = createMarketplaceStore(dataFile)
+  const state = await store.readState()
+
+  const paymentIntent = createPaymentIntentRecord({ bookingId: 'bk_offer', amount: 179 })
+  paymentIntent.status = 'succeeded'
+  paymentIntent.confirmedAt = Date.now()
+  store.upsertPaymentIntent(state, paymentIntent)
+  store.upsertBooking(state, {
+    id: 'bk_offer',
+    status: 'confirmed',
+    jobType: 'deliveryPickup',
+    serviceMode: 'pickup',
+    serviceType: 'pickup',
+    pickupAddressText: '12 River St, New Farm QLD',
+    pickupCoords: { lat: -27.4679, lng: 153.0381 },
+    dropoffAddressText: '88 Charlotte St, Brisbane City QLD',
+    dropoffCoords: { lat: -27.4682, lng: 153.0277 },
+    route: { distanceMeters: 6400, durationSeconds: 1140, path: [] },
+    pricing: {
+      minPrice: 149,
+      maxPrice: 179,
+      currency: 'AUD',
+      estimatedDuration: 2700,
+      explanation: 'pickup job',
+    },
+    quoteBreakdown: {
+      baseFee: 56,
+      routeFee: 17,
+      routeTimeFee: 9,
+      inventoryFee: 0,
+      accessFee: 0,
+      disposalFee: 0,
+      helperFee: 0,
+      moveSizeMultiplier: 1,
+      subtotal: 82,
+      spread: 14,
+      totalItems: 1,
+      autoHelpers: 0,
+    },
+    aiReview: {
+      status: 'ready',
+      summary: 'ok',
+      confidence: 0.9,
+      riskLevel: 'low',
+      highlights: [],
+      blockers: [],
+      suggestedPrompt: null,
+      quoteBreakdown: null,
+      lastReviewedAt: Date.now(),
+      errorMessage: null,
+    },
+    detectedItems: ['couch'],
+    itemCounts: { couch: 1 },
+    inventorySummary: 'couch',
+    accessDetails: {
+      stairs: false,
+      lift: true,
+      carryDistance: 10,
+      disassembly: false,
+    },
+    disposalRequired: null,
+    helperHours: null,
+    helperType: null,
+    helperNotes: null,
+    specialItemType: null,
+    isHeavyItem: false,
+    isBulky: false,
+    needsTwoMovers: false,
+    needsSpecialEquipment: false,
+    accessRisk: null,
+    paymentIntent,
+    matchedDriver: null,
+    timeline: [],
+  })
+
+  store.startDispatch(state, 'bk_offer')
+  const booking = state.bookings.find((row) => row.id === 'bk_offer')
+  assert.ok(booking)
+  booking.driverControlled = false
+  state.driverPresence = [
+    {
+      driverId: 'driver_nearby',
+      online: true,
+      lat: -27.468,
+      lng: 153.038,
+      updatedAt: Date.now(),
+      rating: 4.9,
+      completedJobs: 12,
+    },
+  ]
+  store.materializeState(state, Date.now())
+
+  assert.ok(state.offers.some((o) => o.bookingId === 'bk_offer' && o.status === 'pending'))
 
   await fs.rm(tempDir, { recursive: true, force: true })
 })
@@ -516,4 +620,93 @@ test('marketplace dispatch rejects unpaid or unconfirmed bookings', async () => 
   assert.equal(dispatchResult.error, 'booking_not_dispatchable')
 
   await fs.rm(tempDir, { recursive: true, force: true })
+})
+
+test('reviewBookingDraft still prices with route fallback when route missing but addresses present', async () => {
+  const review = await reviewBookingDraft({
+    jobType: 'deliveryPickup',
+    serviceMode: 'pickup',
+    serviceType: 'pickup',
+    pickupAddressText: '12 River St, New Farm QLD',
+    pickupCoords: { lat: -27.4679, lng: 153.0381 },
+    dropoffAddressText: '88 Charlotte St, Brisbane City QLD',
+    dropoffCoords: { lat: -27.4682, lng: 153.0277 },
+    route: null,
+    pricing: null,
+    quoteBreakdown: null,
+    detectedItems: ['couch'],
+    itemCounts: { couch: 1 },
+    inventorySummary: 'couch',
+    accessDetails: {
+      stairs: false,
+      lift: true,
+      carryDistance: 10,
+      disassembly: false,
+    },
+    disposalRequired: null,
+    helperHours: null,
+    helperType: null,
+    helperNotes: null,
+    specialItemType: null,
+    isHeavyItem: false,
+    isBulky: false,
+    needsTwoMovers: false,
+    needsSpecialEquipment: false,
+    accessRisk: null,
+    moveSize: null,
+    homeBedrooms: null,
+    scanConfidence: 0.88,
+    bookingId: null,
+  })
+
+  assert.ok(review.pricing)
+  assert.equal(review.pricing.usedRouteFallback, true)
+  assert.ok(review.missingFields.includes('route'))
+  assert.equal(review.ready, false)
+})
+
+test('computePriceForDraft returns error when job type missing', () => {
+  const r = computePriceForDraft(
+    {
+      jobType: null,
+      serviceMode: 'pickup',
+      serviceType: 'pickup',
+      pickupAddressText: 'A',
+      pickupCoords: null,
+      dropoffAddressText: 'B',
+      dropoffCoords: null,
+      route: null,
+      pricing: null,
+      quoteBreakdown: null,
+      detectedItems: [],
+      itemCounts: {},
+      inventorySummary: null,
+      accessDetails: {
+        stairs: false,
+        lift: true,
+        carryDistance: 10,
+        disassembly: false,
+      },
+      disposalRequired: null,
+      helperHours: null,
+      helperType: null,
+      helperNotes: null,
+      cleaningHours: null,
+      cleaningType: null,
+      cleaningNotes: null,
+      specialItemType: null,
+      isHeavyItem: false,
+      isBulky: false,
+      needsTwoMovers: false,
+      needsSpecialEquipment: false,
+      accessRisk: null,
+      moveSize: null,
+      homeBedrooms: null,
+      scanConfidence: null,
+      bookingId: null,
+    },
+    { allowRouteFallback: true },
+  )
+  assert.equal(r.ok, false)
+  assert.ok((r.missingFields?.length ?? 0) > 0)
 })

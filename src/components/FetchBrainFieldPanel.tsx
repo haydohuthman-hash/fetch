@@ -29,13 +29,13 @@ export function FetchBrainFieldPanel({
 }: FetchBrainFieldPanelProps) {
   const isLight = theme === 'light'
   const glass = isLight
-    ? 'border-black/[0.08] bg-white/[0.82] shadow-[0_-12px_48px_rgba(0,0,0,0.08)]'
-    : 'border-white/[0.1] bg-[rgba(8,10,16,0.88)] shadow-[0_-16px_56px_rgba(0,0,0,0.5)]'
+    ? 'border-black/[0.08] bg-white/[0.92] shadow-[0_-6px_24px_rgba(0,0,0,0.06)]'
+    : 'border-white/[0.1] bg-[rgba(8,10,16,0.94)] shadow-[0_-8px_28px_rgba(0,0,0,0.35)]'
 
   return (
     <div
       className={[
-        'fetch-brain-field-panel pointer-events-auto absolute inset-x-0 bottom-0 z-[8] flex max-h-[min(58vh,420px)] flex-col rounded-t-[22px] border backdrop-blur-xl',
+        'fetch-brain-field-panel pointer-events-auto absolute inset-x-0 bottom-0 z-[8] flex max-h-[min(58vh,420px)] flex-col rounded-t-[22px] border backdrop-blur-sm',
         glass,
       ].join(' ')}
       style={{ '--brain-glow': `${glowRgb.r}, ${glowRgb.g}, ${glowRgb.b}` } as CSSProperties}

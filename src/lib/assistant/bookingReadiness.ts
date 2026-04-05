@@ -1,3 +1,8 @@
+import { isWizardLockedByPersistedStatus } from '../booking/bookingLifecycle'
+import {
+  isWireStatusInLiveRideStep,
+  isWireStatusTreatedAsPaid,
+} from '../booking/bookingWireConstants'
 import type { BookingCoords, BookingFlowStep, BookingJobType, BookingState } from './types'
 
 export function isLaborJobType(jobType: BookingJobType | null): boolean {
@@ -36,18 +41,6 @@ export function isAddressAndRouteCheckpointComplete(state: BookingState): boolea
   return true
 }
 
-function isAdvancedBookingLifecycle(status: BookingState['bookingStatus']): boolean {
-  return (
-    status === 'payment_required' ||
-    status === 'confirmed' ||
-    status === 'dispatching' ||
-    status === 'matched' ||
-    status === 'en_route' ||
-    status === 'arrived' ||
-    status === 'in_progress' ||
-    status === 'completed'
-  )
-}
 
 /**
  * Route confirmation card: addresses (+ route) done, user has not tapped Next yet.
@@ -57,7 +50,7 @@ export function isRouteTerminalPhase(state: BookingState): boolean {
   if (isLaborJobType(state.jobType)) return false
   if (state.jobDetailsStarted) return false
   if (state.mode === 'searching' || state.mode === 'matched' || state.mode === 'live') return false
-  if (isAdvancedBookingLifecycle(state.bookingStatus)) return false
+  if (isWizardLockedByPersistedStatus(state.bookingStatus)) return false
   return true
 }
 
@@ -70,7 +63,7 @@ export function isJobDetailsPhase(state: BookingState): boolean {
     return false
   }
   if (state.pricing != null || state.bookingStatus === 'payment_required') return false
-  if (isAdvancedBookingLifecycle(state.bookingStatus)) return false
+  if (isWizardLockedByPersistedStatus(state.bookingStatus)) return false
   if (state.jobType === 'junkRemoval') {
     return !state.jobDetailsScanStepComplete
   }
@@ -89,7 +82,7 @@ export function isJunkAccessPhase(state: BookingState): boolean {
     return false
   }
   if (state.pricing != null || state.bookingStatus === 'payment_required') return false
-  if (isAdvancedBookingLifecycle(state.bookingStatus)) return false
+  if (isWizardLockedByPersistedStatus(state.bookingStatus)) return false
   return true
 }
 
@@ -102,7 +95,7 @@ export function isJunkQuotePhase(state: BookingState): boolean {
   if (state.mode === 'pricing' || state.mode === 'searching' || state.mode === 'matched' || state.mode === 'live') {
     return false
   }
-  if (state.bookingStatus === 'payment_required' || isAdvancedBookingLifecycle(state.bookingStatus)) {
+  if (state.bookingStatus === 'payment_required' || isWizardLockedByPersistedStatus(state.bookingStatus)) {
     return false
   }
   return true
@@ -117,7 +110,7 @@ export function isJunkBookingConfirmPhase(state: BookingState): boolean {
   if (state.mode === 'pricing' || state.mode === 'searching' || state.mode === 'matched' || state.mode === 'live') {
     return false
   }
-  if (state.bookingStatus === 'payment_required' || isAdvancedBookingLifecycle(state.bookingStatus)) {
+  if (state.bookingStatus === 'payment_required' || isWizardLockedByPersistedStatus(state.bookingStatus)) {
     return false
   }
   return true
@@ -200,24 +193,10 @@ export function deriveFlowStep(state: BookingState): BookingFlowStep {
     return 'quote'
   }
   const paid =
-    state.paymentIntent?.status === 'succeeded' ||
-    state.bookingStatus === 'confirmed' ||
-    state.bookingStatus === 'dispatching' ||
-    state.bookingStatus === 'matched' ||
-    state.bookingStatus === 'en_route' ||
-    state.bookingStatus === 'arrived' ||
-    state.bookingStatus === 'in_progress' ||
-    state.bookingStatus === 'completed'
+    state.paymentIntent?.status === 'succeeded' || isWireStatusTreatedAsPaid(state.bookingStatus)
   if (!paid) return 'payment'
   if (state.bookingStatus === 'confirmed') return 'dispatch'
-  if (
-    state.bookingStatus === 'dispatching' ||
-    state.bookingStatus === 'matched' ||
-    state.bookingStatus === 'en_route' ||
-    state.bookingStatus === 'arrived' ||
-    state.bookingStatus === 'in_progress' ||
-    state.bookingStatus === 'completed'
-  ) {
+  if (isWireStatusInLiveRideStep(state.bookingStatus)) {
     return 'live'
   }
   return 'quote'

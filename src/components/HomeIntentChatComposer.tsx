@@ -22,13 +22,15 @@ import {
   fetchPerfSetServerTiming,
 } from '../lib/fetchPerf'
 import { INTENT_COMPOSER_PLACEHOLDER_HINTS } from '../views/homeConstants'
-import type { SavedAddress } from '../lib/savedAddresses'
 import { voiceFlowDebug, voiceFlowSttError } from '../voice/voiceFlowDebug'
 import { primeVoicePlaybackFromUserGesture } from '../voice/fetchVoice'
 import { buildFetchUserMemoryContext } from '../lib/fetchUserMemoryContext'
-import { FetchSoundWaveBars } from './FetchSoundWaveBars'
 import { useFetchVoice } from '../voice/FetchVoiceContext'
 
+/**
+ * Must match every other `useJsApiLoader` with `id: 'fetch-google-maps'` (e.g. GoogleMapLayer).
+ * The shared loader throws if options differ, which blanked the app after composer used `[]`.
+ */
 const GOOGLE_MAP_LIBRARIES: ('places' | 'geometry')[] = ['places', 'geometry']
 
 function isLikelyAddressQuery(s: string): boolean {
@@ -46,7 +48,7 @@ function isLikelyAddressQuery(s: string): boolean {
   return t.length >= 14
 }
 
-/** Looser than `isLikelyAddressQuery` so short house numbers still get Places suggestions. */
+/** True when the first line looks like a destination (nav arrow / location hint). */
 function isAutocompleteAddressInput(s: string): boolean {
   const t = s.trim()
   if (t.length < 3) return false
@@ -60,7 +62,6 @@ function composerIsSingleLineOnly(raw: string): boolean {
 }
 
 type HomeAiPhoto = { id: string; url: string; file: File }
-type PlacePredictionRow = { description: string; placeId: string }
 type HomeChatRole = 'user' | 'assistant' | 'system'
 type HomeChatMessage = { role: HomeChatRole; content: string }
 
@@ -69,9 +70,6 @@ export function HomeIntentChatComposer({
   onChatNavigation,
   onListeningChange,
   onPlaceSuggestionsOpenChange,
-  savedAddresses = [],
-  showSavedAddressChips = false,
-  onSavedPlaceChipNavigate,
   showGuestAccountHint = false,
   mapsJsReady = false,
   onStartNavigationToPlace,
@@ -82,16 +80,8 @@ export function HomeIntentChatComposer({
   onChatNavigation?: (nav: FetchAiChatNavigation | null) => void
   /** STT mic active — optional (e.g. neural brain “listening” mode). */
   onListeningChange?: (listening: boolean) => void
-  /** Place prediction list visible — parent can expand the booking sheet. */
+  /** Legacy: predictions removed; parent always receives `false`. */
   onPlaceSuggestionsOpenChange?: (open: boolean) => void
-  /** Quick-fill saved places from Account into the composer. */
-  savedAddresses?: readonly SavedAddress[]
-  /**
-   * Saved-place pills (Home / Work). Off on the landing composer; use live navigation sheet instead.
-   */
-  showSavedAddressChips?: boolean
-  /** When set (e.g. chat navigation), tapping a chip reroutes immediately instead of pasting into the field. */
-  onSavedPlaceChipNavigate?: (a: SavedAddress) => void
   /** Signed-out nudge to save places and cards in Account. */
   showGuestAccountHint?: boolean
   /** Parent maps bootstrap — required with `onStartNavigationToPlace` for instant routes. */
@@ -133,25 +123,15 @@ export function HomeIntentChatComposer({
   const [deviceLocationStatus, setDeviceLocationStatus] = useState<
     'pending' | 'granted' | 'denied'
   >('pending')
-  const [placePredictions, setPlacePredictions] = useState<PlacePredictionRow[]>([])
-  const [suggestOpen, setSuggestOpen] = useState(false)
-  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1)
-
-  const placeSuggestionsVisible = suggestOpen && placePredictions.length > 0
   useEffect(() => {
-    onPlaceSuggestionsOpenChange?.(placeSuggestionsVisible)
-  }, [placeSuggestionsVisible, onPlaceSuggestionsOpenChange])
+    onPlaceSuggestionsOpenChange?.(false)
+  }, [onPlaceSuggestionsOpenChange])
 
   const composerFileInputRef = useRef<HTMLInputElement>(null)
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null)
   const chatGeoRef = useRef<{ latitude: number; longitude: number } | null>(null)
   const chatGeoRequestedRef = useRef(false)
   const mountedRef = useRef(true)
-  const acServiceRef = useRef<google.maps.places.AutocompleteService | null>(null)
-  const placesServiceRef = useRef<google.maps.places.PlacesService | null>(null)
-  const predictDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const suggestBlurCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
   const revokeComposerPhotoUrls = useCallback((items: HomeAiPhoto[]) => {
     for (const p of items) {
       try {
@@ -200,23 +180,6 @@ export function HomeIntentChatComposer({
       { enableHighAccuracy: false, maximumAge: 600_000, timeout: 10_000 },
     )
   }, [])
-
-  useEffect(() => {
-    if (!mapsJsLoaded || typeof google === 'undefined') return
-    acServiceRef.current = new google.maps.places.AutocompleteService()
-    return () => {
-      acServiceRef.current = null
-    }
-  }, [mapsJsLoaded])
-
-  useEffect(() => {
-    if (!mapsJsLoaded || typeof google === 'undefined') return
-    const el = document.createElement('div')
-    placesServiceRef.current = new google.maps.places.PlacesService(el)
-    return () => {
-      placesServiceRef.current = null
-    }
-  }, [mapsJsLoaded])
 
   const runHomeAiChat = useCallback(
     async (userContent: string, fromStt: boolean) => {
@@ -382,47 +345,6 @@ export function HomeIntentChatComposer({
     void runHomeAiChat(userContent, false)
   }, [composerText, composerPhotos, playUiEvent, revokeComposerPhotoUrls, runHomeAiChat])
 
-  const applyPlacePrediction = useCallback(
-    (row: PlacePredictionRow) => {
-      const svc = placesServiceRef.current
-      const finish = (text: string) => {
-        setComposerText(text)
-        setPlacePredictions([])
-        setSuggestOpen(false)
-        setActiveSuggestionIndex(-1)
-        queueMicrotask(() => resizeComposerTextarea())
-      }
-      if (!svc || !row.placeId) {
-        finish(row.description)
-        return
-      }
-      svc.getDetails(
-        {
-          placeId: row.placeId,
-          fields: ['formatted_address', 'geometry', 'place_id', 'name'],
-        },
-        (place, status) => {
-          if (!mountedRef.current) return
-          if (status !== google.maps.places.PlacesServiceStatus.OK || !place) {
-            finish(row.description)
-            return
-          }
-          const label = place.formatted_address ?? place.name ?? row.description
-          const loc = place.geometry?.location
-          if (loc && onStartNavigationToPlace) {
-            onStartNavigationToPlace({
-              lat: loc.lat(),
-              lng: loc.lng(),
-              label,
-            })
-          }
-          finish(label)
-        },
-      )
-    },
-    [resizeComposerTextarea, onStartNavigationToPlace],
-  )
-
   const startNavFromTypedQuery = useCallback(() => {
     if (!onStartNavigationToPlace || typeof google === 'undefined') return
     const line = composerText.split('\n')[0]?.trim() ?? ''
@@ -441,81 +363,8 @@ export function HomeIntentChatComposer({
         lng: loc.lng(),
         label: results[0].formatted_address ?? line,
       })
-      setPlacePredictions([])
-      setSuggestOpen(false)
-      setActiveSuggestionIndex(-1)
     })
   }, [composerText, onStartNavigationToPlace, playUiEvent])
-
-  useEffect(() => {
-    if (predictDebounceRef.current) {
-      clearTimeout(predictDebounceRef.current)
-      predictDebounceRef.current = null
-    }
-    const line = composerText.split('\n')[0]?.trim() ?? ''
-    if (
-      !mapsApiKey ||
-      !mapsJsLoaded ||
-      chatPending ||
-      !line ||
-      !isAutocompleteAddressInput(line)
-    ) {
-      setPlacePredictions([])
-      setSuggestOpen(false)
-      setActiveSuggestionIndex(-1)
-      return
-    }
-
-    predictDebounceRef.current = window.setTimeout(() => {
-      predictDebounceRef.current = null
-      const ac = acServiceRef.current
-      if (!ac || typeof google === 'undefined') return
-      const geo = chatGeoRef.current
-      const center = geo
-        ? { lat: geo.latitude, lng: geo.longitude }
-        : { lat: -27.4705, lng: 153.026 }
-      const circle = new google.maps.Circle({
-        center,
-        radius: geo ? 85_000 : 220_000,
-      })
-      ac.getPlacePredictions(
-        {
-          input: line.slice(0, 120),
-          componentRestrictions: { country: 'au' },
-          locationBias: circle,
-        },
-        (predictions, status) => {
-          if (!mountedRef.current) return
-          if (
-            status !== google.maps.places.PlacesServiceStatus.OK ||
-            !predictions?.length
-          ) {
-            setPlacePredictions([])
-            setSuggestOpen(false)
-            setActiveSuggestionIndex(-1)
-            return
-          }
-          const rows = predictions
-            .slice(0, 6)
-            .map((p) => ({
-              description: p.description ?? '',
-              placeId: p.place_id ?? '',
-            }))
-            .filter((r) => r.placeId && r.description)
-          setPlacePredictions(rows)
-          setSuggestOpen(rows.length > 0)
-          setActiveSuggestionIndex(-1)
-        },
-      )
-    }, 200)
-
-    return () => {
-      if (predictDebounceRef.current) {
-        clearTimeout(predictDebounceRef.current)
-        predictDebounceRef.current = null
-      }
-    }
-  }, [composerText, mapsApiKey, mapsJsLoaded, chatPending])
 
   const intentNavChrome = useMemo(() => {
     const line = composerText.split('\n')[0]?.trim() ?? ''
@@ -554,38 +403,6 @@ export function HomeIntentChatComposer({
 
   const onComposerKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (suggestOpen && placePredictions.length > 0) {
-        if (e.key === 'ArrowDown') {
-          e.preventDefault()
-          setActiveSuggestionIndex((i) =>
-            i < placePredictions.length - 1 ? i + 1 : 0,
-          )
-          return
-        }
-        if (e.key === 'ArrowUp') {
-          e.preventDefault()
-          setActiveSuggestionIndex((i) =>
-            i > 0 ? i - 1 : placePredictions.length - 1,
-          )
-          return
-        }
-        if (e.key === 'Escape') {
-          e.preventDefault()
-          setSuggestOpen(false)
-          setPlacePredictions([])
-          setActiveSuggestionIndex(-1)
-          return
-        }
-        if (e.key === 'Enter' && !e.shiftKey) {
-          const idx = activeSuggestionIndex >= 0 ? activeSuggestionIndex : 0
-          const row = placePredictions[idx]
-          if (row) {
-            e.preventDefault()
-            applyPlacePrediction(row)
-            return
-          }
-        }
-      }
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
         if (intentNavChrome.showNavGoArrow) {
@@ -595,15 +412,7 @@ export function HomeIntentChatComposer({
         submitComposer()
       }
     },
-    [
-      suggestOpen,
-      placePredictions,
-      activeSuggestionIndex,
-      applyPlacePrediction,
-      submitComposer,
-      intentNavChrome.showNavGoArrow,
-      startNavFromTypedQuery,
-    ],
+    [submitComposer, intentNavChrome.showNavGoArrow, startNavFromTypedQuery],
   )
 
   const onComposerVoicePointerDown = useCallback(() => {
@@ -720,10 +529,6 @@ export function HomeIntentChatComposer({
     return () => {
       mountedRef.current = false
       onAddressEntryIntentChange?.(false)
-      if (suggestBlurCloseRef.current) {
-        clearTimeout(suggestBlurCloseRef.current)
-        suggestBlurCloseRef.current = null
-      }
       chatAbortRef.current?.abort()
       chatAbortRef.current = null
       if (recognitionRef.current) {
@@ -771,11 +576,6 @@ export function HomeIntentChatComposer({
 
   const composerDescribedBy = [showLocationHint ? locationHintId : null].filter(Boolean).join(' ')
 
-  const insertSavedAddress = useCallback((a: SavedAddress) => {
-    setComposerText(a.address)
-    queueMicrotask(() => resizeComposerTextarea())
-  }, [resizeComposerTextarea])
-
   return (
     <div className="pointer-events-auto mt-1 w-full">
       <input
@@ -818,36 +618,14 @@ export function HomeIntentChatComposer({
             ))}
           </div>
         ) : null}
-        {showSavedAddressChips && savedAddresses.length > 0 ? (
-          <div
-            className="flex gap-1.5 overflow-x-auto px-3 pt-2 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-            role="group"
-            aria-label="Saved places"
-          >
-            {savedAddresses.map((a) => (
-              <button
-                key={a.id}
-                type="button"
-                onClick={() =>
-                  onSavedPlaceChipNavigate
-                    ? onSavedPlaceChipNavigate(a)
-                    : insertSavedAddress(a)
-                }
-                disabled={chatPending}
-                className="shrink-0 rounded-full border border-white/15 bg-white/[0.06] px-2.5 py-1 text-[11px] font-semibold text-white/85 transition-colors hover:bg-white/10 disabled:opacity-45"
-              >
-                {a.label}
-              </button>
-            ))}
-          </div>
-        ) : null}
         {showLocationHint ? (
           <p
             id={locationHintId}
             className="fetch-home-intent-location-hint px-3 pt-2.5 pb-1 text-[11px] leading-snug"
             role="note"
           >
-            Allow location to route from where you are. You can still browse address suggestions.
+            Allow location to route from where you are. Type an address and tap the go arrow to
+            navigate.
           </p>
         ) : null}
         <div className="flex min-h-[3rem] items-center gap-2 px-2 py-2">
@@ -868,56 +646,13 @@ export function HomeIntentChatComposer({
               value={composerText}
               onChange={(e) => setComposerText(e.target.value)}
               onKeyDown={onComposerKeyDown}
-              onFocus={() => {
-                if (suggestBlurCloseRef.current) {
-                  clearTimeout(suggestBlurCloseRef.current)
-                  suggestBlurCloseRef.current = null
-                }
-                if (placePredictions.length > 0) setSuggestOpen(true)
-              }}
-              onBlur={() => {
-                suggestBlurCloseRef.current = window.setTimeout(() => {
-                  suggestBlurCloseRef.current = null
-                  setSuggestOpen(false)
-                  setActiveSuggestionIndex(-1)
-                }, 200)
-              }}
               placeholder={composerPlaceholder}
               className="fetch-ai-composer-input max-h-32 min-h-11 w-full resize-none bg-transparent py-3 text-[16px] leading-5 text-white placeholder:text-neutral-500 focus:outline-none"
               aria-label="Message"
               aria-describedby={composerDescribedBy || undefined}
-              aria-autocomplete={suggestOpen ? 'list' : 'none'}
-              aria-controls="fetch-intent-place-suggestions"
-              aria-expanded={suggestOpen}
+              aria-autocomplete="none"
               disabled={chatPending}
             />
-            {suggestOpen && placePredictions.length > 0 ? (
-              <ul
-                id="fetch-intent-place-suggestions"
-                role="listbox"
-                className="absolute left-0 right-0 top-full z-[60] mt-1 max-h-52 overflow-auto rounded-xl border border-white/12 bg-[#141416]/96 py-1 shadow-[0_12px_40px_rgba(0,0,0,0.45)] backdrop-blur-md"
-              >
-                {placePredictions.map((p, i) => (
-                  <li key={p.placeId} role="presentation">
-                    <button
-                      type="button"
-                      role="option"
-                      aria-selected={i === activeSuggestionIndex}
-                      onMouseDown={(e) => {
-                        e.preventDefault()
-                        applyPlacePrediction(p)
-                      }}
-                      className={[
-                        'flex w-full px-3 py-2 text-left text-[13px] font-medium leading-snug text-white/88 transition-colors',
-                        i === activeSuggestionIndex ? 'bg-white/12' : 'hover:bg-white/[0.07]',
-                      ].join(' ')}
-                    >
-                      {p.description}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
           </div>
           <button
             type="button"
@@ -945,6 +680,7 @@ export function HomeIntentChatComposer({
               'fetch-ai-voice-btn',
               showSendArrow ? 'fetch-ai-voice-btn--send-draft' : '',
               showNavGoArrow ? 'fetch-ai-voice-btn--nav-go' : '',
+              !showSendArrow && !showNavGoArrow ? 'fetch-ai-voice-btn--plain-mic' : '',
               !showSendArrow &&
               !showNavGoArrow &&
               (listening || micPrimed)
@@ -968,7 +704,14 @@ export function HomeIntentChatComposer({
           >
             <span className="fetch-ai-voice-btn__ring" aria-hidden />
             <span className="fetch-ai-voice-btn__glow" aria-hidden />
-            <span className="fetch-ai-voice-btn__core fetch-ai-voice-btn__core--waves flex items-center justify-center">
+            <span
+              className={[
+                'fetch-ai-voice-btn__core flex items-center justify-center',
+                showSendArrow || showNavGoArrow ? '' : 'fetch-ai-voice-btn__core--plain-mic',
+              ]
+                .filter(Boolean)
+                .join(' ')}
+            >
               {showNavGoArrow ? (
                 <svg
                   width="22"
@@ -1003,7 +746,31 @@ export function HomeIntentChatComposer({
                   <path d="M12 19V6M6 11l6-6 6 6" />
                 </svg>
               ) : (
-                <FetchSoundWaveBars active={listening || micPrimed || isSpeechPlaying} />
+                <svg
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className={[
+                    'fetch-ai-voice-btn__mic-icon',
+                    listening || micPrimed ? 'fetch-ai-voice-btn__mic-icon--active' : '',
+                    isSpeechPlaying && !listening && !micPrimed
+                      ? 'fetch-ai-voice-btn__mic-icon--speaking'
+                      : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  aria-hidden
+                >
+                  <path d="M12 14a3 3 0 0 0 3-3V7a3 3 0 0 0-6 0v4a3 3 0 0 0 3 3Z" />
+                  <path d="M19 11a7 7 0 0 1-14 0" />
+                  <path d="M12 18v3" />
+                  <path d="M8 21h8" />
+                </svg>
               )}
             </span>
           </button>

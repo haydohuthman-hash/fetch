@@ -12,6 +12,10 @@ export {
   requiresDropoff,
 } from './bookingReadiness'
 export {
+  shouldPollMarketplaceBooking,
+  uiModeFromBookingLifecycle,
+} from './bookingLifecycleUi'
+export {
   beginDriverSearchDemo,
   beginJunkDriverDemo,
   canBeginDriverSearchDemo,
@@ -23,7 +27,19 @@ export {
 } from './junkDriverDemo'
 export { applyLaborDetailsFromSheet, handleUserInput, selectHomeJobType } from './handleUserInput'
 export { deriveNextQuestion } from './deriveNextQuestion'
-export { computeBookingPriceRange, computeBookingPricing, computeBookingQuoteBreakdown } from './pricing'
+export {
+  computeBookingPriceRange,
+  computeBookingPricing,
+  computeBookingQuoteBreakdown,
+  computePrice,
+  computePriceForDraft,
+  computePriceForState,
+  draftToPricingInput,
+  resolveRouteMetrics,
+  stateToPricingInput,
+  type ComputePriceOptions,
+  type ComputePriceResult,
+} from './pricing'
 export {
   scanBookingPhotos,
   scannerSummaryLine,
@@ -34,10 +50,13 @@ export {
   createInitialBookingState,
   type BookingJobType,
   type BookingAiReview,
+  type BookingCustomerRating,
   type BookingDriver,
   type BookingDriverLocation,
   type BookingLifecycleStatus,
+  type BookingMatchingMeta,
   type BookingPaymentIntent,
+  type BookingPricing,
   type BookingPaymentInstrument,
   type BookingPaymentIntentStatus,
   type BookingQuoteBreakdown,

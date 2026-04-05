@@ -7,15 +7,29 @@ import {
   type Renderer,
 } from '@googlemaps/markerclusterer'
 import type { BookingStage } from '../../lib/assistant'
+import type { LiveTrackingLegPhase } from '../../lib/booking/liveTrackingLeg'
 import { haversineMeters } from '../../lib/homeDirections'
 import type { ExploreMapPoi } from '../../lib/mapsExplorePlaces'
-import { fitPickupAndDropoff, nudgeMapCenterTowardTop } from './brisbaneMap'
+import {
+  fitPickupAndDriver,
+  fitPickupAndDropoff,
+  fitPickupDropoffAndDriver,
+  nudgeMapCenterTowardTop,
+} from './brisbaneMap'
 
 function isAdventureClusterKind(kind: ExploreMapPoi['kind']): boolean {
   return kind === 'park' || kind === 'natural' || kind === 'adventure'
 }
 
 export type MapAccentRgb = { r: number; g: number; b: number }
+
+/** Camera framing during marketplace live tracking (driver + leg destination). */
+export type LiveTrackingMapFit = {
+  driver: google.maps.LatLngLiteral
+  pickup: google.maps.LatLngLiteral | null
+  dropoff: google.maps.LatLngLiteral | null
+  phase: LiveTrackingLegPhase
+}
 
 const DEFAULT_ACCENT: MapAccentRgb = { r: 200, g: 16, b: 46 }
 
@@ -56,6 +70,8 @@ type BookingMapReflectionProps = {
   driverLivePosition?: google.maps.LatLngLiteral | null
   /** Maps tab: user-dropped pin at map center. */
   droppedPinCoords?: google.maps.LatLngLiteral | null
+  /** Fit map to driver + active leg when a live Directions polyline is showing. */
+  liveTrackingFit?: LiveTrackingMapFit | null
 }
 
 /**
@@ -80,6 +96,7 @@ export function BookingMapReflection({
   driverToPickupPath = null,
   driverLivePosition = null,
   droppedPinCoords = null,
+  liveTrackingFit = null,
 }: BookingMapReflectionProps) {
   const accentRgb = accentRgbProp ?? DEFAULT_ACCENT
   const accentHex = useMemo(
@@ -452,7 +469,26 @@ export function BookingMapReflection({
   useEffect(() => {
     if (suspendCameraAutomation) return
     if (navigationRouteActive && cameraFollowUser) return
-    if (!map || !pickupPos || !dropoffPos) return
+    if (!map) return
+
+    const activeDriverLeg =
+      driverToPickupPath != null &&
+      driverToPickupPath.length >= 2 &&
+      (stage === 'searching' || stage === 'matched' || stage === 'live')
+
+    if (liveTrackingFit && activeDriverLeg) {
+      const { driver, pickup: pFit, dropoff: dFit, phase } = liveTrackingFit
+      if (phase === 'to_pickup' && pFit) {
+        fitPickupAndDriver(map, pFit, driver)
+        return
+      }
+      if (phase === 'to_dropoff' && pFit && dFit) {
+        fitPickupDropoffAndDriver(map, pFit, dFit, driver)
+        return
+      }
+    }
+
+    if (!pickupPos || !dropoffPos) return
     fitPickupAndDropoff(map, pickupPos, dropoffPos)
   }, [
     suspendCameraAutomation,
@@ -464,6 +500,17 @@ export function BookingMapReflection({
     dropoffPos?.lat,
     dropoffPos?.lng,
     realRoutePath,
+    liveTrackingFit?.driver.lat,
+    liveTrackingFit?.driver.lng,
+    liveTrackingFit?.pickup?.lat,
+    liveTrackingFit?.pickup?.lng,
+    liveTrackingFit?.dropoff?.lat,
+    liveTrackingFit?.dropoff?.lng,
+    liveTrackingFit?.phase,
+    driverToPickupPath?.length,
+    driverToPickupPath?.[0]?.lat,
+    driverToPickupPath?.[0]?.lng,
+    stage,
   ])
 
   useEffect(() => {

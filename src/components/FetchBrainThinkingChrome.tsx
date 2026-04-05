@@ -91,10 +91,10 @@ export function FetchBrainThinkingChrome({
       >
         <p
           className={[
-            'fetch-brain-thinking-feedback max-w-md rounded-2xl px-4 py-3 text-center text-[13px] font-medium leading-relaxed shadow-lg [text-wrap:pretty]',
+            'fetch-brain-thinking-feedback max-w-md rounded-2xl px-4 py-3 text-center text-[13px] font-medium leading-relaxed shadow-sm [text-wrap:pretty]',
             isLight
-              ? 'bg-slate-900/[0.06] text-slate-800 shadow-slate-900/5'
-              : 'bg-white/[0.08] text-white/90 shadow-black/40',
+              ? 'bg-slate-900/[0.06] text-slate-800 shadow-slate-900/[0.04]'
+              : 'bg-white/[0.08] text-white/90 shadow-black/20',
           ].join(' ')}
         >
           {feedback}

@@ -27,15 +27,15 @@ const DARK_MAP_STYLES: google.maps.MapTypeStyle[] = [
   { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#3a3e48' }] },
 ]
 
-/** Light / day map — soft blues & greens (Uber-inspired calm). */
+/** Light / day map — neutral whites so the tile field blends the white header shell. */
 const LIGHT_MAP_STYLES: google.maps.MapTypeStyle[] = [
-  { elementType: 'geometry', stylers: [{ color: '#e8f0e8' }] },
+  { elementType: 'geometry', stylers: [{ color: '#f3f5f7' }] },
   { elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
   { elementType: 'labels.text.fill', stylers: [{ color: '#3d4f5f' }] },
   { elementType: 'labels.text.stroke', stylers: [{ color: '#ffffff' }, { weight: 3 }] },
   { featureType: 'administrative', elementType: 'geometry', stylers: [{ visibility: 'off' }] },
-  { featureType: 'landscape', elementType: 'geometry', stylers: [{ color: '#e6f2ea' }] },
-  { featureType: 'landscape.natural', elementType: 'geometry', stylers: [{ color: '#d8eadc' }] },
+  { featureType: 'landscape', elementType: 'geometry', stylers: [{ color: '#f1f4f7' }] },
+  { featureType: 'landscape.natural', elementType: 'geometry', stylers: [{ color: '#e9eef3' }] },
   { featureType: 'poi', stylers: [{ visibility: 'off' }] },
   { featureType: 'road.highway', elementType: 'geometry.fill', stylers: [{ color: '#ffffff' }] },
   { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#c5d8e0' }] },
@@ -94,8 +94,11 @@ export function GoogleMapLayer({
 
   useEffect(() => {
     if (!mapInstance) return
-    mapInstance.setOptions({ styles: mapStyles })
-  }, [mapInstance, mapStyles])
+    mapInstance.setOptions({
+      styles: mapStyles,
+      backgroundColor: theme === 'light' ? '#ffffff' : '#12141a',
+    })
+  }, [mapInstance, mapStyles, theme])
 
   if (loadError) {
     return (
@@ -134,6 +137,7 @@ export function GoogleMapLayer({
         keyboardShortcuts: false,
         clickableIcons: false,
         disableDoubleClickZoom: true,
+        backgroundColor: theme === 'light' ? '#ffffff' : '#12141a',
         styles: mapStyles,
       }}
     >

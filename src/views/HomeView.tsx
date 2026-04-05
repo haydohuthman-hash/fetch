@@ -8,6 +8,7 @@ import {
   type ChangeEvent,
   type CSSProperties,
 } from 'react'
+import { createPortal } from 'react-dom'
 import {
   FetchHomeBookingSheet,
   type HomeBookingSheetSnap,
@@ -16,6 +17,7 @@ import {
 } from '../components/FetchHomeBookingSheet'
 import { FetchBrainMemoryOverlay } from '../components/FetchBrainMemoryOverlay'
 import { FetchHomeStepOne } from '../components/FetchHomeStepOne'
+import type { LiveTrackingMapFit } from '../components/FetchHomeStepOne/BookingMapReflection'
 import { BRISBANE_CENTER } from '../components/FetchHomeStepOne/brisbaneMap'
 import { PlacesAddressGeocodeField } from '../components/FetchHomeStepOne/PlacesAddressGeocodeField'
 import type { ResolvedPlace } from '../components/FetchHomeStepOne/PlacesAddressAutocomplete'
@@ -28,6 +30,8 @@ import { MapExploreToolbar } from '../components/MapExploreToolbar'
 import { MapsExploreSheet } from '../components/MapsExploreSheet'
 import { MysteryAdventurePanel } from '../components/MysteryAdventurePanel'
 import { FetchStreetViewOverlay } from '../components/FetchStreetViewOverlay'
+import { BookingCompletionSummary } from '../components/booking/BookingCompletionSummary'
+import { HomeServiceTypeIllustration } from '../components/icons/HomeServiceTypeIllustrations'
 import {
   postFetchAiChat,
   CHAT_ERROR_NETWORK,
@@ -49,7 +53,7 @@ import {
   buildBrainAccountSnapshotAsync,
   type BrainAccountSnapshot,
 } from '../lib/fetchBrainAccountSnapshot'
-import { buildFetchBrainGraph } from '../lib/fetchBrainGraph'
+import { buildFetchBrainGraph, type BrainNode } from '../lib/fetchBrainGraph'
 import { resolveMemoryFocus } from '../lib/fetchBrainMemoryFocus'
 import { appendBrainLearningEvent, buildFetchBrainLearningContext } from '../lib/fetchBrainLearningStore'
 import { detectBrainRestaurantIntent } from '../lib/fetchBrainPlacesIntent'
@@ -57,13 +61,13 @@ import {
   applyDirectionsToBookingState,
   applyLaborDetailsFromSheet,
   beginDriverSearchDemo,
-  computeBookingPricing,
-  computeBookingQuoteBreakdown,
+  shouldPollMarketplaceBooking,
+  uiModeFromBookingLifecycle,
+  computePriceForState,
   createInitialBookingState,
   DEMO_DRIVER,
   deriveFlowStep,
   handleUserInput,
-  isActiveDriverFlow,
   isJobDetailsPhase,
   isRouteTerminalPhase,
   patchBookingLifecycle,
@@ -76,10 +80,19 @@ import {
   type BookingState,
 } from '../lib/assistant'
 import {
+  bookingRecordToStatePatch,
   bookingStateToConfirmedUpsertPayload,
   dispatchBooking,
   fetchBooking,
+  isLivePipelinePersistedStatus,
+  isWireStatusActiveForDriverGps,
+  isWireStatusMatching,
+  patchBookingStatus,
+  resolveLiveTrackingEndpoints,
+  shouldHideJobRouteDuringLiveTracking,
+  submitCustomerBookingRating,
   upsertBooking,
+  useLiveTripDirections,
 } from '../lib/booking'
 import { useFetchTheme } from '../theme/FetchThemeContext'
 import { chargeDefaultSavedCard } from '../lib/paymentCheckout'
@@ -93,6 +106,7 @@ import {
 import { suburbCommentaryLine } from '../lib/suburbCommentary'
 import { useFetchVoice } from '../voice/FetchVoiceContext'
 import {
+  ADVANCED_SERVICE_MENU_OPTIONS,
   IDLE_TO_SLEEPY_MS,
   INTENT_ORB_PROMPT,
   junkLiveJobCopy,
@@ -115,6 +129,7 @@ import { pushRecentNavDestination } from '../lib/recentNavDestinations'
 import { buildHomeWelcomeLine } from '../lib/fetchWelcomeLine'
 import { firstNameFromDisplay, loadSession } from '../lib/fetchUserSession'
 import { appendHomeActivity, appendHomeAlert } from '../lib/homeActivityFeed'
+import { useFetchBootstrapping } from '../boot/FetchBootstrappingContext'
 import { HARDWARE_PRODUCTS } from '../lib/hardwareCatalog'
 import { loadSavedAddresses, type SavedAddress } from '../lib/savedAddresses'
 import {
@@ -127,7 +142,6 @@ import {
   legDurationTrafficAndDistance,
   overviewPathFromRoute,
   pickStepIndexAfterPassingEnds,
-  stableDriverAnchorFromPickup,
   type DirectionsStepLite,
 } from '../lib/homeDirections'
 
@@ -141,9 +155,14 @@ const DRIVER_GPS_FRESH_MS = 45_000
 export type HomeViewProps = {
   /** Sheet account control — open auth or account in parent shell. */
   onAccountNavigate?: () => void
+  /** App shell: signal when Maps JS is ready (or no key) so bootstrap overlay can dismiss. */
+  onMapsBootReady?: (ready: boolean) => void
 }
 
-export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
+export default function HomeView({
+  onAccountNavigate,
+  onMapsBootReady,
+}: HomeViewProps = {}) {
   const {
     speakLine,
     isSpeechPlaying,
@@ -152,6 +171,7 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
     voiceHoldPulseNonce,
     stopAssistantPlayback,
   } = useFetchVoice()
+  const homeBootstrapping = useFetchBootstrapping()
   const [bookingState, setBookingState] = useState<BookingState>(createInitialBookingState)
   const [mapsJsReady, setMapsJsReady] = useState(false)
   const [orbAwakened, setOrbAwakened] = useState(false)
@@ -238,19 +258,59 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
   const [laborNotes, setLaborNotes] = useState('')
   const [bookNowBusy, setBookNowBusy] = useState(false)
   const [bookNowError, setBookNowError] = useState<string | null>(null)
+  const [bookNowSyncError, setBookNowSyncError] = useState<string | null>(null)
+  const [bookNowSyncRetryBusy, setBookNowSyncRetryBusy] = useState(false)
+  const [showDemoTimelineOnly, setShowDemoTimelineOnly] = useState(false)
+  const [ratingSubmitBusy, setRatingSubmitBusy] = useState(false)
+  const [ratingSubmitError, setRatingSubmitError] = useState<string | null>(null)
+  const bookNowSyncRetryRef = useRef<{
+    payload: ReturnType<typeof bookingStateToConfirmedUpsertPayload>
+    paymentIntent: NonNullable<BookingState['paymentIntent']>
+  } | null>(null)
+  const lastJobCompletionSpokenBookingIdRef = useRef<string | null>(null)
+  const [matchRetryBusy, setMatchRetryBusy] = useState(false)
+  const [matchRetryError, setMatchRetryError] = useState<string | null>(null)
+  const [matchUiTick, setMatchUiTick] = useState(0)
   const [intentPlaceSuggestionsOpen, setIntentPlaceSuggestionsOpen] = useState(false)
-  const [driverLegPath, setDriverLegPath] = useState<google.maps.LatLngLiteral[] | null>(null)
-  const [driverLegEtaSeconds, setDriverLegEtaSeconds] = useState<number | null>(null)
-  const [driverLegTrafficDelaySeconds, setDriverLegTrafficDelaySeconds] = useState<number | null>(
-    null,
-  )
-  const [driverLegNextStep, setDriverLegNextStep] = useState<string | null>(null)
-  const [driverLegDurationSeconds, setDriverLegDurationSeconds] = useState<number | null>(null)
+  const [advancedServiceMenuOpen, setAdvancedServiceMenuOpen] = useState(false)
   const [driverMapTick, setDriverMapTick] = useState(0)
   const driverRouteStartedAtRef = useRef(0)
   const driverFlowTimersRef = useRef<number[]>([])
   const bookingStateRef = useRef(bookingState)
   bookingStateRef.current = bookingState
+
+  useEffect(() => {
+    const st = bookingState.bookingStatus
+    if (st !== 'pending_match' && st !== 'dispatching' && st !== 'match_failed') return
+    const id = window.setInterval(() => setMatchUiTick((n) => n + 1), 1000)
+    return () => window.clearInterval(id)
+  }, [bookingState.bookingStatus])
+
+  const liveDirectionsEnabled =
+    mapsJsReady &&
+    !!bookingState.bookingId &&
+    (bookingState.mode === 'searching' ||
+      bookingState.mode === 'matched' ||
+      bookingState.mode === 'live') &&
+    (bookingState.pickupCoords != null ||
+      (bookingState.bookingStatus === 'in_progress' && bookingState.dropoffCoords != null))
+
+  const liveTripDirections = useLiveTripDirections({
+    mapsJsReady,
+    enabled: liveDirectionsEnabled,
+    bookingId: bookingState.bookingId,
+    status: bookingState.bookingStatus,
+    pickupCoords: bookingState.pickupCoords,
+    dropoffCoords: bookingState.dropoffCoords,
+    driverLocation: bookingState.driverLocation,
+    gpsFreshMs: DRIVER_GPS_FRESH_MS,
+    liveDeviceGps: null,
+    liveDeviceGpsFresh: false,
+    onRouteComputed: () => {
+      driverRouteStartedAtRef.current = Date.now()
+    },
+  })
+
   const lastInteractRef = useRef(Date.now())
   const lastSpokenStepRef = useRef<string>('')
   const lastDirectionsKeyRef = useRef<string>('')
@@ -259,6 +319,15 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const mapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ?? ''
   const { resolved: themeResolved } = useFetchTheme()
+
+  useEffect(() => {
+    if (!onMapsBootReady) return
+    if (!mapsApiKey) {
+      onMapsBootReady(true)
+      return
+    }
+    onMapsBootReady(mapsJsReady)
+  }, [mapsApiKey, mapsJsReady, onMapsBootReady])
   const [userMapLocation, setUserMapLocation] = useState<{
     lat: number
     lng: number
@@ -294,10 +363,13 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
   useEffect(() => {
     const p = bookingState.pricing
     if (!p) return
-    const key = `${bookingState.bookingId ?? 'na'}_${p.minPrice}_${p.maxPrice}`
+    const key = `${bookingState.bookingId ?? 'na'}_${p.minPrice}_${p.maxPrice}_${p.totalPrice ?? ''}`
     if (quoteActivityKeyRef.current === key) return
     quoteActivityKeyRef.current = key
-    const subtitle = `$${p.minPrice}–$${p.maxPrice} AUD · ~${Math.round(p.estimatedDuration / 60)} min`
+    const subtitle =
+      p.totalPrice != null
+        ? `About $${p.totalPrice} AUD (${p.minPrice}–${p.maxPrice}) · ~${Math.round(p.estimatedDuration / 60)} min`
+        : `$${p.minPrice}–$${p.maxPrice} AUD · ~${Math.round(p.estimatedDuration / 60)} min`
     appendHomeActivity({
       title: 'Quote ready',
       subtitle,
@@ -318,7 +390,7 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
 
   useEffect(() => {
     const st = bookingState.bookingStatus
-    if (!st || !isActiveDriverFlow(st)) return
+    if (!st || !isLivePipelinePersistedStatus(st)) return
     if (lastDriverAlertStatusRef.current === st) return
     lastDriverAlertStatusRef.current = st
     const jc = junkLiveJobCopy(st, bookingState.driver)
@@ -538,7 +610,7 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
     }
   }, [homeBrainFlow, brainConvRevision, homeActivityTick, savedAddresses])
 
-  const brainGraphNodes = useMemo(() => {
+  const brainGraphNodes = useMemo((): BrainNode[] => {
     if (!brainAccountSnapshot) return []
     const flowStep = deriveFlowStep(bookingState)
     const chatTurns = brainConvRef.current.map((l) => ({
@@ -546,7 +618,7 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
       role: l.role,
       text: l.content,
     }))
-    return buildFetchBrainGraph({
+    const nodes = buildFetchBrainGraph({
       chatTurns,
       jobType: bookingState.jobType,
       flowStep,
@@ -556,7 +628,30 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
       snapshot: brainAccountSnapshot,
       focusedCatalogId: brainFocusedMemoryId,
     }).nodes
-  }, [brainAccountSnapshot, brainConvRevision, brainFocusedMemoryId, bookingState, chatNavRoute])
+    if (brainFieldPlaces && brainFieldPlaces.items.length > 0) {
+      return [
+        ...nodes,
+        {
+          id: 'web-field-places',
+          kind: 'web',
+          label: 'Live maps',
+          subtitle: `${brainFieldPlaces.items.length} nearby`,
+          body: brainFieldPlaces.title,
+          x: 648,
+          y: 300,
+          radius: 14,
+        },
+      ]
+    }
+    return nodes
+  }, [
+    brainAccountSnapshot,
+    brainConvRevision,
+    brainFocusedMemoryId,
+    bookingState,
+    chatNavRoute,
+    brainFieldPlaces,
+  ])
 
   const onComposerListeningChange = useCallback((v: boolean) => {
     setComposerListening(v)
@@ -789,14 +884,119 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
     driverFlowTimersRef.current = []
   }, [])
 
-  const startPostPaymentDriverFlow = useCallback((paymentPatch?: Partial<BookingState>) => {
+  const retryMarketplaceSync = useCallback(async () => {
+    const r = bookNowSyncRetryRef.current
+    if (!r) return
+    setBookNowSyncRetryBusy(true)
+    setBookNowSyncError(null)
+    try {
+      const saved = await upsertBooking({ ...r.payload, paymentIntent: r.paymentIntent })
+      await dispatchBooking(saved.id)
+      bookNowSyncRetryRef.current = null
+      setShowDemoTimelineOnly(false)
+      clearDriverFlowTimers()
+      const row = await fetchBooking(saved.id)
+      setBookingState((prev) => {
+        const patch = bookingRecordToStatePatch(row)
+        const next: BookingState = { ...prev, ...patch }
+        if (row.status && isLivePipelinePersistedStatus(row.status)) {
+          next.mode = uiModeFromBookingLifecycle(row.status)
+        } else if (row.status === 'completed' || row.status === 'cancelled') {
+          next.mode = 'idle'
+        }
+        next.flowStep = deriveFlowStep(next)
+        return next
+      })
+      appendHomeAlert({
+        title: 'Booking saved',
+        body: 'Your job is live on Fetch servers. Driver updates will sync automatically.',
+      })
+      refreshLocalFeeds()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Could not save booking.'
+      setBookNowSyncError(msg)
+      appendHomeAlert({ title: 'Could not save booking', body: msg })
+      refreshLocalFeeds()
+    } finally {
+      setBookNowSyncRetryBusy(false)
+    }
+  }, [clearDriverFlowTimers, refreshLocalFeeds])
+
+  const handleSubmitCompletionRating = useCallback(
+    async (stars: 1 | 2 | 3 | 4 | 5, note: string | null) => {
+      const id = bookingStateRef.current.bookingId
+      if (!id || id.startsWith('demo-')) {
+        setRatingSubmitError('This preview booking cannot be rated on the server.')
+        return
+      }
+      setRatingSubmitBusy(true)
+      setRatingSubmitError(null)
+      try {
+        const row = await submitCustomerBookingRating(id, { stars, note })
+        setBookingState((prev) => ({ ...prev, ...bookingRecordToStatePatch(row) }))
+        appendHomeAlert({ title: 'Thanks', body: 'Your rating was saved.' })
+        refreshLocalFeeds()
+      } catch (e) {
+        setRatingSubmitError(e instanceof Error ? e.message : 'Could not save rating.')
+      } finally {
+        setRatingSubmitBusy(false)
+      }
+    },
+    [refreshLocalFeeds],
+  )
+
+  const handleRetryDispatchAfterMatchFail = useCallback(async () => {
+    const id = bookingStateRef.current.bookingId
+    if (!id || id.startsWith('demo-')) return
+    setMatchRetryBusy(true)
+    setMatchRetryError(null)
+    try {
+      const row = await dispatchBooking(id)
+      setBookingState((prev) => {
+        const patch = bookingRecordToStatePatch(row)
+        const next: BookingState = { ...prev, ...patch }
+        if (row.status && isLivePipelinePersistedStatus(row.status)) {
+          next.mode = uiModeFromBookingLifecycle(row.status)
+        } else if (row.status === 'completed' || row.status === 'cancelled') {
+          next.mode = 'idle'
+        }
+        next.flowStep = deriveFlowStep(next)
+        return next
+      })
+      speakLine('Searching again for a driver near you.', {
+        debounceKey: 'match_retry_search',
+        debounceMs: 0,
+        withVoiceHold: true,
+      })
+      appendHomeAlert({
+        title: 'Searching again',
+        body: 'We are contacting drivers for your job.',
+      })
+      refreshLocalFeeds()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Could not restart search.'
+      setMatchRetryError(msg)
+      appendHomeAlert({ title: 'Retry failed', body: msg })
+      refreshLocalFeeds()
+    } finally {
+      setMatchRetryBusy(false)
+    }
+  }, [refreshLocalFeeds, speakLine])
+
+  const startPostPaymentDriverFlow = useCallback(
+    (paymentPatch?: Partial<BookingState>, options?: { serverLive?: boolean }) => {
     clearDriverFlowTimers()
+    setShowDemoTimelineOnly(!options?.serverLive)
     setBookingState((prev) => beginDriverSearchDemo({ ...prev, ...paymentPatch }))
     playUiEvent('processing_start')
     speakLine('Searching the network for a driver near you.', {
       debounceKey: 'junk_driver_search',
       debounceMs: 0, withVoiceHold: true,
     })
+
+    if (options?.serverLive) {
+      return
+    }
 
     const push = (fn: () => void, delay: number) => {
       const id = window.setTimeout(fn, delay)
@@ -848,10 +1048,6 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
     push(() => {
       setBookingState((s) => patchBookingLifecycle(s, { bookingStatus: 'completed' }))
       playUiEvent('success')
-      speakLine('All done — job completed. Thanks for choosing Fetch.', {
-        debounceKey: 'junk_driver_done',
-        debounceMs: 0, withVoiceHold: true,
-      })
     }, 19600)
   }, [clearDriverFlowTimers, playUiEvent, speakLine])
 
@@ -871,6 +1067,7 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
   }, [idleLong, wasSleepy, speakLine, playUiEvent])
 
   useEffect(() => {
+    if (homeBootstrapping) return
     let cancelled = false
     playUiEvent('activated')
     requestAnimationFrame(() => {
@@ -894,7 +1091,7 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
     return () => {
       cancelled = true
     }
-  }, [speakLine, playUiEvent])
+  }, [homeBootstrapping, speakLine, playUiEvent])
 
   useEffect(() => {
     if (mapAttention === 'none' || mapAttention === 'navigation') return
@@ -1240,11 +1437,15 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
     setBookingState(createInitialBookingState())
     setMapAttention('none')
     setIntentPlaceSuggestionsOpen(false)
-    setDriverLegPath(null)
-    setDriverLegEtaSeconds(null)
-    setDriverLegTrafficDelaySeconds(null)
-    setDriverLegNextStep(null)
-    setDriverLegDurationSeconds(null)
+    setBookNowError(null)
+    setBookNowBusy(false)
+    setBookNowSyncError(null)
+    setBookNowSyncRetryBusy(false)
+    bookNowSyncRetryRef.current = null
+    setShowDemoTimelineOnly(false)
+    setRatingSubmitBusy(false)
+    setRatingSubmitError(null)
+    lastJobCompletionSpokenBookingIdRef.current = null
     bumpInteraction()
   }, [bumpInteraction, clearDriverFlowTimers])
 
@@ -1527,13 +1728,6 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
     ],
   )
 
-  const rerouteChatNavToSavedPlace = useCallback(
-    (a: SavedAddress) => {
-      startChatNavigationToPlace({ lat: a.lat, lng: a.lng, label: a.address })
-    },
-    [startChatNavigationToPlace],
-  )
-
   const applyChatNavToBooking = useCallback(
     (nav: FetchAiChatNavigation) => {
       const pickupSel = {
@@ -1802,7 +1996,6 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
 
   const mapRoutePath = useMemo(() => {
     if (chatNavRoute?.path && chatNavRoute.path.length >= 2) return chatNavRoute.path
-    if (routePathFromState && routePathFromState.length >= 2) return routePathFromState
     const pc = bookingState.pickupCoords
     if (pc && bookingState.mode === 'searching') {
       const d = 0.0022
@@ -1812,13 +2005,22 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
         { lat: pc.lat - d * 0.55, lng: pc.lng + d * 0.65 },
       ]
     }
-    return routePathFromState
+    const hideFullJob = shouldHideJobRouteDuringLiveTracking(
+      bookingState.bookingStatus,
+      bookingState.bookingId,
+    )
+    if (routePathFromState && routePathFromState.length >= 2 && !hideFullJob) {
+      return routePathFromState
+    }
+    return hideFullJob ? null : routePathFromState
   }, [
     chatNavRoute?.path,
     routePathFromState,
     jobType,
     bookingState.pickupCoords,
     bookingState.mode,
+    bookingState.bookingStatus,
+    bookingState.bookingId,
   ])
 
   const mapStage = useMemo(() => {
@@ -1876,17 +2078,26 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
       (bookingState.mode === 'searching' ||
         bookingState.mode === 'matched' ||
         bookingState.mode === 'live') &&
-      driverLegEtaSeconds != null &&
-      bookingState.pickupCoords
+      liveTripDirections.etaSeconds != null &&
+      liveTripDirections.phase != null
     ) {
-      const arrivalClock = formatArrivalClockFromEtaSeconds(driverLegEtaSeconds)
+      const eta = liveTripDirections.etaSeconds
+      const arrivalClock = formatArrivalClockFromEtaSeconds(eta)
+      const phase = liveTripDirections.phase
       return {
         layout: 'route' as const,
-        nextTurn: driverLegNextStep,
-        etaMinutes: Math.max(1, Math.round(driverLegEtaSeconds / 60)),
+        tripDistanceMeters: liveTripDirections.distanceMeters,
+        nextTurn: liveTripDirections.nextStep,
+        etaMinutes: Math.max(1, Math.round(eta / 60)),
         arrivalClock,
-        trafficDelaySeconds: driverLegTrafficDelaySeconds,
-        liveRegionKey: `drv-${driverLegEtaSeconds}-${(driverLegNextStep ?? '').slice(0, 48)}-${navUserCoarseKey}`,
+        trafficDelaySeconds: liveTripDirections.trafficDelaySeconds,
+        secondaryLine:
+          phase === 'to_dropoff'
+            ? 'Heading to drop-off'
+            : phase === 'to_pickup'
+              ? 'Driver heading to pickup'
+              : null,
+        liveRegionKey: `drv-${eta}-${(liveTripDirections.nextStep ?? '').slice(0, 48)}-${navUserCoarseKey}`,
       }
     }
     if (
@@ -1948,9 +2159,11 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
     bookingState.pickupCoords,
     bookingRouteSteps,
     bookingTrafficDelaySeconds,
-    driverLegEtaSeconds,
-    driverLegNextStep,
-    driverLegTrafficDelaySeconds,
+    liveTripDirections.distanceMeters,
+    liveTripDirections.etaSeconds,
+    liveTripDirections.nextStep,
+    liveTripDirections.phase,
+    liveTripDirections.trafficDelaySeconds,
     homeMapExploreMode,
     homeShellTab,
     navUserCoarseKey,
@@ -1970,9 +2183,9 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
     if (loc && Date.now() - loc.updatedAt < DRIVER_GPS_FRESH_MS) {
       return { lat: loc.lat, lng: loc.lng }
     }
-    const path = driverLegPath
+    const path = liveTripDirections.path
     if (!path || path.length < 2) return null
-    const dur = Math.max(60, driverLegDurationSeconds ?? 120)
+    const dur = Math.max(60, liveTripDirections.durationSeconds ?? 120)
     const u = Math.min(
       0.94,
       (Date.now() - driverRouteStartedAtRef.current) / 1000 / dur,
@@ -1989,12 +2202,52 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
     }
   }, [
     driverMapTick,
-    driverLegPath,
-    driverLegDurationSeconds,
+    liveTripDirections.path,
+    liveTripDirections.durationSeconds,
     bookingState.mode,
     bookingState.driverLocation?.lat,
     bookingState.driverLocation?.lng,
     bookingState.driverLocation?.updatedAt,
+  ])
+
+  const homeLiveTrackingFit = useMemo((): LiveTrackingMapFit | null => {
+    if (!bookingState.bookingId || !mapsJsReady) return null
+    const loc = bookingState.driverLocation
+    const fresh =
+      loc && Date.now() - loc.updatedAt < DRIVER_GPS_FRESH_MS
+        ? { lat: loc.lat, lng: loc.lng }
+        : null
+    const ep = resolveLiveTrackingEndpoints({
+      status: bookingState.bookingStatus,
+      bookingId: bookingState.bookingId,
+      pickupCoords: bookingState.pickupCoords,
+      dropoffCoords: bookingState.dropoffCoords,
+      driverLocation: loc ?? null,
+      gpsFreshMs: DRIVER_GPS_FRESH_MS,
+    })
+    if (!ep) return null
+    const driver = fresh ?? driverMapLivePosition ?? ep.origin
+    const pickup = bookingState.pickupCoords
+      ? { lat: bookingState.pickupCoords.lat, lng: bookingState.pickupCoords.lng }
+      : null
+    const dropoff = bookingState.dropoffCoords
+      ? { lat: bookingState.dropoffCoords.lat, lng: bookingState.dropoffCoords.lng }
+      : null
+    return { driver, pickup, dropoff, phase: ep.phase }
+  }, [
+    mapsJsReady,
+    bookingState.bookingId,
+    bookingState.bookingStatus,
+    bookingState.pickupCoords?.lat,
+    bookingState.pickupCoords?.lng,
+    bookingState.dropoffCoords?.lat,
+    bookingState.dropoffCoords?.lng,
+    bookingState.driverLocation?.lat,
+    bookingState.driverLocation?.lng,
+    bookingState.driverLocation?.updatedAt,
+    driverMapLivePosition?.lat,
+    driverMapLivePosition?.lng,
+    driverMapTick,
   ])
 
   useEffect(() => {
@@ -2005,99 +2258,63 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
   }, [bookingState.mode])
 
   useEffect(() => {
-    if (!mapsJsReady || typeof google === 'undefined') return
-    const pickup = bookingState.pickupCoords
-    const bid = bookingState.bookingId
-    const mode = bookingState.mode
-    if (
-      !pickup ||
-      !bid ||
-      (mode !== 'searching' && mode !== 'matched' && mode !== 'live')
-    ) {
-      setDriverLegPath(null)
-      setDriverLegEtaSeconds(null)
-      setDriverLegTrafficDelaySeconds(null)
-      setDriverLegNextStep(null)
-      setDriverLegDurationSeconds(null)
-      return
-    }
-
-    let cancelled = false
-    const run = () => {
-      if (cancelled) return
-      const s = bookingStateRef.current
-      const p = s.pickupCoords
-      const id = s.bookingId
-      if (!p || !id) return
-      const loc = s.driverLocation
-      const fresh = loc && Date.now() - loc.updatedAt < DRIVER_GPS_FRESH_MS
-      const origin = fresh
-        ? { lat: loc.lat, lng: loc.lng }
-        : stableDriverAnchorFromPickup(id, p)
-      const svc = new google.maps.DirectionsService()
-      svc.route(drivingTrafficDirectionsRequest(origin, p), (result, status) => {
-        if (cancelled || status !== 'OK' || !result?.routes[0]) return
-        const route = result.routes[0]
-        const leg = route.legs?.[0]
-        const path = overviewPathFromRoute(route)
-        const { durationSeconds, trafficDelaySeconds } = legDurationTrafficAndDistance(leg)
-        driverRouteStartedAtRef.current = Date.now()
-        setDriverLegPath(path.length >= 2 ? path : null)
-        setDriverLegDurationSeconds(Math.max(45, durationSeconds))
-        setDriverLegEtaSeconds(durationSeconds)
-        setDriverLegTrafficDelaySeconds(trafficDelaySeconds)
-        setDriverLegNextStep(firstStepPlainInstruction(route))
-      })
-    }
-
-    run()
-    const iv = window.setInterval(run, 72_000)
-    const onVis = () => {
-      if (document.visibilityState === 'visible') run()
-    }
-    document.addEventListener('visibilitychange', onVis)
-    return () => {
-      cancelled = true
-      window.clearInterval(iv)
-      document.removeEventListener('visibilitychange', onVis)
-    }
-  }, [
-    mapsJsReady,
-    bookingState.pickupCoords?.lat,
-    bookingState.pickupCoords?.lng,
-    bookingState.bookingId,
-    bookingState.mode,
-    bookingState.driverLocation?.updatedAt,
-  ])
-
-  useEffect(() => {
     const id = bookingState.bookingId
     const st = bookingState.bookingStatus
-    if (!id || id.startsWith('demo-') || !st || !isActiveDriverFlow(st)) return
+    if (!shouldPollMarketplaceBooking(id, st)) return
     let cancelled = false
     const poll = async () => {
       try {
-        const row = await fetchBooking(id)
+        const row = await fetchBooking(id!)
         if (cancelled) return
-        if (row.driverLocation) {
-          setBookingState((prev) => ({
-            ...prev,
-            driverLocation: row.driverLocation ?? null,
-          }))
+        setBookingState((prev) => {
+          const patch = bookingRecordToStatePatch(row)
+          const next: BookingState = { ...prev, ...patch }
+          if (row.status && isLivePipelinePersistedStatus(row.status)) {
+            next.mode = uiModeFromBookingLifecycle(row.status)
+          } else if (row.status === 'completed' || row.status === 'cancelled') {
+            next.mode = 'idle'
+          }
+          next.flowStep = deriveFlowStep(next)
+          return next
+        })
+        if (
+          row.status === 'matched' ||
+          row.status === 'en_route' ||
+          row.status === 'arrived' ||
+          row.status === 'in_progress'
+        ) {
+          setMapAttention('driver')
         }
       } catch {
         /* ignore */
       }
     }
     void poll()
-    const iv = window.setInterval(poll, 8000)
+    const iv = window.setInterval(poll, 5000)
     return () => {
       cancelled = true
       window.clearInterval(iv)
     }
   }, [bookingState.bookingId, bookingState.bookingStatus])
 
+  useEffect(() => {
+    if (bookingState.bookingStatus !== 'completed') return
+    const id = bookingState.bookingId
+    if (!id) return
+    if (lastJobCompletionSpokenBookingIdRef.current === id) return
+    lastJobCompletionSpokenBookingIdRef.current = id
+    void speakLine('All done — job completed. Thanks for choosing Fetch.', {
+      debounceKey: `job_done_${id}`,
+      debounceMs: 0,
+      withVoiceHold: true,
+    })
+  }, [bookingState.bookingStatus, bookingState.bookingId, speakLine])
+
   const navStripActive = mapNavStrip != null
+  /** Tighter sheet chrome, Fetch mark, frosted top, 25/50/80 snaps — maps tab + real nav strip, not explore-only. */
+  const homeSheetNavMapChrome =
+    homeShellTab === 'maps' &&
+    (chatNavRoute != null || (!homeMapExploreMode && navStripActive))
   useEffect(() => {
     if (!navStripActive && !homeMapExploreMode) setMapFollowUser(false)
   }, [navStripActive, homeMapExploreMode])
@@ -2164,11 +2381,11 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
       return GLOW_PURPLE
     }
 
-    if (status === 'dispatching' && mode === 'searching') {
+    if ((isWireStatusMatching(status) || status === 'match_failed') && mode === 'searching') {
       return GLOW_BLUE
     }
 
-    if (status === 'confirmed' || status === 'dispatching') {
+    if (status === 'confirmed' || isWireStatusMatching(status)) {
       return GLOW_BLUE
     }
 
@@ -2233,9 +2450,35 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
     !showBuildingRoute &&
     !showLaborDetails
 
+  const quoteLive = useMemo(
+    () => computePriceForState(bookingState, { allowRouteFallback: true }),
+    [bookingState],
+  )
+  const sheetDisplayPricing = quoteLive.ok ? quoteLive.pricing : bookingState.pricing
+  const sheetDisplayBreakdown = quoteLive.ok ? quoteLive.breakdown : bookingState.quoteBreakdown
+  const sheetQuoteError = !quoteLive.ok ? quoteLive.message : null
+
   useEffect(() => {
     if (!showPickup) setServicePersonalityLine(null)
   }, [showPickup])
+
+  useEffect(() => {
+    if (!showIntent) setAdvancedServiceMenuOpen(false)
+  }, [showIntent])
+
+  useEffect(() => {
+    if (!advancedServiceMenuOpen) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setAdvancedServiceMenuOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prev
+    }
+  }, [advancedServiceMenuOpen])
 
   /** Jobs without dropoff (e.g. junk): advance to scanner as soon as address+route checkpoint is met. */
   useLayoutEffect(() => {
@@ -2345,33 +2588,53 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
       if (scanning) return `${base}\nAnalysing your photos…`
       return base
     }
-    if (showPostScan && bookingState.bookingStatus && isActiveDriverFlow(bookingState.bookingStatus)) {
+    if (showPostScan && bookingState.bookingStatus && isLivePipelinePersistedStatus(bookingState.bookingStatus)) {
       const jc = junkLiveJobCopy(bookingState.bookingStatus, bookingState.driver)
       const parts = [jc.title, jc.line]
-      if (
-        bookingState.driver &&
-        (bookingState.bookingStatus === 'matched' ||
-          bookingState.bookingStatus === 'en_route' ||
-          bookingState.bookingStatus === 'arrived' ||
-          bookingState.bookingStatus === 'in_progress')
-      ) {
+      if (bookingState.driver && isWireStatusActiveForDriverGps(bookingState.bookingStatus)) {
         const d = bookingState.driver
         const bit = [d.vehicle, d.rating != null ? `${d.rating}★` : ''].filter(Boolean).join(' · ')
         if (bit) parts.push(bit)
       }
-      if (bookingState.bookingStatus === 'dispatching') {
-        parts.push('Searching…')
+      if (isWireStatusMatching(bookingState.bookingStatus)) {
+        void matchUiTick
+        const meta = bookingState.matchingMeta
+        const start = meta?.matchStartedAt
+        if (start != null) {
+          const sec = Math.max(0, Math.floor((Date.now() - start) / 1000))
+          parts.push(sec >= 60 ? `Searching · ${Math.floor(sec / 60)}m ${sec % 60}s` : `Searching · ${sec}s`)
+        } else {
+          parts.push('Searching…')
+        }
+        const contacted = meta?.driversContacted
+        if (contacted != null && contacted > 0) {
+          parts.push(`Drivers contacted: ${contacted}`)
+        }
+      }
+      if (bookingState.bookingStatus === 'match_failed') {
+        parts.push('No driver confirmed in time — use Try again on the card to search again.')
       }
       return parts.join('\n')
     }
-    if (showPostScan && bookingState.pricing) {
-      const p = bookingState.pricing
-      return [
+    if (showPostScan && sheetDisplayPricing) {
+      const p = sheetDisplayPricing
+      const totalBit =
+        p.totalPrice != null ? `About $${p.totalPrice} AUD` : `$${p.minPrice} – $${p.maxPrice} AUD`
+      const rangeBit =
+        p.totalPrice != null ? ` (${p.minPrice}–${p.maxPrice} band)` : ''
+      const lines = [
         'Your quote',
-        `$${p.minPrice} – $${p.maxPrice} AUD`,
+        `${totalBit}${rangeBit}`,
         p.explanation,
         `~${Math.round(p.estimatedDuration / 60)} min estimated`,
-      ].join('\n')
+      ]
+      if (p.usedRouteFallback) {
+        lines.push('Route is estimated until navigation finalizes.')
+      }
+      return lines.join('\n')
+    }
+    if (showPostScan && sheetQuoteError) {
+      return ['Items confirmed', sheetQuoteError].join('\n')
     }
     if (showPostScan) {
       return 'Items confirmed\nCalculating your quote…'
@@ -2398,8 +2661,12 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
     bookingState.durationSeconds,
     bookingState.bookingStatus,
     bookingState.driver,
+    bookingState.matchingMeta,
     bookingState.pricing,
+    sheetDisplayPricing,
+    sheetQuoteError,
     servicePersonalityLine,
+    matchUiTick,
   ])
 
   const orbFetchPromptLine = useMemo(() => {
@@ -2428,11 +2695,11 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
 
   const sheetSurface = useMemo((): HomeBookingSheetSurface => {
     if (showConfirm) return 'confirm'
-    if (showPostScan && bookingState.pricing) return 'quote'
+    if (showPostScan && sheetDisplayPricing) return 'quote'
     if (
       showPostScan &&
       bookingState.bookingStatus &&
-      isActiveDriverFlow(bookingState.bookingStatus)
+      isLivePipelinePersistedStatus(bookingState.bookingStatus)
     ) {
       return 'live'
     }
@@ -2449,7 +2716,7 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
   }, [
     showConfirm,
     showPostScan,
-    bookingState.pricing,
+    sheetDisplayPricing,
     bookingState.bookingStatus,
     jobType,
     showScanner,
@@ -2486,8 +2753,8 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
 
   useEffect(() => {
     if (sheetGestureActive) return
-    if (showPostScan && bookingState.pricing && !showScanner) setSheetSnap('half')
-  }, [showPostScan, bookingState.pricing, showScanner, sheetGestureActive])
+    if (showPostScan && sheetDisplayPricing && !showScanner) setSheetSnap('half')
+  }, [showPostScan, sheetDisplayPricing, showScanner, sheetGestureActive])
 
   useEffect(() => {
     if (sheetGestureActive) return
@@ -2702,12 +2969,22 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
         next.junkConfirmStepComplete = true
       }
 
-      next.quoteBreakdown = computeBookingQuoteBreakdown(next)
-      next.pricing = computeBookingPricing(next)
+      const qr = computePriceForState(next, { allowRouteFallback: true })
+      if (qr.ok) {
+        next.quoteBreakdown = qr.breakdown
+        next.pricing = qr.pricing
+      } else {
+        next.quoteBreakdown = null
+        next.pricing = null
+      }
       if (next.pricing) next.mode = 'pricing'
       next.flowStep = deriveFlowStep(next)
       if (next.pricing) {
-        const line = `Here's what I'm seeing. $${next.pricing.minPrice} to $${next.pricing.maxPrice} for this job.`
+        const t = next.pricing.totalPrice
+        const line =
+          t != null
+            ? `Here's what I'm seeing. About $${t} AUD for this job.`
+            : `Here's what I'm seeing. $${next.pricing.minPrice} to $${next.pricing.maxPrice} for this job.`
         queueMicrotask(() => {
           speakLine(line, {
             debounceKey: 'quote_voice',
@@ -2794,7 +3071,7 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
           mapAccentRgb={orbGlowColor}
           userLocationCoords={userMapLocation}
           mapNavStrip={mapNavStrip}
-          driverToPickupPath={driverLegPath}
+          driverToPickupPath={liveTripDirections.path}
           driverLivePosition={driverMapLivePosition}
           mapFollowUser={mapFollowUser}
           onMapFollowUserChange={setMapFollowUser}
@@ -2806,6 +3083,7 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
           droppedPinCoords={homeShellTab === 'maps' ? userDroppedPin : null}
           onHomeMapMenuAccount={onAccountNavigate}
           homeMapHardwareCatalog={HARDWARE_PRODUCTS}
+          liveTrackingFit={chatNavRoute ? null : homeLiveTrackingFit}
         />
         {homeShellTab === 'maps' &&
         !chatNavRoute &&
@@ -2864,6 +3142,7 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
           chatNavRoute == null &&
           sheetSnap === 'closed'
         }
+        navMapChrome={homeSheetNavMapChrome}
       >
         {homeShellTab === 'maps' ? (
           chatNavRoute ? (
@@ -2982,9 +3261,6 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
                     onChatNavigation={applyChatNavigation}
                     onListeningChange={onComposerListeningChange}
                     onPlaceSuggestionsOpenChange={setIntentPlaceSuggestionsOpen}
-                    savedAddresses={savedAddresses}
-                    showSavedAddressChips
-                    onSavedPlaceChipNavigate={rerouteChatNavToSavedPlace}
                     showGuestAccountHint={!loadSession()}
                     mapsJsReady={mapsJsReady}
                     onStartNavigationToPlace={startChatNavigationToPlace}
@@ -2996,78 +3272,87 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
           ) : showIntent ? (
             <div className="fetch-home-landing flex flex-col">
               <section className="fetch-home-landing-section fetch-home-landing-section--intent shrink-0">
-                <div
-                  className="fetch-home-service-rail"
-                  role="group"
-                  aria-label="Service types"
-                >
-                  {LANDING_PRIMARY_SERVICES.map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      data-tone={opt.tone}
-                      aria-label={opt.label}
-                      onClick={() => {
-                        pendingServicePersonalityRef.current = opt.fetchPersonalityExample
-                        setServicePersonalityLine(opt.fetchPersonalityExample)
-                        commitJobTypeSelection(opt.jobType)
-                      }}
-                      className="fetch-home-service-segment"
-                    >
-                      {opt.tone === 'green' ? (
-                        <svg className="fetch-home-service-segment-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                          <path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2" />
-                          <path d="M15 18h2" />
-                          <path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14" />
-                          <circle cx="6.5" cy="18.5" r="2.5" />
-                          <circle cx="16.5" cy="18.5" r="2.5" />
-                        </svg>
-                      ) : opt.tone === 'orange' ? (
-                        <svg className="fetch-home-service-segment-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-                          <path d="M3.27 6.96 12 12.01l8.73-5.05" />
-                          <path d="M12 22.08V12" />
-                        </svg>
-                      ) : opt.tone === 'blue' ? (
-                        <svg className="fetch-home-service-segment-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                          <path d="M16.5 9.4 7.55 4.24" />
-                          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l2-1.14" />
-                          <path d="m3.27 6.96 8.73 5.05" />
-                          <path d="M12 12 20.73 7.5" />
-                          <path d="M12 22.08V12" />
-                          <path d="M17 18h5" />
-                          <path d="M20 15v6" />
-                        </svg>
-                      ) : opt.tone === 'purple' ? (
-                        <svg className="fetch-home-service-segment-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                          <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
-                          <path d="m4 13 4-4" />
-                        </svg>
-                      ) : (
-                        <svg className="fetch-home-service-segment-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                          <path d="M12 3c-2.5 2-4 4.2-4 7a4 4 0 0 0 8 0c0-2.8-1.5-5-4-7Z" />
-                          <path d="M9 14v3a3 3 0 0 0 6 0v-3" />
-                          <path d="m5 5 2 2M19 5l-2 2M12 2v2" />
-                        </svg>
-                      )}
-                      <span className="fetch-home-service-segment-label max-w-[4.75rem] text-[10px] font-semibold leading-[1.15] tracking-[-0.02em]">
-                        {opt.label}
-                      </span>
-                    </button>
-                  ))}
-                </div>
                 <HomeIntentChatComposer
                   appendOrbChatTurn={pushOrbChatTurn}
                   onChatNavigation={applyChatNavigation}
                   onListeningChange={onComposerListeningChange}
                   onPlaceSuggestionsOpenChange={setIntentPlaceSuggestionsOpen}
-                  savedAddresses={savedAddresses}
-                  showSavedAddressChips={false}
                   showGuestAccountHint={!loadSession()}
                   mapsJsReady={mapsJsReady}
                   onStartNavigationToPlace={startChatNavigationToPlace}
                   onAddressEntryIntentChange={setIntentAddressEntryActive}
                 />
+                <div className="fetch-home-service-rail-row">
+                  <div className="fetch-home-service-rail-headline-row">
+                    <h3
+                      id="fetch-home-intent-service-headline"
+                      className="fetch-home-service-rail-headline"
+                    >
+                      Choose a service
+                    </h3>
+                    <button
+                      type="button"
+                      className="fetch-home-service-advanced-trigger"
+                      aria-label="All service types"
+                      aria-expanded={advancedServiceMenuOpen}
+                      aria-haspopup="dialog"
+                      aria-controls="fetch-home-advanced-service-menu"
+                      onClick={() => setAdvancedServiceMenuOpen(true)}
+                    >
+                      <svg
+                        width="20"
+                        height="20"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.25"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden
+                      >
+                        <path d="m9 18 6-6-6-6" />
+                      </svg>
+                    </button>
+                  </div>
+                  <div
+                    className="fetch-home-service-carousel-clip"
+                    role="presentation"
+                  >
+                    <div
+                      className="fetch-home-service-carousel"
+                      role="group"
+                      aria-labelledby="fetch-home-intent-service-headline"
+                    >
+                      <div className="fetch-home-service-carousel-track">
+                        {LANDING_PRIMARY_SERVICES.map((opt) => (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            data-tone={opt.tone}
+                            aria-label={opt.label}
+                            onClick={() => {
+                              pendingServicePersonalityRef.current =
+                                opt.fetchPersonalityExample
+                              setServicePersonalityLine(
+                                opt.fetchPersonalityExample,
+                              )
+                              commitJobTypeSelection(opt.jobType)
+                            }}
+                            className="fetch-home-service-segment"
+                          >
+                            <HomeServiceTypeIllustration
+                              jobType={opt.jobType}
+                              className="fetch-home-service-segment-icon"
+                            />
+                            <span className="fetch-home-service-segment-label font-semibold leading-tight tracking-[-0.02em]">
+                              {opt.label}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </section>
             </div>
           ) : null}
@@ -3424,11 +3709,35 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
             </>
           ) : null}
 
-          {showPostScan && bookingState.bookingStatus && isActiveDriverFlow(bookingState.bookingStatus)
+          {showPostScan && bookingState.bookingStatus && isLivePipelinePersistedStatus(bookingState.bookingStatus)
             ? (() => {
                 const jc = junkLiveJobCopy(bookingState.bookingStatus!, bookingState.driver)
                 return (
                   <>
+                    {bookNowSyncError ? (
+                      <div className="mb-3 rounded-xl border border-red-200/50 bg-red-50/90 px-3 py-2.5">
+                        <p className="text-[11px] font-semibold leading-snug text-red-900/90">
+                          Payment succeeded, but Fetch could not save your booking.
+                        </p>
+                        <p className="mt-1 text-[11px] leading-snug text-red-800/85">{bookNowSyncError}</p>
+                        <button
+                          type="button"
+                          disabled={bookNowSyncRetryBusy}
+                          onClick={() => {
+                            void retryMarketplaceSync()
+                          }}
+                          className="fetch-stage-primary-btn mt-2 w-full rounded-xl px-3 py-2 text-center text-[12px] font-semibold transition-transform active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {bookNowSyncRetryBusy ? 'Retrying…' : 'Retry save'}
+                        </button>
+                      </div>
+                    ) : null}
+                    {showDemoTimelineOnly && !bookNowSyncError ? (
+                      <p className="mb-2 text-[10px] font-medium leading-snug text-amber-900/85 [text-wrap:pretty]">
+                        Demo driver timeline on this device only — your booking is not on Fetch servers
+                        until sync succeeds.
+                      </p>
+                    ) : null}
                     <div className="flex items-start justify-between gap-2">
                       <h2 className="text-[14px] font-semibold leading-tight tracking-[-0.02em] text-fetch-charcoal">
                         {jc.title}
@@ -3444,35 +3753,134 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
                     <p className="mt-1.5 text-[12px] font-medium leading-snug text-fetch-muted/90">
                       {jc.line}
                     </p>
-                    {bookingState.driver &&
-                    (bookingState.bookingStatus === 'matched' ||
-                      bookingState.bookingStatus === 'en_route' ||
-                      bookingState.bookingStatus === 'arrived' ||
-                      bookingState.bookingStatus === 'in_progress') ? (
+                    {bookingState.driver && isWireStatusActiveForDriverGps(bookingState.bookingStatus) ? (
                       <p className="mt-2 text-[11px] font-medium text-fetch-charcoal/85">
                         {bookingState.driver.vehicle ? `${bookingState.driver.vehicle} · ` : ''}
                         {bookingState.driver.rating != null ? `${bookingState.driver.rating}★` : ''}
                       </p>
                     ) : null}
-                    {bookingState.bookingStatus === 'dispatching' ? (
-                      <div className="mt-3 flex items-center gap-2">
-                        <div className="fetch-stage-spinner h-3 w-3 animate-spin rounded-full" />
-                        <p className="text-[12px] font-medium text-fetch-muted/80">Searching…</p>
+                    {isWireStatusMatching(bookingState.bookingStatus) ? (
+                      <div className="mt-3 space-y-1">
+                        <div className="flex items-center gap-2">
+                          <div className="fetch-stage-spinner h-3 w-3 animate-spin rounded-full" />
+                          <p className="text-[12px] font-medium text-fetch-muted/80">
+                            {(() => {
+                              void matchUiTick
+                              const start = bookingState.matchingMeta?.matchStartedAt
+                              if (start == null) return 'Searching…'
+                              const sec = Math.max(0, Math.floor((Date.now() - start) / 1000))
+                              return sec >= 60
+                                ? `Searching · ${Math.floor(sec / 60)}m ${sec % 60}s`
+                                : `Searching · ${sec}s`
+                            })()}
+                          </p>
+                        </div>
+                        {bookingState.matchingMeta != null &&
+                        (bookingState.matchingMeta.driversContacted ?? 0) > 0 ? (
+                          <p className="pl-5 text-[11px] font-medium text-fetch-muted/70">
+                            Drivers contacted: {bookingState.matchingMeta.driversContacted}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {bookingState.bookingStatus === 'match_failed' ? (
+                      <div className="mt-3 space-y-2">
+                        <p className="text-[12px] font-medium leading-snug text-amber-900/85 [text-wrap:pretty]">
+                          We could not lock in a driver. Your payment is still valid — try the search again
+                          whenever you are ready.
+                        </p>
+                        {matchRetryError ? (
+                          <p className="text-[11px] font-medium text-red-600/90">{matchRetryError}</p>
+                        ) : null}
+                        <button
+                          type="button"
+                          disabled={
+                            matchRetryBusy ||
+                            !bookingState.bookingId ||
+                            bookingState.bookingId.startsWith('demo-')
+                          }
+                          onClick={() => void handleRetryDispatchAfterMatchFail()}
+                          className="fetch-stage-primary-btn w-full rounded-2xl px-3 py-2.5 text-center text-[13px] font-semibold transition-transform active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {matchRetryBusy ? 'Searching…' : 'Try finding a driver again'}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={
+                            matchRetryBusy ||
+                            !bookingState.bookingId ||
+                            bookingState.bookingId.startsWith('demo-')
+                          }
+                          onClick={() => {
+                            const id = bookingState.bookingId
+                            if (!id || id.startsWith('demo-')) return
+                            void (async () => {
+                              setMatchRetryBusy(true)
+                              setMatchRetryError(null)
+                              try {
+                                const row = await patchBookingStatus(id, { status: 'cancelled' })
+                                setBookingState((prev) => {
+                                  const next = { ...prev, ...bookingRecordToStatePatch(row) }
+                                  next.mode = 'idle'
+                                  next.flowStep = deriveFlowStep(next)
+                                  return next
+                                })
+                                speakLine('Booking cancelled.', {
+                                  debounceKey: 'match_fail_cancel',
+                                  debounceMs: 0,
+                                  withVoiceHold: true,
+                                })
+                                appendHomeAlert({
+                                  title: 'Booking cancelled',
+                                  body: 'You can start a new job anytime.',
+                                })
+                                refreshLocalFeeds()
+                              } catch (e) {
+                                setMatchRetryError(
+                                  e instanceof Error ? e.message : 'Could not cancel booking.',
+                                )
+                              } finally {
+                                setMatchRetryBusy(false)
+                              }
+                            })()
+                          }}
+                          className="fetch-home-secondary-btn w-full rounded-2xl px-3 py-2.5 text-center text-[13px] font-semibold transition-transform active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          Cancel booking
+                        </button>
                       </div>
                     ) : null}
                     {bookingState.bookingStatus === 'completed' ? (
-                      <button
-                        type="button"
-                        onClick={goBackToIntent}
-                        className="fetch-stage-primary-btn mt-3 w-full rounded-2xl px-3 py-2.5 text-center text-[13px] font-semibold transition-transform active:scale-[0.97]"
-                      >
-                        Book another job
-                      </button>
+                      <>
+                        <BookingCompletionSummary
+                          jobType={bookingState.jobType}
+                          pickupAddressText={bookingState.pickupAddressText}
+                          dropoffAddressText={bookingState.dropoffAddressText}
+                          pricing={bookingState.pricing}
+                          paymentIntent={bookingState.paymentIntent}
+                          timeline={bookingState.timeline}
+                          driver={bookingState.driver}
+                          customerRating={bookingState.customerRating}
+                          canPersistRating={Boolean(
+                            bookingState.bookingId && !bookingState.bookingId.startsWith('demo-'),
+                          )}
+                          onSubmitRating={handleSubmitCompletionRating}
+                          ratingBusy={ratingSubmitBusy}
+                          ratingError={ratingSubmitError}
+                        />
+                        <button
+                          type="button"
+                          onClick={goBackToIntent}
+                          className="fetch-stage-primary-btn mt-3 w-full rounded-2xl px-3 py-2.5 text-center text-[13px] font-semibold transition-transform active:scale-[0.97]"
+                        >
+                          Book another job
+                        </button>
+                      </>
                     ) : null}
                   </>
                 )
               })()
-            : showPostScan && bookingState.pricing ? (
+            : showPostScan && sheetDisplayPricing ? (
             <>
               <div className="flex items-start justify-between gap-2">
                 <h2 className="text-[14px] font-semibold leading-tight tracking-[-0.02em] text-fetch-charcoal">
@@ -3487,34 +3895,70 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
                 </button>
               </div>
 
-              <div className="mt-2 flex items-baseline gap-1.5">
-                <span className="text-[26px] font-extrabold leading-none tracking-[-0.03em] text-fetch-charcoal">
-                  ${bookingState.pricing.minPrice}
-                </span>
-                <span className="text-[16px] font-semibold text-fetch-muted/60">–</span>
-                <span className="text-[26px] font-extrabold leading-none tracking-[-0.03em] text-fetch-charcoal">
-                  ${bookingState.pricing.maxPrice}
-                </span>
-                <span className="ml-1 text-[11px] font-medium text-fetch-muted/70">AUD</span>
-              </div>
+              {sheetQuoteError && !quoteLive.ok ? (
+                <p className="mt-2 text-[11px] font-medium leading-snug text-amber-200/90">
+                  {sheetQuoteError}
+                </p>
+              ) : null}
+
+              {sheetDisplayPricing.totalPrice != null ? (
+                <div className="mt-2">
+                  <p className="text-[11px] font-medium text-fetch-muted/75">Total (estimate)</p>
+                  <div className="mt-0.5 flex items-baseline gap-1.5">
+                    <span className="text-[26px] font-extrabold leading-none tracking-[-0.03em] text-fetch-charcoal">
+                      ${sheetDisplayPricing.totalPrice}
+                    </span>
+                    <span className="ml-1 text-[11px] font-medium text-fetch-muted/70">AUD</span>
+                  </div>
+                  <p className="mt-1 text-[10px] text-fetch-muted/65">
+                    Typical band ${sheetDisplayPricing.minPrice}–${sheetDisplayPricing.maxPrice} AUD
+                  </p>
+                </div>
+              ) : (
+                <div className="mt-2 flex items-baseline gap-1.5">
+                  <span className="text-[26px] font-extrabold leading-none tracking-[-0.03em] text-fetch-charcoal">
+                    ${sheetDisplayPricing.minPrice}
+                  </span>
+                  <span className="text-[16px] font-semibold text-fetch-muted/60">–</span>
+                  <span className="text-[26px] font-extrabold leading-none tracking-[-0.03em] text-fetch-charcoal">
+                    ${sheetDisplayPricing.maxPrice}
+                  </span>
+                  <span className="ml-1 text-[11px] font-medium text-fetch-muted/70">AUD</span>
+                </div>
+              )}
+
+              {sheetDisplayPricing.usedRouteFallback ? (
+                <p className="mt-1.5 text-[10px] font-medium text-fetch-muted/70">
+                  Route distance is estimated from your addresses until navigation finalizes.
+                </p>
+              ) : null}
 
               <p className="mt-1.5 text-[11px] font-medium leading-snug text-fetch-muted/80">
-                {bookingState.pricing.explanation}
+                {sheetDisplayPricing.explanation}
               </p>
               <p className="mt-0.5 text-[11px] text-fetch-muted/65">
-                ~{Math.round(bookingState.pricing.estimatedDuration / 60)} min estimated
+                ~{Math.round(sheetDisplayPricing.estimatedDuration / 60)} min estimated
               </p>
 
-              {bookingState.quoteBreakdown ? (
+              {sheetDisplayPricing.depositDueNow != null &&
+              sheetDisplayPricing.balanceRemaining != null &&
+              sheetDisplayPricing.balanceRemaining > 0 ? (
+                <p className="mt-1 text-[10px] text-fetch-muted/70">
+                  Due now ${sheetDisplayPricing.depositDueNow} AUD · Balance ${sheetDisplayPricing.balanceRemaining}{' '}
+                  AUD
+                </p>
+              ) : null}
+
+              {sheetDisplayBreakdown ? (
                 <div className="mt-2.5 space-y-1 border-t border-white/[0.08] pt-2">
                   {([
-                    ['Base fee', bookingState.quoteBreakdown.baseFee],
-                    ['Route', bookingState.quoteBreakdown.routeFee],
-                    ['Route time', bookingState.quoteBreakdown.routeTimeFee],
-                    ['Items', bookingState.quoteBreakdown.inventoryFee],
-                    ['Access', bookingState.quoteBreakdown.accessFee],
-                    ['Disposal', bookingState.quoteBreakdown.disposalFee],
-                    ['Helpers', bookingState.quoteBreakdown.helperFee],
+                    ['Base fee', sheetDisplayBreakdown.baseFee],
+                    ['Route', sheetDisplayBreakdown.routeFee],
+                    ['Route time', sheetDisplayBreakdown.routeTimeFee],
+                    ['Items', sheetDisplayBreakdown.inventoryFee],
+                    ['Access', sheetDisplayBreakdown.accessFee],
+                    ['Disposal', sheetDisplayBreakdown.disposalFee],
+                    ['Helpers', sheetDisplayBreakdown.helperFee],
                   ] as const)
                     .filter(([, v]) => v > 0)
                     .map(([label, value]) => {
@@ -3529,11 +3973,11 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
                         </div>
                       )
                     })}
-                  {bookingState.quoteBreakdown.moveSizeMultiplier > 1 ? (
+                  {sheetDisplayBreakdown.moveSizeMultiplier > 1 ? (
                     <div className="flex justify-between text-[11px]">
                       <span className="text-fetch-muted/80">Size multiplier</span>
                       <span className="font-medium text-fetch-charcoal/80">
-                        x{bookingState.quoteBreakdown.moveSizeMultiplier}
+                        x{sheetDisplayBreakdown.moveSizeMultiplier}
                       </span>
                     </div>
                   ) : null}
@@ -3552,31 +3996,59 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
                   {bookNowError}
                 </p>
               ) : null}
+              {bookNowSyncError ? (
+                <div className="mt-2 space-y-2">
+                  <p className="text-[11px] font-medium leading-snug text-amber-200/90">{bookNowSyncError}</p>
+                  <button
+                    type="button"
+                    disabled={bookNowSyncRetryBusy || !bookNowSyncRetryRef.current}
+                    onClick={() => void retryMarketplaceSync()}
+                    className="fetch-stage-primary-btn w-full rounded-2xl px-3 py-2 text-center text-[12px] font-semibold transition-transform active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {bookNowSyncRetryBusy ? 'Saving…' : 'Retry save to Fetch'}
+                  </button>
+                </div>
+              ) : null}
               <p className="mt-2 text-[10px] leading-snug text-fetch-muted/75 [text-wrap:pretty]">
                 Book now creates a payment intent on the Fetch server and confirms it with your default
                 card from Account (demo storage on this device — see Account for details).
               </p>
               <button
                 type="button"
-                disabled={bookNowBusy || !bookingState.pricing}
+                disabled={bookNowBusy || !sheetDisplayPricing}
                 onClick={() => {
                   if (fetchPerfIsEnabled()) {
                     fetchPerfMark(undefined, '1_user_action', { action: 'book_now_click' })
                   }
-                  const pricing = bookingState.pricing
+                  const live = computePriceForState(bookingStateRef.current, {
+                    allowRouteFallback: true,
+                  })
+                  const pricing = live.ok ? live.pricing : bookingStateRef.current.pricing
                   if (!pricing) return
+                  const payAmount =
+                    pricing.depositDueNow ?? pricing.totalPrice ?? pricing.maxPrice
                   void (async () => {
                     setBookNowBusy(true)
                     setBookNowError(null)
+                    setBookNowSyncError(null)
+                    bookNowSyncRetryRef.current = null
+                    let marketplaceSynced = false
                     try {
                       const pi = await chargeDefaultSavedCard({
-                        amount: pricing.maxPrice,
+                        amount: payAmount,
                         bookingId: bookingState.bookingId,
                       })
+                      if (pi.status !== 'succeeded') {
+                        throw new Error(
+                          `Payment did not complete (status: ${pi.status}).${
+                            pi.lastError ? ` ${pi.lastError}` : ''
+                          }`,
+                        )
+                      }
                       playUiEvent('success')
                       appendHomeActivity({
                         title: 'Payment confirmed',
-                        subtitle: `$${pricing.maxPrice} AUD charged · intent ${pi.id} (${pi.status})`,
+                        subtitle: `$${payAmount} AUD charged · intent ${pi.id} (${pi.status})`,
                         jobType: jobType ?? undefined,
                         priceMin: pricing.minPrice,
                         priceMax: pricing.maxPrice,
@@ -3589,7 +4061,7 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
                       })
                       appendHomeAlert({
                         title: 'Payment confirmed',
-                        body: `Charged up to $${pricing.maxPrice} AUD. Reference ${pi.id}.`,
+                        body: `Charged $${payAmount} AUD. Reference ${pi.id}.`,
                       })
                       refreshLocalFeeds()
                       const bs = bookingStateRef.current
@@ -3598,23 +4070,59 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
                           ? bs.bookingId
                           : `bk_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
                       try {
+                        const liveAtPay = computePriceForState(bs, { allowRouteFallback: true })
                         const merged: BookingState = {
                           ...bs,
                           paymentIntent: pi,
                           selectedPaymentMethodId: pi.paymentMethodId,
+                          ...(liveAtPay.ok
+                            ? { pricing: liveAtPay.pricing, quoteBreakdown: liveAtPay.breakdown }
+                            : {}),
                         }
                         const payload = bookingStateToConfirmedUpsertPayload(merged, nextBookingId)
                         const saved = await upsertBooking({ ...payload, paymentIntent: pi })
                         nextBookingId = saved.id
                         await dispatchBooking(saved.id)
-                      } catch {
-                        /* Marketplace sync is optional when server/review unavailable */
+                        marketplaceSynced = true
+                        bookNowSyncRetryRef.current = null
+                      } catch (syncErr) {
+                        const msg =
+                          syncErr instanceof Error
+                            ? syncErr.message
+                            : 'Could not save booking to Fetch servers.'
+                        setBookNowSyncError(msg)
+                        const liveAtPay = computePriceForState(bs, { allowRouteFallback: true })
+                        const merged: BookingState = {
+                          ...bs,
+                          paymentIntent: pi,
+                          selectedPaymentMethodId: pi.paymentMethodId,
+                          ...(liveAtPay.ok
+                            ? { pricing: liveAtPay.pricing, quoteBreakdown: liveAtPay.breakdown }
+                            : {}),
+                        }
+                        const payload = bookingStateToConfirmedUpsertPayload(merged, nextBookingId)
+                        bookNowSyncRetryRef.current = { payload, paymentIntent: pi }
+                        appendHomeActivity({
+                          title: 'Booking sync failed',
+                          subtitle: msg,
+                          jobType: jobType ?? undefined,
+                          priceMin: pricing.minPrice,
+                          priceMax: pricing.maxPrice,
+                        })
+                        appendHomeAlert({
+                          title: 'Payment went through — booking sync failed',
+                          body: `${msg} Use Retry save below.`,
+                        })
+                        refreshLocalFeeds()
                       }
-                      startPostPaymentDriverFlow({
-                        paymentIntent: pi,
-                        selectedPaymentMethodId: pi.paymentMethodId,
-                        bookingId: nextBookingId,
-                      })
+                      startPostPaymentDriverFlow(
+                        {
+                          paymentIntent: pi,
+                          selectedPaymentMethodId: pi.paymentMethodId,
+                          bookingId: nextBookingId,
+                        },
+                        { serverLive: marketplaceSynced },
+                      )
                     } catch (err) {
                       const msg =
                         err instanceof Error ? err.message : 'Payment could not be completed.'
@@ -3866,6 +4374,77 @@ export default function HomeView({ onAccountNavigate }: HomeViewProps = {}) {
           onClose={() => setStreetViewPosition(null)}
         />
       ) : null}
+
+      {typeof document !== 'undefined' &&
+      advancedServiceMenuOpen &&
+      createPortal(
+        <div className="fetch-home-advanced-service-root">
+          <button
+            type="button"
+            className="fetch-home-advanced-service-backdrop"
+            aria-label="Close menu"
+            onClick={() => setAdvancedServiceMenuOpen(false)}
+          />
+          <div
+            id="fetch-home-advanced-service-menu"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="fetch-home-advanced-service-title"
+            className="fetch-home-advanced-service-panel"
+          >
+            <div className="fetch-home-advanced-service-panel__header">
+              <h2 id="fetch-home-advanced-service-title" className="fetch-home-advanced-service-title">
+                All services
+              </h2>
+              <button
+                type="button"
+                className="fetch-home-advanced-service-close"
+                aria-label="Close"
+                onClick={() => setAdvancedServiceMenuOpen(false)}
+              >
+                Done
+              </button>
+            </div>
+            <ul className="fetch-home-advanced-service-list" role="list">
+              {ADVANCED_SERVICE_MENU_OPTIONS.map((opt) => (
+                <li key={opt.id}>
+                  <button
+                    type="button"
+                    className="fetch-home-advanced-service-row"
+                    onClick={() => {
+                      pendingServicePersonalityRef.current = opt.personalityLine
+                      setServicePersonalityLine(opt.personalityLine)
+                      commitJobTypeSelection(opt.jobType)
+                      setAdvancedServiceMenuOpen(false)
+                    }}
+                  >
+                    <HomeServiceTypeIllustration
+                      jobType={opt.jobType}
+                      className="fetch-home-advanced-service-row__icon"
+                    />
+                    <span className="fetch-home-advanced-service-row__label">{opt.label}</span>
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="fetch-home-advanced-service-row__chev"
+                      aria-hidden
+                    >
+                      <path d="m9 18 6-6-6-6" />
+                    </svg>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>,
+        document.body,
+      )}
 
     </div>
   )

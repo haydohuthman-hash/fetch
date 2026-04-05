@@ -6,16 +6,15 @@
   "scripts": {
     "dev": "vite",
     "dev:all": "concurrently -n server,vite -c blue,magenta \"npm run server\" \"vite\"",
-    "server": "node server/index.js",
+    "server": "tsx server/index.js",
     "build": "tsc -b && vite build",
-    "test": "node --test server/lib/booking-flow.test.js",
+    "test": "tsx --test server/lib/booking-flow.test.js src/lib/booking/bookingLifecycle.test.ts src/lib/booking/bookingSessionPhase.test.ts",
     "lint": "eslint .",
     "preview": "vite preview"
   },
   "dependencies": {
     "@googlemaps/markerclusterer": "^2.6.2",
     "@react-google-maps/api": "^2.20.8",
-    "@splinetool/react-spline": "^4.1.0",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
@@ -37,6 +36,7 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
     "tailwindcss": "^4.2.2",
+    "tsx": "^4.19.2",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.57.0",
     "vite": "^8.0.1"

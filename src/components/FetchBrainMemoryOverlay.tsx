@@ -4,8 +4,10 @@ import {
   useId,
   useMemo,
   useRef,
+  useState,
   type ChangeEvent,
   type CSSProperties,
+  type FormEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
 import type { FetchBrainMindState } from '../lib/fetchBrainParticles'
@@ -15,7 +17,6 @@ import type { BrainFieldPlaceCard } from '../lib/mapsExplorePlaces'
 import { FetchBrainCortexDirectory } from './FetchBrainCortexDirectory'
 import { FetchBrainFieldPanel } from './FetchBrainFieldPanel'
 import { FetchBrainParticleCanvas } from './FetchBrainParticleCanvas'
-import { FetchBrainSplineBackdrop } from './FetchBrainSplineBackdrop'
 import { FetchBrainThinkingChrome } from './FetchBrainThinkingChrome'
 import { useFetchVoice } from '../voice/FetchVoiceContext'
 import { primeVoicePlaybackFromUserGesture } from '../voice/fetchVoice'
@@ -94,6 +95,7 @@ export function FetchBrainMemoryOverlay({
   onMemoriesSheetClose,
   thinkingUi = null,
 }: FetchBrainMemoryOverlayProps) {
+  const [brainDraft, setBrainDraft] = useState('')
   const closeRef = useRef<HTMLButtonElement>(null)
   const photoInputId = useId()
   const recognitionRef = useRef<{ abort: () => void } | null>(null)
@@ -328,6 +330,23 @@ export function FetchBrainMemoryOverlay({
 
   const visualDescId = 'fetch-brain-visual-caption'
   const thinkingOn = Boolean(thinkingUi?.show)
+  const shrinkField = mind === 'thinking' || thinkingOn
+
+  const submitBrainDraft = useCallback(
+    (e?: FormEvent) => {
+      e?.preventDefault()
+      setBrainDraft((prev) => {
+        const t = prev.trim()
+        if (t) onBrainUtterance(t)
+        return ''
+      })
+    },
+    [onBrainUtterance],
+  )
+
+  const tapBottomClass = fieldPanelOpen
+    ? 'bottom-[min(58vh,420px)]'
+    : 'bottom-[calc(5.75rem+env(safe-area-inset-bottom,0px))]'
 
   return (
     <div
@@ -341,6 +360,7 @@ export function FetchBrainMemoryOverlay({
       ].join(' ')}
       data-fetch-theme={theme}
       data-flow-phase={flowPhase}
+      data-brain-shrink={shrinkField ? '1' : '0'}
       role="dialog"
       aria-modal="true"
       aria-labelledby="fetch-brain-title"
@@ -387,7 +407,6 @@ export function FetchBrainMemoryOverlay({
 
       <div className="fetch-brain-split-stage relative z-0 min-h-0 flex-1 overflow-hidden">
         <div className="fetch-brain-field-bg pointer-events-none absolute inset-0 z-0" aria-hidden />
-        <FetchBrainSplineBackdrop active={flowPhase === 'brain'} />
         <div className="fetch-brain-field-vignette pointer-events-none absolute inset-0 z-0" aria-hidden />
 
         <div className="fetch-brain-shell__canvas pointer-events-none absolute inset-0 z-[1] min-h-0">
@@ -406,6 +425,42 @@ export function FetchBrainMemoryOverlay({
 
         <div className="fetch-brain-shell__grain pointer-events-none absolute inset-0 z-[2]" aria-hidden />
 
+        <div
+          className={[
+            'pointer-events-none absolute inset-x-0 bottom-0 z-[2] overflow-hidden transition-opacity duration-[520ms] ease-[cubic-bezier(0.33,0,0.2,1)]',
+            mind === 'speaking' ? 'opacity-100' : 'opacity-0',
+          ].join(' ')}
+          aria-hidden
+        >
+          <div
+            className={[
+              'absolute inset-x-[-18%] bottom-[-12%] h-[min(52vh,420px)] blur-sm',
+              isLight
+                ? 'bg-[radial-gradient(ellipse_88%_52%_at_50%_100%,rgba(14,165,233,0.22)_0%,rgba(59,130,246,0.16)_35%,rgba(99,102,241,0.08)_58%,transparent_76%)]'
+                : 'bg-[radial-gradient(ellipse_88%_52%_at_50%_100%,rgba(56,189,248,0.42)_0%,rgba(96,165,250,0.32)_30%,rgba(129,140,246,0.18)_52%,rgba(37,99,235,0.06)_68%,transparent_78%)]',
+            ].join(' ')}
+            aria-hidden
+          />
+          <div
+            className={[
+              'absolute inset-x-0 bottom-0 h-[min(32vh,280px)] bg-gradient-to-t to-transparent',
+              isLight
+                ? 'from-sky-500/[0.18] via-blue-500/[0.12] via-[22%]'
+                : 'from-sky-400/[0.38] via-blue-500/[0.28] via-[20%]',
+            ].join(' ')}
+            aria-hidden
+          />
+          <div
+            className={[
+              'absolute inset-x-[-5%] bottom-0 h-36 bg-gradient-to-t to-transparent',
+              isLight
+                ? 'from-cyan-400/[0.12] via-sky-500/[0.08] via-40%'
+                : 'from-cyan-300/[0.26] via-blue-400/[0.18] via-35%',
+            ].join(' ')}
+            aria-hidden
+          />
+        </div>
+
         {thinkingUi?.show ? (
           <FetchBrainThinkingChrome
             active
@@ -423,11 +478,28 @@ export function FetchBrainMemoryOverlay({
           type="button"
           className={[
             'fetch-brain-immersion-tap absolute inset-x-0 top-0 z-[3] cursor-default border-0 bg-transparent p-0 outline-none focus-visible:ring-2 focus-visible:ring-[rgba(var(--brain-glow),0.5)] focus-visible:ring-offset-0',
-            fieldPanelOpen ? 'bottom-[min(58vh,420px)]' : 'bottom-0',
+            tapBottomClass,
           ].join(' ')}
           aria-label={mind === 'listening' ? 'Stop listening' : 'Talk to Fetch'}
           onClick={onTapField}
         />
+
+        {mind === 'listening' || (mind === 'thinking' && !thinkingUi?.show) ? (
+          <div
+            className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center px-10"
+            aria-live="polite"
+          >
+            <p
+              className={[
+                'fetch-brain-stage-label text-center text-2xl font-semibold tracking-tight motion-safe:transition-[opacity,transform] motion-safe:duration-500',
+                isLight ? 'text-neutral-800/92' : 'text-white/92',
+                mind === 'listening' ? 'motion-safe:animate-pulse' : '',
+              ].join(' ')}
+            >
+              {mind === 'listening' ? 'Listening' : 'Thinking'}
+            </p>
+          </div>
+        ) : null}
 
         {!thinkingOn ? (
           <div
@@ -435,7 +507,7 @@ export function FetchBrainMemoryOverlay({
               'fetch-brain-immersion-hud pointer-events-none absolute inset-x-0 z-[4] flex flex-col items-center px-6 pt-8',
               fieldPanelOpen
                 ? 'bottom-[min(58vh,420px)] max-h-[min(32vh,240px)] justify-end pb-3'
-                : 'bottom-0 pb-[max(1.5rem,env(safe-area-inset-bottom))]',
+                : 'bottom-[calc(5.75rem+env(safe-area-inset-bottom,0px))] pb-2',
             ].join(' ')}
           >
             <p
@@ -551,6 +623,48 @@ export function FetchBrainMemoryOverlay({
         ×
       </button>
 
+      {!thinkingOn ? (
+        <form
+          onSubmit={submitBrainDraft}
+          className={[
+            'pointer-events-auto fixed inset-x-0 z-[9] mx-auto flex w-full max-w-lg items-end gap-2 px-4 pb-[max(0.65rem,env(safe-area-inset-bottom))] pt-2',
+            fieldPanelOpen ? 'bottom-[min(58vh,420px)]' : 'bottom-0',
+          ].join(' ')}
+          aria-label="Message Fetch"
+        >
+          <textarea
+            data-brain-draft-input
+            name="brain-draft"
+            rows={1}
+            value={brainDraft}
+            onChange={(e) => setBrainDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                submitBrainDraft()
+              }
+            }}
+            placeholder="Message Fetch…"
+            className={[
+              'max-h-28 min-h-11 min-w-0 flex-1 resize-none rounded-2xl border px-3.5 py-2.5 text-[15px] leading-snug outline-none transition-[box-shadow,border-color] placeholder:opacity-55 focus-visible:ring-2 focus-visible:ring-[rgba(var(--brain-glow),0.45)]',
+              isLight
+                ? 'border-black/12 bg-white/90 text-neutral-900 shadow-[0_2px_12px_rgba(0,0,0,0.06)]'
+                : 'border-white/14 bg-[rgba(12,14,20,0.92)] text-white/95 shadow-[0_2px_16px_rgba(0,0,0,0.35)]',
+            ].join(' ')}
+          />
+          <button
+            type="submit"
+            className="mb-0.5 shrink-0 rounded-full px-4 py-2.5 text-[13px] font-semibold text-white transition-opacity disabled:opacity-35"
+            style={
+              { backgroundColor: `rgb(${glowRgb.r}, ${glowRgb.g}, ${glowRgb.b})` } as CSSProperties
+            }
+            disabled={!brainDraft.trim()}
+          >
+            Send
+          </button>
+        </form>
+      ) : null}
+
       {typeof document !== 'undefined' &&
       memoriesSheetOpen &&
       snapshot &&
@@ -559,13 +673,13 @@ export function FetchBrainMemoryOverlay({
             <div className="fixed inset-0 z-[80]">
               <button
                 type="button"
-                className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+                className="absolute inset-0 bg-black/55"
                 aria-label="Close memories"
                 onClick={onMemoriesSheetClose}
               />
               <div
                 className={[
-                  'absolute inset-x-0 bottom-0 top-[16%] flex flex-col overflow-hidden rounded-t-[24px] border shadow-[0_-20px_60px_rgba(0,0,0,0.35)]',
+                  'absolute inset-x-0 bottom-0 top-[16%] flex flex-col overflow-hidden rounded-t-[24px] border shadow-[0_-8px_28px_rgba(0,0,0,0.22)]',
                   isLight
                     ? 'border-black/10 bg-white/96 text-neutral-900'
                     : 'border-white/10 bg-[rgba(10,12,18,0.98)] text-white',

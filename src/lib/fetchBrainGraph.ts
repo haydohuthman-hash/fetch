@@ -2,7 +2,7 @@ import type { BookingJobType } from './assistant'
 import type { BrainAccountSnapshot } from './fetchBrainAccountSnapshot'
 import { brainCatalogIdToGraphNodeId, formatBrainMileageDisplay } from './fetchBrainAccountSnapshot'
 
-export type BrainNodeKind = 'core' | 'hub' | 'memory' | 'activity' | 'job' | 'nav'
+export type BrainNodeKind = 'core' | 'hub' | 'memory' | 'activity' | 'job' | 'nav' | 'web'
 
 export type BrainNode = {
   id: string

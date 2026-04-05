@@ -45,12 +45,26 @@ export type BookingRoute = {
   durationSeconds?: number
 }
 
+/** Bump when quote math or inputs change materially (audit / support). */
+export const BOOKING_QUOTE_VERSION = 1 as const
+
 export type BookingPricing = {
   minPrice: number
   maxPrice: number
   currency: 'AUD'
   estimatedDuration: number
   explanation: string
+  /** Uber-style single number (rounded subtotal). */
+  totalPrice?: number
+  /** Amount to authorize or charge now (demo: full total). */
+  depositDueNow?: number
+  /** Pay-after-job remainder (demo: 0). */
+  balanceRemaining?: number
+  /** True when distance/duration came from address heuristic, not a real route. */
+  usedRouteFallback?: boolean
+  quoteVersion?: typeof BOOKING_QUOTE_VERSION
+  /** Set when the quote is frozen at booking confirmation. */
+  lockedQuoteAt?: number
 }
 
 export type BookingQuoteBreakdown = {
@@ -100,12 +114,17 @@ export type BookingLifecycleStatus =
   | 'draft'
   | 'payment_required'
   | 'confirmed'
+  /** @deprecated Prefer pending_match; still accepted from older server data. */
   | 'dispatching'
+  /** Paid job: matching engine is cycling driver offers (Uber-style). */
+  | 'pending_match'
   | 'matched'
   | 'en_route'
   | 'arrived'
   | 'in_progress'
   | 'completed'
+  /** Matching window exhausted — customer may retry dispatch or cancel. */
+  | 'match_failed'
   | 'cancelled'
 
 export type BookingPaymentIntentStatus =
@@ -154,6 +173,13 @@ export type BookingPaymentIntent = {
   instrument?: BookingPaymentInstrument | null
 }
 
+/** Customer post-job rating persisted on the booking record (marketplace). */
+export type BookingCustomerRating = {
+  stars: 1 | 2 | 3 | 4 | 5
+  note: string | null
+  submittedAt: number
+}
+
 export type BookingTimelineEntry = {
   id: string
   kind:
@@ -163,15 +189,34 @@ export type BookingTimelineEntry = {
     | 'payment_confirmed'
     | 'booking_confirmed'
     | 'dispatching'
+    | 'pending_match'
     | 'matched'
     | 'en_route'
     | 'arrived'
     | 'in_progress'
     | 'completed'
+    | 'match_failed'
     | 'cancelled'
   title: string
   description: string
   createdAt: number
+}
+
+/** Server-driven driver matching (persisted on {@link BookingRecord}). */
+export type BookingMatchingMeta = {
+  matchStartedAt: number
+  /** Monotonic count of offers issued (incl. expired rounds). */
+  driversContacted: number
+  activeOfferId: string | null
+  activeDriverId: string | null
+  offerSentAt: number | null
+  offerTimeoutMs: number
+  /** Cursor into ranked queue for the current pass. */
+  candidateCursor: number
+  /** Last computed ranking (debug / UI transparency). */
+  rankedDriverIds: string[]
+  /** Set when an offer clears (timeout / decline) — used for wave spacing. */
+  lastOfferClearedAt?: number
 }
 
 export type BookingScanResult = {
@@ -258,6 +303,8 @@ export type BookingState = {
   }
   bookingId: string | null
   bookingStatus: BookingLifecycleStatus | null
+  /** Populated when a live marketplace booking is matching or failed matching. */
+  matchingMeta: BookingMatchingMeta | null
   aiReview: BookingAiReview
   paymentIntent: BookingPaymentIntent | null
   selectedPaymentMethodId: string | null
@@ -279,6 +326,8 @@ export type BookingState = {
   junkQuoteAcknowledged: boolean
   /** Junk: user tapped Confirm booking — unlocks pricing / payment mode. */
   junkConfirmStepComplete: boolean
+  /** Set when server returns a persisted customer rating for this booking. */
+  customerRating: BookingCustomerRating | null
 }
 
 export type UserInput = {
@@ -358,6 +407,7 @@ export function createInitialBookingState(): BookingState {
     },
     bookingId: null,
     bookingStatus: null,
+    matchingMeta: null,
     aiReview: {
       status: 'idle',
       summary: null,
@@ -390,5 +440,6 @@ export function createInitialBookingState(): BookingState {
     junkAccessStepComplete: false,
     junkQuoteAcknowledged: false,
     junkConfirmStepComplete: false,
+    customerRating: null,
   }
 }

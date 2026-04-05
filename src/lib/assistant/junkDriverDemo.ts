@@ -1,3 +1,4 @@
+import { isLivePipelinePersistedStatus } from '../booking/bookingLifecycle'
 import { deriveFlowStep } from './bookingReadiness'
 import type { BookingDriver, BookingLifecycleStatus, BookingState } from './types'
 
@@ -19,11 +20,11 @@ export function canBeginDriverSearchDemo(state: BookingState): boolean {
 /** @deprecated Use canBeginDriverSearchDemo */
 export const canBeginJunkDriverDemo = canBeginDriverSearchDemo
 
-/** Demo handoff: dispatching + searching for a driver. */
+/** Demo handoff: pending_match + searching for a driver. */
 export function beginDriverSearchDemo(state: BookingState): BookingState {
   const next: BookingState = {
     ...state,
-    bookingStatus: 'dispatching',
+    bookingStatus: 'pending_match',
     mode: 'searching',
     matchingHandoff: {
       ...state.matchingHandoff,
@@ -57,15 +58,7 @@ export const DEMO_DRIVER: BookingDriver = {
 }
 
 export function isActiveDriverFlow(status: BookingLifecycleStatus | null): boolean {
-  if (status == null) return false
-  return (
-    status === 'dispatching' ||
-    status === 'matched' ||
-    status === 'en_route' ||
-    status === 'arrived' ||
-    status === 'in_progress' ||
-    status === 'completed'
-  )
+  return isLivePipelinePersistedStatus(status)
 }
 
 /** @deprecated Use isActiveDriverFlow */

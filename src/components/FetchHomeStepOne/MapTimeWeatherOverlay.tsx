@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { FetchHardwareShopFlow } from '../FetchHardwareShopFlow'
 import { FetchHomeSideMenu } from '../FetchHomeSideMenu'
@@ -12,15 +12,6 @@ import {
 } from '../../lib/homeActivityFeed'
 import type { HardwareProduct } from '../../lib/hardwareCatalog'
 import { HARDWARE_PRODUCTS } from '../../lib/hardwareCatalog'
-import { BRISBANE_CENTER } from './brisbaneMap'
-import {
-  fetchOpenMeteoForecast,
-  wmoWeatherLabel,
-  type OpenMeteoWeatherSnap,
-} from './openMeteoClient'
-
-const REFRESH_WEATHER_MS = 20 * 60 * 1000
-const TICK_MS = 30_000
 
 export type MapNavStatusStrip = {
   /** `explore` = traffic / map follow — not turn-by-turn. */
@@ -48,18 +39,6 @@ function formatTripDistanceMeters(m: number): string {
   if (!Number.isFinite(m) || m <= 0) return ''
   if (m >= 1000) return `${(m / 1000).toFixed(1)} km`
   return `${Math.round(m)} m`
-}
-
-function formatNow(timeZone: string): string {
-  const d = new Date()
-  return new Intl.DateTimeFormat(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZone,
-  }).format(d)
 }
 
 type MapTimeWeatherOverlayProps = {
@@ -102,15 +81,6 @@ function MapTimeWeatherOverlayInner({
   onDriverExit,
 }: MapTimeWeatherOverlayProps) {
   const isDriver = overlayContext === 'driver'
-  const [coords, setCoords] = useState<{ lat: number; lng: number }>(() => ({
-    lat: BRISBANE_CENTER.lat,
-    lng: BRISBANE_CENTER.lng,
-  }))
-  const [weather, setWeather] = useState<OpenMeteoWeatherSnap | null>(null)
-  const [weatherError, setWeatherError] = useState(false)
-  const [nowLabel, setNowLabel] = useState(() =>
-    formatNow(Intl.DateTimeFormat().resolvedOptions().timeZone),
-  )
   const [sideMenuOpen, setSideMenuOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [legalOpen, setLegalOpen] = useState(false)
@@ -178,74 +148,6 @@ function MapTimeWeatherOverlayInner({
     }
   }, [overlayOpen, dismissTopOverlay])
 
-  const timeZone = weather?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone
-
-  const tickClock = useCallback(() => {
-    setNowLabel(formatNow(timeZone))
-  }, [timeZone])
-
-  useEffect(() => {
-    tickClock()
-    const id = window.setInterval(tickClock, TICK_MS)
-    return () => window.clearInterval(id)
-  }, [tickClock])
-
-  useEffect(() => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) return
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setCoords({
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-        })
-      },
-      () => {},
-      { enableHighAccuracy: false, maximumAge: 300_000, timeout: 12_000 },
-    )
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    let intervalId = 0
-
-    const run = async () => {
-      const ac = new AbortController()
-      const t = window.setTimeout(() => ac.abort(), 14_000)
-      try {
-        const snap = await fetchOpenMeteoForecast(coords.lat, coords.lng, ac.signal)
-        window.clearTimeout(t)
-        if (!cancelled) {
-          setWeather(snap)
-          setWeatherError(false)
-        }
-      } catch {
-        window.clearTimeout(t)
-        if (!cancelled && !ac.signal.aborted) {
-          setWeather(null)
-          setWeatherError(true)
-        }
-      }
-    }
-
-    void run()
-    intervalId = window.setInterval(() => void run(), REFRESH_WEATHER_MS)
-    return () => {
-      cancelled = true
-      window.clearInterval(intervalId)
-    }
-  }, [coords.lat, coords.lng])
-
-  const summary = useMemo(() => {
-    if (!weather) return null
-    const cur = `${Math.round(weather.currentTemp)}°`
-    const nowWx = `${cur} ${wmoWeatherLabel(weather.currentCode)}`
-    const todayR = `Today ${Math.round(weather.todayMax)}°/${Math.round(weather.todayMin)}°`
-    const tomR = `Tomorrow ${Math.round(weather.tomorrowMax)}°/${Math.round(weather.tomorrowMin)}°`
-    /** Single-line copy for the bar */
-    const inline = `${nowWx} · ${todayR} · ${tomR}`
-    return { inline }
-  }, [weather])
-
   const delayLabel =
     navStrip &&
     navStrip.trafficDelaySeconds != null &&
@@ -258,6 +160,8 @@ function MapTimeWeatherOverlayInner({
         : null
 
   const exploreLayout = navStrip?.layout === 'explore'
+  /** Turn-by-turn / ETA strip (not lightweight explore card) — compact brand sits top-left on the map. */
+  const routeNavHeader = Boolean(navStrip && !exploreLayout)
   const appleDriving =
     navStrip?.layout === 'route' && navStrip.navChrome === 'apple'
   const tripDist =
@@ -312,9 +216,100 @@ function MapTimeWeatherOverlayInner({
       ) : null}
 
       <div
-        className="pointer-events-none absolute left-0 right-0 top-0 z-[40] flex flex-col items-center gap-1.5 px-3 pt-[max(0.45rem,env(safe-area-inset-top))]"
+        className="fetch-home-map-system-header pointer-events-none fixed left-0 right-0 top-0 z-[46] flex h-[var(--fetch-map-header-h)] flex-col bg-white pt-[env(safe-area-inset-top,0px)]"
         aria-live="polite"
       >
+        <div
+          className={[
+            'fetch-home-map-top-actions mx-auto flex min-h-0 w-full max-w-[min(100%,36rem)] flex-1 items-center px-4',
+            routeNavHeader ? 'justify-between gap-3' : 'grid grid-cols-3 gap-2',
+          ].join(' ')}
+        >
+          {routeNavHeader ? (
+            <>
+              <div className="pointer-events-auto flex min-w-0 items-center gap-2">
+                <button
+                  type="button"
+                  id="fetch-home-map-menu-trigger"
+                  className="fetch-home-map-icon-btn inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-zinc-200/90 bg-white text-zinc-800 shadow-sm transition-[transform,colors] active:scale-[0.97]"
+                  aria-label="Open menu"
+                  aria-expanded={sideMenuOpen}
+                  aria-controls="fetch-home-map-side-menu"
+                  onClick={() => {
+                    setHelpOpen(false)
+                    setSideMenuOpen(true)
+                  }}
+                >
+                  <HamburgerIcon className="h-[18px] w-[18px] translate-y-px" />
+                </button>
+                <p
+                  className="fetch-home-map-nav-brand pointer-events-none min-w-0 select-none truncate text-[12px] font-extrabold leading-none tracking-[-0.04em] text-zinc-900"
+                  aria-label="Fetch"
+                >
+                  Fetch
+                </p>
+              </div>
+              <div className="pointer-events-auto flex shrink-0 justify-end">
+                <button
+                  type="button"
+                  className="fetch-home-map-help-btn inline-flex h-9 shrink-0 items-center justify-center rounded-full border border-zinc-200/90 bg-white px-3.5 text-[12px] font-semibold leading-none tracking-[-0.02em] text-zinc-800 shadow-sm transition-[transform,colors] active:scale-[0.97]"
+                  onClick={() => {
+                    setSideMenuOpen(false)
+                    setHelpOpen(true)
+                  }}
+                >
+                  Help
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="pointer-events-auto flex justify-start">
+                <button
+                  type="button"
+                  id="fetch-home-map-menu-trigger"
+                  className="fetch-home-map-icon-btn inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-zinc-200/90 bg-white text-zinc-800 shadow-sm transition-[transform,colors] active:scale-[0.97]"
+                  aria-label="Open menu"
+                  aria-expanded={sideMenuOpen}
+                  aria-controls="fetch-home-map-side-menu"
+                  onClick={() => {
+                    setHelpOpen(false)
+                    setSideMenuOpen(true)
+                  }}
+                >
+                  <HamburgerIcon className="translate-y-px" />
+                </button>
+              </div>
+              <p
+                className="fetch-home-map-brand-logo pointer-events-none min-w-0 select-none truncate text-center text-[17px] font-semibold leading-none tracking-[-0.03em] text-zinc-900"
+                aria-label="Fetch AI"
+              >
+                <span className="text-zinc-900">Fetch</span>
+                <span className="font-semibold text-zinc-500"> AI</span>
+              </p>
+              <div className="pointer-events-auto flex justify-end">
+                <button
+                  type="button"
+                  className="fetch-home-map-help-btn inline-flex h-10 shrink-0 items-center justify-center rounded-full border border-zinc-200/90 bg-white px-4 text-[13px] font-semibold leading-none tracking-[-0.02em] text-zinc-800 shadow-sm transition-[transform,colors] active:scale-[0.97]"
+                  onClick={() => {
+                    setSideMenuOpen(false)
+                    setHelpOpen(true)
+                  }}
+                >
+                  Help
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div
+        className="pointer-events-none fixed left-0 right-0 z-[40] flex flex-col items-center gap-1.5 px-3"
+        style={{ top: 'calc(var(--fetch-map-header-h) + 0.375rem)' }}
+        aria-live="polite"
+      >
+        <div className="relative flex w-full max-w-[min(100%,36rem)] flex-col gap-1.5">
         {navStrip ? (
           <div
             key={navStrip.liveRegionKey}
@@ -401,54 +396,8 @@ function MapTimeWeatherOverlayInner({
             )}
           </div>
         ) : null}
-        {!appleDriving ? (
-      <div className="fetch-map-time-weather-pill flex max-w-[min(100%,36rem)] flex-row flex-nowrap items-center gap-2 overflow-hidden rounded-full border border-white/[0.1] bg-[rgba(6,6,12,0.52)] py-1.5 pl-3.5 pr-3 shadow-[0_8px_28px_rgba(0,0,0,0.35)] backdrop-blur-md backdrop-saturate-[1.15]">
-        <span className="fetch-map-time-weather-time shrink-0 text-[12px] font-semibold tabular-nums tracking-[-0.02em] text-white/[0.94]">
-          {nowLabel}
-        </span>
-        <span className="fetch-map-time-weather-divider h-3.5 w-px shrink-0 bg-white/15" aria-hidden />
-        {summary ? (
-          <span className="fetch-map-time-weather-wx min-w-0 flex-1 truncate text-[11.5px] font-medium text-white/[0.78]">
-            {summary.inline}
-          </span>
-        ) : weatherError ? (
-          <span className="fetch-map-time-weather-muted min-w-0 truncate text-[11px] font-medium text-white/45">
-            Weather unavailable
-          </span>
-        ) : (
-          <span className="fetch-map-time-weather-muted min-w-0 truncate text-[11px] font-medium text-white/45">
-            Loading weather…
-          </span>
-        )}
-      </div>
-        ) : null}
-        <div className="fetch-home-map-top-actions pointer-events-auto mt-0.5 flex w-full max-w-[min(100%,36rem)] flex-row items-center justify-between gap-2">
-          <button
-            type="button"
-            id="fetch-home-map-menu-trigger"
-            className="fetch-home-map-icon-btn flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/[0.12] bg-[rgba(6,6,12,0.52)] text-white/[0.92] shadow-[0_6px_20px_rgba(0,0,0,0.28)] backdrop-blur-md backdrop-saturate-[1.15] transition-[transform,colors] active:scale-[0.97]"
-            aria-label="Open menu"
-            aria-expanded={sideMenuOpen}
-            aria-controls="fetch-home-map-side-menu"
-            onClick={() => {
-              setHelpOpen(false)
-              setSideMenuOpen(true)
-            }}
-          >
-            <HamburgerIcon />
-          </button>
-          <button
-            type="button"
-            className="fetch-home-map-help-btn rounded-full border border-white/[0.12] bg-[rgba(6,6,12,0.52)] px-4 py-2 text-[12px] font-semibold tracking-[-0.02em] text-white/[0.92] shadow-[0_6px_20px_rgba(0,0,0,0.28)] backdrop-blur-md backdrop-saturate-[1.15] transition-[transform,colors] active:scale-[0.97]"
-            onClick={() => {
-              setSideMenuOpen(false)
-              setHelpOpen(true)
-            }}
-          >
-            Help
-          </button>
         </div>
-    </div>
+      </div>
 
       {typeof document !== 'undefined' && sideMenuOpen
         ? createPortal(

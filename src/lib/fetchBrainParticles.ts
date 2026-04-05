@@ -2,10 +2,17 @@ import type { BrainNode } from './fetchBrainGraph'
 
 export type FetchBrainMindState = 'idle' | 'listening' | 'thinking' | 'speaking'
 
-/** Slightly below prior cap — fewer verts/step + draw work, still reads dense. */
-const N = 2600
-const CELL = 36
-const GRID_BUCKET = 12
+/** Dots on the outer ring (with jitter). */
+const BRAIN_RING_N = 250
+/** Interior disk fill — uniform area sampling up to the ring so the circle reads solid. */
+const BRAIN_INNER_N = 980
+/** Total anchors = ring + interior. */
+export const BRAIN_ANCHOR_N = BRAIN_RING_N + BRAIN_INNER_N
+const CHILD_PER_ANCHOR = 8
+/** Max angle jitter (rad) — keeps dots on a ring but slightly irregular. */
+const RING_ANGLE_JITTER = 0.42
+/** Fractional radius jitter ± half this range. */
+const RING_RADIUS_JITTER = 0.07
 
 function hash01(i: number, seed = 0) {
   let h = (i + 1) * 374761393 + seed * 668265263
@@ -13,7 +20,6 @@ function hash01(i: number, seed = 0) {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296
 }
 
-/** Smooth 2D value noise-ish for organic flow */
 function n2(x: number, y: number, t: number) {
   return (
     Math.sin(x * 0.019 + t * 1.1) * Math.cos(y * 0.017 - t * 0.9) * 0.5 +
@@ -21,169 +27,197 @@ function n2(x: number, y: number, t: number) {
   )
 }
 
+type Rgb = { r: number; g: number; b: number }
+
+function lerpRgb(a: Rgb, b: Rgb, t: number): Rgb {
+  const u = Math.max(0, Math.min(1, t))
+  return {
+    r: Math.round(a.r + (b.r - a.r) * u),
+    g: Math.round(a.g + (b.g - a.g) * u),
+    b: Math.round(a.b + (b.b - a.b) * u),
+  }
+}
+
+/** Dot body: dark blue-greys on dark theme; light blues, greys, and slate accents on light. */
+export function brainPaletteCore(t01: number, theme: 'light' | 'dark'): Rgb {
+  const u = ((t01 % 1) + 1) % 1
+  if (theme === 'dark') {
+    if (u < 0.5) return lerpRgb({ r: 12, g: 20, b: 40 }, { r: 26, g: 38, b: 68 }, u / 0.5)
+    return lerpRgb({ r: 26, g: 38, b: 68 }, { r: 38, g: 52, b: 86 }, (u - 0.5) / 0.5)
+  }
+  if (u < 0.34) return lerpRgb({ r: 228, g: 234, b: 242 }, { r: 206, g: 214, b: 226 }, u / 0.34)
+  if (u < 0.68) return lerpRgb({ r: 191, g: 219, b: 254 }, { r: 186, g: 230, b: 253 }, (u - 0.34) / 0.34)
+  return lerpRgb({ r: 96, g: 112, b: 136 }, { r: 62, g: 76, b: 96 }, (u - 0.68) / 0.32)
+}
+
+/** Neon rim / glow — electric light blues (dark) or brighter sky blues (light). */
+export function brainPaletteNeon(t01: number, theme: 'light' | 'dark'): Rgb {
+  const u = ((t01 % 1) + 1) % 1
+  const darkNeons: Rgb[] = [
+    { r: 56, g: 189, b: 248 },
+    { r: 125, g: 211, b: 252 },
+    { r: 96, g: 165, b: 250 },
+    { r: 34, g: 211, b: 238 },
+  ]
+  const lightNeons: Rgb[] = [
+    { r: 14, g: 165, b: 233 },
+    { r: 59, g: 130, b: 246 },
+    { r: 6, g: 182, b: 212 },
+    { r: 56, g: 189, b: 248 },
+  ]
+  const pal = theme === 'dark' ? darkNeons : lightNeons
+  const x = u * pal.length
+  const i = Math.floor(x) % pal.length
+  const j = (i + 1) % pal.length
+  return lerpRgb(pal[i]!, pal[j]!, x - Math.floor(x))
+}
+
+/** @deprecated Use brainPaletteNeon — kept for ingest/bloom call sites. */
+export function brainHueRgbFrom01(t: number, theme: 'light' | 'dark'): Rgb {
+  return brainPaletteNeon(t, theme)
+}
+
 export type BrainParticleBuffers = {
   n: number
   px: Float32Array
   py: Float32Array
-  vx: Float32Array
-  vy: Float32Array
   hx: Float32Array
   hy: Float32Array
-  /** Memory cortex: same plexus shell, slightly tighter than field. */
-  cortexHx: Float32Array
-  cortexHy: Float32Array
   sx: Float32Array
   sy: Float32Array
-  layer: Uint8Array
-  /** 0–1: near a hub → brighter dot / stronger bloom. */
   hubNear01: Float32Array
+  hue01: Float32Array
+  phase: Float32Array
+  open01: Float32Array
+  /** 0 = ring dot, 1 = interior (random in disk). */
+  innerByte: Uint8Array
   hubX: Float32Array
   hubY: Float32Array
   hubPull: Float32Array
   hubCount: number
 }
 
-const N_SYNTH_HUBS = 6
-
-function samplePlexusHome(
-  i: number,
-  w: number,
-  h: number,
-  cx: number,
-  cy: number,
-  hubXa: Float32Array,
-  hubYa: Float32Array,
-  totalHubs: number,
-  scale: number,
-  salt: number,
-): { x: number; y: number; hubNear01: number } {
-  const m = Math.min(w, h)
-  const rIn = m * 0.11 * scale
-  const rOut = m * 0.46 * scale
-  const theta = hash01(i, 1 + salt) * Math.PI * 2 + hash01(i, 2 + salt) * 0.08
-  const shellPick = hash01(i, 41 + salt)
-  let r: number
-  if (shellPick < 0.11) {
-    r = m * (0.035 + Math.sqrt(hash01(i, 42 + salt)) * 0.095) * scale
-  } else {
-    r = rIn + Math.sqrt(hash01(i, 43 + salt)) * (rOut - rIn)
-  }
-  const jx = 0.88 + hash01(i, 48 + salt) * 0.2
-  const jy = 0.86 + hash01(i, 49 + salt) * 0.18
-  let x = cx + Math.cos(theta) * r * jx
-  let y = cy + Math.sin(theta) * r * jy
-
-  if (hash01(i, 44 + salt) < 0.4) {
-    const hk = Math.floor(hash01(i, 45 + salt) * totalHubs) % totalHubs
-    const pull = 0.18 + hash01(i, 46 + salt) * 0.48
-    x += (hubXa[hk]! - x) * pull
-    y += (hubYa[hk]! - y) * pull
-  }
-
-  let minD = 1e9
-  for (let k = 0; k < totalHubs; k++) {
-    const dx = x - hubXa[k]!
-    const dy = y - hubYa[k]!
-    const d = Math.sqrt(dx * dx + dy * dy)
-    if (d < minD) minD = d
-  }
-  const norm = m * 0.24
-  const hubNear01 = Math.max(0, Math.min(1, 1 - minD / norm))
-  return { x, y, hubNear01 }
-}
-
 export function createBrainParticleField(
   w: number,
   h: number,
-  graphNodes: BrainNode[],
+  _graphNodes: BrainNode[],
 ): BrainParticleBuffers | null {
   if (w < 80 || h < 80) return null
 
-  const px = new Float32Array(N)
-  const py = new Float32Array(N)
-  const vx = new Float32Array(N)
-  const vy = new Float32Array(N)
-  const hx = new Float32Array(N)
-  const hy = new Float32Array(N)
-  const cortexHx = new Float32Array(N)
-  const cortexHy = new Float32Array(N)
-  const sx = new Float32Array(N)
-  const sy = new Float32Array(N)
-  const layer = new Uint8Array(N)
-  const hubNear01 = new Float32Array(N)
-
-  const hubs = graphNodes.filter((n) => n.kind === 'core' || n.kind === 'hub' || n.kind === 'nav')
-  const graphHubN = Math.max(1, hubs.length)
-  const totalHubs = graphHubN + N_SYNTH_HUBS
-  const hubX = new Float32Array(totalHubs)
-  const hubY = new Float32Array(totalHubs)
-  const hubPull = new Float32Array(totalHubs)
-
-  if (hubs.length === 0) {
-    hubX[0] = w * 0.5
-    hubY[0] = h * 0.42
-    hubPull[0] = 2.0
-  } else {
-    for (let k = 0; k < graphHubN; k++) {
-      const node = hubs[k]!
-      hubX[k] = (node.x / 1000) * w
-      hubY[k] = (node.y / 700) * h
-      hubPull[k] =
-        node.kind === 'core' ? 2.2 : node.kind === 'nav' ? 1.5 : 1.15
-    }
-  }
+  const n = BRAIN_ANCHOR_N
+  const px = new Float32Array(n)
+  const py = new Float32Array(n)
+  const hx = new Float32Array(n)
+  const hy = new Float32Array(n)
+  const sx = new Float32Array(n)
+  const sy = new Float32Array(n)
+  const hubNear01 = new Float32Array(n)
+  const hue01 = new Float32Array(n)
+  const phase = new Float32Array(n)
+  const open01 = new Float32Array(n)
+  const innerByte = new Uint8Array(n)
 
   const cx = w * 0.5
   const cy = h * 0.4
-  const synthR = Math.min(w, h) * 0.27
-  for (let s = 0; s < N_SYNTH_HUBS; s++) {
-    const ang = -Math.PI / 2 + (s / N_SYNTH_HUBS) * Math.PI * 2
-    const k = graphHubN + s
-    hubX[k] = cx + Math.cos(ang) * synthR
-    hubY[k] = cy + Math.sin(ang) * synthR * 0.9
-    hubPull[k] = 1.28
-  }
+  const m = Math.min(w, h)
+  /** Nominal ring radius — interior fills the same circle (minus hairline gap to avoid double-stacking on ring). */
+  const ringR = m * 0.375
+  const innerMaxR = ringR * 0.988
 
-  for (let i = 0; i < N; i++) {
-    const f = samplePlexusHome(i, w, h, cx, cy, hubX, hubY, totalHubs, 1, 0)
-    hx[i] = f.x
-    hy[i] = f.y
-    const c = samplePlexusHome(i, w, h, cx, cy, hubX, hubY, totalHubs, 0.93, 100)
-    cortexHx[i] = c.x
-    cortexHy[i] = c.y
-    hubNear01[i] = Math.max(f.hubNear01, c.hubNear01) * 0.92 + hash01(i, 60) * 0.08
+  const hubX = new Float32Array(0)
+  const hubY = new Float32Array(0)
+  const hubPull = new Float32Array(0)
 
+  for (let i = 0; i < BRAIN_RING_N; i++) {
+    innerByte[i] = 0
+    const theta =
+      -Math.PI / 2 +
+      (i / BRAIN_RING_N) * Math.PI * 2 +
+      (hash01(i, 88) - 0.5) * RING_ANGLE_JITTER
+    const rJ = ringR * (1 + (hash01(i, 89) - 0.5) * RING_RADIUS_JITTER)
+    hx[i] = cx + Math.cos(theta) * rJ
+    hy[i] = cy + Math.sin(theta) * rJ
+    hubNear01[i] = 0.5 + hash01(i, 60) * 0.42
+    hue01[i] = hash01(i, 71)
+    phase[i] = hash01(i, 72) * Math.PI * 2
+    open01[i] = 0
     sx[i] = hash01(i, 5) * w
     sy[i] = hash01(i, 6) * h
-    layer[i] = i % 3
-    px[i] = sx[i]
-    py[i] = sy[i]
+    px[i] = sx[i]!
+    py[i] = sy[i]!
+  }
+
+  for (let j = 0; j < BRAIN_INNER_N; j++) {
+    const i = BRAIN_RING_N + j
+    innerByte[i] = 1
+    const ru = hash01(i, 201)
+    const tv = hash01(i, 202)
+    /** sqrt(ru) ⇒ uniform density over disk area (not hollow, not center-piled). */
+    const r = innerMaxR * Math.sqrt(ru)
+    const th = tv * Math.PI * 2
+    let ix = cx + Math.cos(th) * r
+    let iy = cy + Math.sin(th) * r
+    ix += (hash01(i, 203) - 0.5) * ringR * 0.045
+    iy += (hash01(i, 204) - 0.5) * ringR * 0.045
+    const dx = ix - cx
+    const dy = iy - cy
+    const d = Math.sqrt(dx * dx + dy * dy) + 1e-4
+    if (d > innerMaxR) {
+      const s = innerMaxR / d
+      ix = cx + dx * s
+      iy = cy + dy * s
+    }
+    hx[i] = ix
+    hy[i] = iy
+    hubNear01[i] = 0.28 + hash01(i, 205) * 0.35
+    hue01[i] = hash01(i, 206)
+    phase[i] = hash01(i, 207) * Math.PI * 2
+    open01[i] = 0
+    sx[i] = hash01(i, 5) * w
+    sy[i] = hash01(i, 6) * h
+    px[i] = sx[i]!
+    py[i] = sy[i]!
   }
 
   return {
-    n: N,
+    n,
     px,
     py,
-    vx,
-    vy,
     hx,
     hy,
-    cortexHx,
-    cortexHy,
     sx,
     sy,
-    layer,
     hubNear01,
+    hue01,
+    phase,
+    open01,
+    innerByte,
     hubX,
     hubY,
     hubPull,
-    hubCount: totalHubs,
+    hubCount: 0,
   }
 }
 
 function easeOutCubic(t: number) {
   const u = Math.max(0, Math.min(1, t))
   return 1 - (1 - u) ** 3
+}
+
+function globalBreatheScale(
+  t: number,
+  mind: FetchBrainMindState,
+  speechAmp: number,
+  reducedMotion: boolean,
+  cortexCalm: boolean,
+): number {
+  if (reducedMotion) {
+    return 1 + (mind === 'speaking' ? speechAmp * 0.048 : 0)
+  }
+  const base = cortexCalm ? 0.014 : 0.038
+  const g = 1 + base * Math.sin(t * 1.12) + (cortexCalm ? 0.006 * Math.sin(t * 0.68) : 0)
+  const speak = mind === 'speaking' ? 0.034 + speechAmp * 0.092 : 0
+  return g + speak
 }
 
 export function stepBrainParticles(
@@ -195,174 +229,60 @@ export function stepBrainParticles(
   dissolve01: number,
   speechAmp: number,
   dt: number,
-  /** Cortex UI: keep particles nearly still — only a light inhale/exhale on the field. */
   cortexCalm = false,
-  /** Deeper cortex zoom (0–1): spread homes toward the viewport edge. */
   cortexSpread01 = 0,
+  reducedMotion = false,
 ) {
-  const { n, px, py, vx, vy, hx, hy, cortexHx, cortexHy, sx, sy, layer, hubX, hubY, hubPull, hubCount } =
-    buf
+  const { n, px, py, hx, hy, sx, sy, phase, open01 } = buf
   const d = easeOutCubic(dissolve01)
   const cx = w * 0.5
   const cy = h * 0.4
-  const wHeart = 1.05
-  const idleHeartBreathe =
-    1 +
-    0.014 * Math.sin(t * wHeart) +
-    0.0068 * Math.sin(2 * t * wHeart + 0.45)
-  const breatheFreq = mind === 'speaking' ? 1.78 : 1.32
-  const breatheAmp = mind === 'speaking' ? 0.026 : 0.012
-  const breatheNormal =
-    mind === 'idle'
-      ? idleHeartBreathe
-      : 1 + Math.sin(t * breatheFreq) * breatheAmp
-  const breathe = cortexCalm
-    ? 1 + 0.0042 * Math.sin(t * 0.68) + 0.0019 * Math.sin(t * 1.36 + 0.4)
-    : breatheNormal
-
   const spread = Math.max(0, Math.min(1, cortexSpread01))
-  const spreadMul = 1 + spread * 1.05
+  const spreadMul = 1 + spread * 0.08
+
+  const gScale = globalBreatheScale(t, mind, speechAmp, reducedMotion, cortexCalm)
+
+  let wantOpen = 0
+  if (mind === 'listening' || mind === 'thinking') wantOpen = 1
+  else if (mind === 'speaking') wantOpen = 0.4
+
+  const openLerpUp = wantOpen > 0.5 ? 2.6 : 1.05
+  const openLerpDown = wantOpen < 0.2 ? 1.35 : openLerpUp
 
   for (let i = 0; i < n; i++) {
-    const rawHx = cortexCalm ? cortexHx[i]! : hx[i]!
-    const rawHy = cortexCalm ? cortexHy[i]! : hy[i]!
-    let hxb = cx + (rawHx - cx) * breathe * spreadMul
-    let hyb = cy + (rawHy - cy) * breathe * (spreadMul * (0.97 + spread * 0.04))
+    const targetOpen =
+      wantOpen * (0.9 + 0.1 * Math.sin(t * 1.35 + phase[i]! * 0.3)) +
+      (mind === 'speaking' ? 0.16 * Math.sin(t * 3.1 + i * 0.2) + speechAmp * 0.22 : 0)
+    const lo = openLerpUp + (openLerpDown - openLerpUp) * (1 - wantOpen)
+    open01[i]! += (Math.max(0, Math.min(1, targetOpen)) - open01[i]!) * Math.min(1, dt * lo)
 
-    if (cortexCalm && spread > 0.04) {
-      const mx = Math.max(Math.abs(hxb - cx), Math.abs(hyb - cy))
-      const cap = Math.min(w, h) * (0.46 + spread * 0.12)
-      if (mx > cap * 0.98) {
-        const s = (cap * 0.98) / mx
-        hxb = cx + (hxb - cx) * s
-        hyb = cy + (hyb - cy) * s
-      }
+    const perDot = 1 + (reducedMotion ? 0 : 0.017) * Math.sin(t * 1.12 + phase[i]!)
+    const radial = gScale * perDot * spreadMul
+    let tx = cx + (hx[i]! - cx) * radial
+    let ty = cy + (hy[i]! - cy) * radial
+
+    if (!reducedMotion && dissolve01 > 0.99) {
+      const nx = i * 0.31
+      const ny = i * 0.27
+      const wob =
+        (mind === 'listening' ? 2.8 : mind === 'thinking' ? 3.4 : mind === 'speaking' ? 7.2 : 1.6) *
+        (mind === 'speaking' ? 0.3 + speechAmp * 0.12 : 0.22)
+      tx += n2(nx, ny, t + i * 0.05) * wob
+      ty += n2(ny, nx, t * 0.97 + i * 0.04) * wob
     }
 
     if (dissolve01 < 0.999) {
-      px[i] = sx[i]! + (hxb - sx[i]!) * d
-      py[i] = sy[i]! + (hyb - sy[i]!) * d
-      vx[i] = 0
-      vy[i] = 0
-      continue
-    }
-
-    let ax = 0
-    let ay = 0
-
-    const kHome = cortexCalm
-      ? 0.0088
-      : mind === 'speaking'
-        ? 0.055 + speechAmp * 0.09
-        : mind === 'thinking'
-          ? 0.038
-          : mind === 'listening'
-            ? 0.054
-            : 0.021
-
-    ax += (hxb - px[i]!) * kHome
-    ay += (hyb - py[i]!) * kHome
-
-    const hubAgg = cortexCalm
-      ? 0.24 * (1 - spread * 0.55)
-      : mind === 'listening'
-        ? 1.35
-        : mind === 'idle'
-          ? 0.58
-          : mind === 'speaking'
-            ? 0.7
-            : 1
-
-    for (let k = 0; k < hubCount; k++) {
-      const dx = hubX[k]! - px[i]!
-      const dy = hubY[k]! - py[i]!
-      const dist = Math.sqrt(dx * dx + dy * dy) + 8
-      const pull = (hubPull[k]! * 520) / (dist * dist)
-      ax += (dx / dist) * pull * hubAgg
-      ay += (dy / dist) * pull * hubAgg
-    }
-
-    const nx = px[i]! * 0.011
-    const ny = py[i]! * 0.011
-    const nt = t + layer[i]! * 0.31
-
-    if (cortexCalm) {
-      const dx0 = px[i]! - cx
-      const dy0 = py[i]! - cy
-      const d0 = Math.sqrt(dx0 * dx0 + dy0 * dy0) + 1e-4
-      const voidR = Math.min(w, h) * (0.1 + spread * 0.04)
-      if (d0 < voidR) {
-        const u = (voidR - d0) / voidR
-        const push = u * u * (0.11 + spread * 0.14)
-        ax -= (dx0 / d0) * push
-        ay -= (dy0 / d0) * push
-      }
-      const gate = Math.sin(t * 0.07) ** 26
-      const idleDrift = n2(nx, ny, nt * 0.28) * 0.32
-      const idleMind = n2(nx * 1.02, ny * 1.02, nt * 0.38) * 1.15 * gate
-      ax += idleDrift + idleMind
-      ay += n2(ny, nx, nt * 0.27) * 0.32 + n2(ny * 1.02, nx * 1.02, nt * 0.37) * 1.15 * gate
-    } else if (mind === 'idle') {
-      const dx0 = px[i]! - cx
-      const dy0 = py[i]! - cy
-      const d0 = Math.sqrt(dx0 * dx0 + dy0 * dy0) + 1e-4
-      const voidR = Math.min(w, h) * 0.09
-      if (d0 < voidR) {
-        const u = (voidR - d0) / voidR
-        const push = u * u * 0.038
-        ax -= (dx0 / d0) * push
-        ay -= (dy0 / d0) * push
-      }
-      const burstGate = Math.sin(t * 0.09) ** 24
-      const idleDrift = n2(nx, ny, nt * 0.42) * 0.95
-      const idleMind = n2(nx * 1.08, ny * 1.06, nt * 0.62) * 2.35 * burstGate
-      ax += idleDrift + idleMind
-      ay += n2(ny, nx, nt * 0.4) * 0.95 + n2(ny * 1.06, nx * 1.08, nt * 0.6) * 2.35 * burstGate
-    } else if (mind === 'listening') {
-      const ang = t * 1.14 + i * 0.01
-      ax += Math.cos(ang) * 5.2 + n2(nx, ny, nt) * 6.5
-      ay += Math.sin(ang) * 5.2 + n2(ny, nx, nt) * 6.5
-      ax -= (px[i]! - cx) * 0.018
-      ay -= (py[i]! - cy) * 0.018
-    } else if (mind === 'thinking') {
-      ax += n2(nx * 1.25, ny * 1.25, nt * 2.05) * 11
-      ay += n2(ny * 1.25, nx * 1.25, nt * 1.88) * 11
+      px[i] = sx[i]! + (tx - sx[i]!) * d
+      py[i] = sy[i]! + (ty - sy[i]!) * d
     } else {
-      const amp = Math.max(0.22, speechAmp)
-      ax += n2(nx, ny, nt * 2.1) * (9 + amp * 14)
-      ay += n2(ny, nx, nt * 2.1) * (9 + amp * 14)
-      const dxC = px[i]! - cx
-      const dyC = py[i]! - cy
-      const distC = Math.sqrt(dxC * dxC + dyC * dyC) + 14
-      const push = (amp * 34) / distC
-      ax += (dxC / distC) * push
-      ay += (dyC / distC) * push
+      px[i] = tx
+      py[i] = ty
     }
 
-    const damp = cortexCalm
-      ? 0.978
-      : mind === 'idle'
-        ? 0.965
-        : mind === 'thinking'
-          ? 0.91
-          : mind === 'speaking'
-            ? 0.88 + speechAmp * 0.06
-            : 0.9
-
-    const phys = (cortexCalm ? 14 : mind === 'idle' ? 26 : 52) * dt
-    vx[i] = (vx[i]! + ax * phys) * damp
-    vy[i] = (vy[i]! + ay * phys) * damp
-
-    px[i]! += vx[i]! * phys
-    py[i]! += vy[i]! * phys
-
-    if (px[i]! < -40) px[i]! = w + 20
-    if (px[i]! > w + 40) px[i]! = -20
-    if (py[i]! < -40) py[i]! = h + 20
-    if (py[i]! > h + 40) py[i]! = -20
   }
 }
 
+/** @deprecated Grid only kept for API compatibility; dots mode does not use spatial hashing. */
 export type BrainParticleScratch = {
   cols: number
   rows: number
@@ -371,39 +291,28 @@ export type BrainParticleScratch = {
 }
 
 export function ensureBrainParticleScratch(
-  w: number,
-  h: number,
+  _w: number,
+  _h: number,
   prev: BrainParticleScratch | null,
-  /** Smaller cells = denser neighbor queries (cortex mesh). */
-  cellSize: number = CELL,
+  _cellSize = 36,
 ): BrainParticleScratch {
-  const cols = Math.ceil(w / cellSize) + 2
-  const rows = Math.ceil(h / cellSize) + 2
-  const cells = cols * rows
-  if (prev && prev.cols === cols && prev.rows === rows) {
-    prev.gridCount.fill(0)
-    return prev
-  }
+  const cols = 1
+  const rows = 1
+  if (prev && prev.cols === cols && prev.rows === rows) return prev
   return {
     cols,
     rows,
-    grid: new Int32Array(cells * GRID_BUCKET),
-    gridCount: new Int32Array(cells),
+    grid: new Int32Array(0),
+    gridCount: new Int32Array(0),
   }
 }
 
-function plexusLineStrokeDark(glowRgb: { r: number; g: number; b: number }, alpha: number) {
-  const r = Math.round(248 + (glowRgb.r - 248) * 0.2)
-  const g = Math.round(252 + (glowRgb.g - 252) * 0.2)
-  const b = Math.round(255 + (glowRgb.b - 255) * 0.22)
-  return `rgba(${r},${g},${b},${alpha})`
-}
-
-function plexusLineStrokeLight(glowRgb: { r: number; g: number; b: number }, alpha: number) {
-  const r = Math.round(26 + (glowRgb.r - 26) * 0.32)
-  const g = Math.round(36 + (glowRgb.g - 36) * 0.32)
-  const b = Math.round(54 + (glowRgb.b - 54) * 0.32)
-  return `rgba(${r},${g},${b},${alpha})`
+function findWebBrainNode(nodes: BrainNode[]): BrainNode | null {
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i]!
+    if (n.kind === 'web' || n.id.startsWith('web-')) return n
+  }
+  return null
 }
 
 export function drawBrainParticles(
@@ -411,265 +320,139 @@ export function drawBrainParticles(
   buf: BrainParticleBuffers,
   w: number,
   h: number,
+  t: number,
   theme: 'light' | 'dark',
   mind: FetchBrainMindState,
   dissolve01: number,
   speechAmp: number,
-  glowRgb: { r: number; g: number; b: number },
-  scratch: BrainParticleScratch,
+  _glowRgb: { r: number; g: number; b: number },
+  _scratch: BrainParticleScratch,
   cortexCalm = false,
   cortexSpread01 = 0,
-  cellSize: number = CELL,
+  _cellSize = 36,
   reducedMotion = false,
+  graphNodes: BrainNode[] = [],
 ) {
-  const { n, px, py, layer, hubNear01 } = buf
-  const { cols, rows, grid, gridCount } = scratch
-  const spread = Math.max(0, Math.min(1, cortexSpread01))
+  const { n, px, py, hubNear01, hue01, open01, phase, innerByte } = buf
   const dMix = Math.max(0.35, Math.min(1, dissolve01))
-
   const isLight = theme === 'light'
+  const cx = w * 0.5
+  const cy = h * 0.4
+  const m = Math.min(w, h)
+  const twoPi = Math.PI * 2
+  const gScale = globalBreatheScale(t, mind, speechAmp, reducedMotion, cortexCalm)
+  const spread = Math.max(0, Math.min(1, cortexSpread01))
+
   ctx.fillStyle = isLight ? '#f8fafc' : '#000000'
   ctx.fillRect(0, 0, w, h)
 
+  /** Flat dots only — no halos / radial blooms (minimal glow, much faster). */
   for (let i = 0; i < n; i++) {
-    const xi = Math.floor(px[i]! / cellSize)
-    const yi = Math.floor(py[i]! / cellSize)
-    if (xi < 0 || yi < 0 || xi >= cols || yi >= rows) continue
-    const c = xi + yi * cols
-    const o = c * GRID_BUCKET
-    const gc = gridCount[c]!
-    if (gc < GRID_BUCKET) {
-      grid[o + gc] = i
-      gridCount[c] = gc + 1
-    }
-  }
-
-  const speakBoost =
-    !cortexCalm && mind === 'speaking' ? Math.floor(speechAmp * 380) : 0
-  const fieldLineCap = Math.min(3400, 1400 + Math.floor(dMix * 1800) + speakBoost)
-  const cortexMeshCap = Math.min(
-    5600,
-    1400 + Math.floor(spread * 2200) + Math.floor(dMix * 1100),
-  )
-  const lineCap = cortexCalm ? cortexMeshCap : fieldLineCap
-  const neigh = cortexCalm ? 2 : 1
-  const dMin = 1.8
-  const dMaxField = 44 + dMix * 8
-  const dMax = cortexCalm ? 52 + spread * 18 : dMaxField
-  let lines = 0
-  let lineW = isLight ? 0.34 : 0.3
-  if (cortexCalm) {
-    lineW = isLight ? 0.52 : 0.46 + spread * 0.08
-  }
-  if (!cortexCalm && mind === 'speaking') {
-    lineW += 0.12 + speechAmp * 0.16
-  }
-  ctx.lineWidth = lineW
-
-  for (let i = 0; i < n && lines < lineCap; i++) {
-    const xi = Math.floor(px[i]! / cellSize)
-    const yi = Math.floor(py[i]! / cellSize)
-    for (let oy = -neigh; oy <= neigh; oy++) {
-      for (let ox = -neigh; ox <= neigh; ox++) {
-        const gcx = xi + ox
-        const gcy = yi + oy
-        if (gcx < 0 || gcy < 0 || gcx >= cols || gcy >= rows) continue
-        const c = gcx + gcy * cols
-        const o = c * GRID_BUCKET
-        const gc = gridCount[c]!
-        for (let k = 0; k < gc; k++) {
-          const j = grid[o + k]!
-          if (j <= i) continue
-          const dx = px[i]! - px[j]!
-          const dy = py[i]! - py[j]!
-          const dist = Math.sqrt(dx * dx + dy * dy)
-          if (dist > dMin && dist < dMax) {
-            let a = (1 - dist / dMax) * (isLight ? 0.1 : 0.11)
-            if (cortexCalm) {
-              a *= 1.22 + spread * 0.55
-              const pulse = 0.42 + 0.48 * (1 - dist / dMax)
-              ctx.strokeStyle = `rgba(${glowRgb.r},${glowRgb.g},${glowRgb.b},${Math.min(0.62, a * pulse)})`
-            } else if (mind === 'idle') {
-              a *= 0.92
-              ctx.strokeStyle = isLight
-                ? plexusLineStrokeLight(glowRgb, Math.min(0.38, a * 0.95))
-                : plexusLineStrokeDark(glowRgb, Math.min(0.42, a))
-            } else if (mind === 'speaking') {
-              const pulse = 0.72 + speechAmp * 0.55
-              ctx.strokeStyle = `rgba(${glowRgb.r},${glowRgb.g},${glowRgb.b},${a * pulse})`
-            } else {
-              ctx.strokeStyle = isLight
-                ? plexusLineStrokeLight(glowRgb, Math.min(0.36, a * 0.9))
-                : plexusLineStrokeDark(glowRgb, Math.min(0.4, a * 0.95))
-            }
-            ctx.beginPath()
-            ctx.moveTo(px[i]!, py[i]!)
-            ctx.lineTo(px[j]!, py[j]!)
-            ctx.stroke()
-            lines++
-            if (lines >= lineCap) break
-          }
-        }
-        if (lines >= lineCap) break
-      }
-      if (lines >= lineCap) break
-    }
-  }
-
-  const drawLongChords = cortexCalm || mind === 'idle'
-  if (drawLongChords) {
-    const longCap = cortexCalm
-      ? Math.min(900, 220 + Math.floor(spread * 620))
-      : Math.min(520, 260 + Math.floor(dMix * 280))
-    const maxLong = cortexCalm
-      ? Math.min(w, h) * (0.5 + spread * 0.16)
-      : Math.min(w, h) * 0.52
-    const step = cortexCalm ? 11 : 12
-    ctx.save()
-    ctx.lineWidth = cortexCalm
-      ? (isLight ? 0.4 : 0.36) + spread * 0.06
-      : isLight
-        ? 0.32
-        : 0.28
-    let longN = 0
-    for (let i = 0; i < n && longN < longCap; i += step) {
-      const j = (i * 97 + 1543) % n
-      if (j <= i) continue
-      const dx = px[i]! - px[j]!
-      const dy = py[i]! - py[j]!
-      const dist = Math.sqrt(dx * dx + dy * dy)
-      if (dist > 42 && dist < maxLong) {
-        const fall = 1 - dist / maxLong
-        const baseA = fall * (cortexCalm ? 0.045 + spread * 0.09 : 0.038 + dMix * 0.05)
-        ctx.strokeStyle = cortexCalm
-          ? `rgba(${glowRgb.r},${glowRgb.g},${glowRgb.b},${baseA})`
-          : isLight
-            ? plexusLineStrokeLight(glowRgb, Math.min(0.28, baseA * 6.5))
-            : plexusLineStrokeDark(glowRgb, Math.min(0.32, baseA * 6.5))
-        ctx.beginPath()
-        ctx.moveTo(px[i]!, py[i]!)
-        ctx.lineTo(px[j]!, py[j]!)
-        ctx.stroke()
-        longN++
-      }
-    }
-    ctx.restore()
-  }
-
-  const drawMind: FetchBrainMindState = cortexCalm ? 'idle' : mind
-  const twoPi = Math.PI * 2
-
-  for (let i = 0; i < n; i++) {
-    const L = layer[i]!
+    const open = open01[i]!
     const hn = hubNear01[i]!
-    let s = L === 0 ? 1.22 : L === 1 ? 0.98 : 0.78
-    s *= 0.88 + hn * 0.38
-    if (drawMind === 'speaking') {
-      s += (0.1 + speechAmp * 0.28) * (L === 0 ? 1 : 0.48)
-    }
-    if (cortexCalm) {
-      s *= 1.05 + spread * 0.08 + L * 0.04
-    }
-    const baseA = isLight ? 0.2 + L * 0.11 : 0.11 + L * 0.09
-    let a = baseA * (0.35 + dMix * 0.65)
-    a *= 0.82 + hn * 0.38
-    if (cortexCalm) {
-      a *= 1.02
-    }
+    const isInner = innerByte[i] === 1
+    const innerScale = isInner ? 0.74 : 1
+    const coreRgb = brainPaletteCore(hue01[i]!, theme)
+    const neonRgb = brainPaletteNeon(hue01[i]!, theme)
     const x = px[i]!
     const y = py[i]!
 
-    if (cortexCalm) {
-      const gA = (0.1 + spread * 0.14 + L * 0.03) * (0.4 + dMix * 0.6)
-      ctx.fillStyle = `rgba(${glowRgb.r},${glowRgb.g},${glowRgb.b},${Math.min(0.5, gA)})`
-      const gR = s * (2.1 + spread * 0.45)
-      ctx.beginPath()
-      ctx.arc(x, y, gR, 0, twoPi)
-      ctx.fill()
-    }
+    const rLarge =
+      m *
+      (0.018 + hn * 0.008 + spread * 0.002) *
+      innerScale *
+      (1 - open * 0.78) *
+      dMix *
+      (mind === 'speaking' ? 1 + speechAmp * 0.52 : 1)
 
-    if (drawMind === 'speaking') {
-      a += (0.06 + speechAmp * 0.35) * (L === 0 ? 1 : 0.5)
-      ctx.fillStyle = `rgba(${glowRgb.r},${glowRgb.g},${glowRgb.b},${Math.min(1, a)})`
-    } else if (drawMind === 'listening') {
-      ctx.fillStyle = isLight
-        ? `rgba(30,58,95,${Math.min(1, a * 1.15)})`
-        : `rgba(190,215,255,${Math.min(1, a * 1.12)})`
-    } else if (drawMind === 'thinking') {
-      ctx.fillStyle = isLight
-        ? `rgba(40,44,56,${Math.min(1, a * 1.08)})`
-        : `rgba(232,236,248,${Math.min(1, a * 1.06)})`
-    } else if (cortexCalm) {
-      const coreA = (0.82 + spread * 0.12) * (0.35 + dMix * 0.65)
-      ctx.fillStyle = isLight
-        ? `rgba(18,22,30,${Math.min(1, coreA)})`
-        : `rgba(4,6,12,${Math.min(1, coreA * 1.05)})`
-    } else if (isLight) {
-      const ink = 0.18 + L * 0.08 + hn * 0.22
-      const r = Math.round(18 + glowRgb.r * 0.04)
-      const g = Math.round(24 + glowRgb.g * 0.04)
-      const b = Math.round(38 + glowRgb.b * 0.06)
-      ctx.fillStyle = `rgba(${r},${g},${b},${Math.min(1, ink * (0.4 + dMix * 0.6))})`
-    } else {
-      const wh = 0.28 + L * 0.14 + hn * 0.42
-      ctx.fillStyle = `rgba(252,254,255,${Math.min(1, wh * (0.45 + dMix * 0.55))})`
-    }
+    const rCorePx = Math.max(2.5, rLarge)
+    const speakNeonBoost = mind === 'speaking' ? 1 + speechAmp * 0.45 : 1
+    const alphaNeon =
+      (isLight ? 0.42 : 0.56) *
+      (0.4 + dMix * 0.6) *
+      (0.75 + open * 0.25) *
+      speakNeonBoost *
+      0.52
 
+    const coreA =
+      (isLight ? 0.88 : 0.92) * (0.35 + dMix * 0.65) * (1 - open * 0.35) * 0.92
+
+    const rBody = Math.max(1.2, rCorePx * 0.42)
+
+    const childAlpha =
+      open *
+      (isLight ? 0.72 : 0.78) *
+      dMix *
+      (mind === 'speaking' ? 1 + speechAmp * 0.5 : 1) *
+      0.58
+    const speakOrbit = mind === 'speaking' ? 1 + speechAmp * 0.62 : 1
+    const orbit = m * (0.034 + hn * 0.01) * open * (isInner ? 0.82 : 1) * speakOrbit
+    const rChild =
+      (1.8 + open * 2.8) *
+      (0.85 + dMix * 0.15) *
+      innerScale *
+      (mind === 'speaking' ? 1 + speechAmp * 0.4 : 1)
+
+    const childCap = isInner ? 6 : CHILD_PER_ANCHOR
+
+    ctx.fillStyle = `rgba(${neonRgb.r},${neonRgb.g},${neonRgb.b},${Math.min(1, alphaNeon)})`
     ctx.beginPath()
-    ctx.arc(x, y, s, 0, twoPi)
+    ctx.arc(x, y, rCorePx * 1.08, 0, twoPi)
+    ctx.fill()
+    ctx.fillStyle = `rgba(${coreRgb.r},${coreRgb.g},${coreRgb.b},${coreA})`
+    ctx.beginPath()
+    ctx.arc(x, y, rBody, 0, twoPi)
     ctx.fill()
 
-    if (cortexCalm && L === 0 && i % 2 === 0) {
-      ctx.fillStyle = `rgba(${Math.min(255, glowRgb.r + 40)},${Math.min(255, glowRgb.g + 35)},${Math.min(255, glowRgb.b + 28)},${0.14 + spread * 0.12})`
+    for (let k = 0; k < childCap; k++) {
+      if (open < 0.04) break
+      const ang =
+        (k / childCap) * twoPi + t * (reducedMotion ? 0 : 0.55) + phase[i]! * 0.08
+      const ck = hash01(i * 16 + k, 80)
+      const childHue = ((hue01[i]! + ck * 0.22) % 1 + 1) % 1
+      const cr = brainPaletteNeon(childHue, theme)
+      const ox = x + Math.cos(ang) * orbit
+      const oy = y + Math.sin(ang) * orbit
+      const ca = childAlpha * (0.55 + ck * 0.45)
+      ctx.fillStyle = `rgba(${cr.r},${cr.g},${cr.b},${ca})`
       ctx.beginPath()
-      ctx.arc(x, y, s * 0.42, 0, twoPi)
+      ctx.arc(ox, oy, rChild, 0, twoPi)
       ctx.fill()
     }
   }
 
-  // Soft hub bloom without `ctx.filter` (full-surface blur is a major GPU bottleneck).
-  if (!reducedMotion && dMix > 0.5) {
-    ctx.save()
-    const op = isLight ? 'multiply' : 'screen'
-    const stride = 7
-    const maxBloom = 240
-    let drawn = 0
-    for (let i = 0; i < n && drawn < maxBloom; i += stride) {
-      const hn = hubNear01[i]!
-      if (hn < 0.34) continue
-      const L = layer[i]!
-      const x = px[i]!
-      const y = py[i]!
-      const rad = (L === 0 ? 5.2 : 3.6) * (0.5 + hn * 0.95) * dMix
-      const g = ctx.createRadialGradient(x, y, 0, x, y, rad)
-      if (isLight) {
-        const a = 0.22 + hn * 0.38
-        g.addColorStop(0, `rgba(${glowRgb.r},${glowRgb.g},${glowRgb.b},${a})`)
-        g.addColorStop(0.45, `rgba(${glowRgb.r},${glowRgb.g},${glowRgb.b},${a * 0.35})`)
-        g.addColorStop(1, `rgba(${glowRgb.r},${glowRgb.g},${glowRgb.b},0)`)
-      } else {
-        const a = 0.12 + hn * 0.32
-        g.addColorStop(0, `rgba(255,255,255,${a})`)
-        g.addColorStop(0.4, `rgba(255,255,255,${a * 0.4})`)
-        g.addColorStop(1, 'rgba(255,255,255,0)')
-      }
-      ctx.globalCompositeOperation = op
-      ctx.globalAlpha = isLight ? 0.55 : 0.5
-      ctx.fillStyle = g
-      ctx.beginPath()
-      ctx.arc(x, y, rad, 0, twoPi)
-      ctx.fill()
-      drawn++
-    }
-    ctx.restore()
+  const webNode = findWebBrainNode(graphNodes)
+  if (webNode) {
+    const wx = (webNode.x / 1000) * w
+    const wy = (webNode.y / 700) * h
+    const tx = cx + (wx - cx) * gScale * spreadMulFromSpread(spread)
+    const ty = cy + (wy - cy) * gScale * spreadMulFromSpread(spread) * 0.98
+    const pulse = reducedMotion ? 1 : 1 + 0.07 * Math.sin(t * 1.9)
+    const rw = m * 0.026 * pulse * dMix
+    const wr = isLight ? 16 : 45
+    const wg = isLight ? 185 : 212
+    const wb = isLight ? 129 : 191
+    ctx.fillStyle = `rgba(${wr},${wg},${wb},${isLight ? 0.22 : 0.32})`
+    ctx.beginPath()
+    ctx.arc(tx, ty, rw * 1.12, 0, twoPi)
+    ctx.fill()
+    ctx.fillStyle = `rgba(${wr + 30},${wg + 25},${wb + 20},${isLight ? 0.78 : 0.75})`
+    ctx.beginPath()
+    ctx.arc(tx, ty, rw * 0.55, 0, twoPi)
+    ctx.fill()
   }
+
+}
+
+function spreadMulFromSpread(spread: number) {
+  return 1 + spread * 0.08
 }
 
 /**
- * Large neon “data” motes: only meaningful while the user is speaking (listening).
+ * Large neon “data” motes: driven while listening (steady rush) or assistant speaking (amplitude burst).
  * Spawn beyond the viewport, rush inward with a big glow, shrink and fade as they feed the core.
  */
-export const BRAIN_MEMORY_INGEST_N = 36
+export const BRAIN_MEMORY_INGEST_N = 56
 
 export type BrainMemoryIngestBuffers = {
   n: number
@@ -789,17 +572,13 @@ export function drawBrainMemoryIngest(
   h: number,
   theme: 'light' | 'dark',
   strength01: number,
-  glowRgb: { r: number; g: number; b: number },
+  _glowRgb: { r: number; g: number; b: number },
 ) {
   if (strength01 < 0.04) return
   const isLight = theme === 'light'
   ctx.save()
-  if (!isLight) ctx.globalCompositeOperation = 'screen'
   const cx = w * 0.5
   const cy = h * 0.4
-  const br = Math.min(255, glowRgb.r + (isLight ? 22 : 62))
-  const bg = Math.min(255, glowRgb.g + (isLight ? 26 : 52))
-  const bb = Math.min(255, glowRgb.b + (isLight ? 42 : 48))
   const maxD = Math.hypot(w, h) * 0.62
 
   for (let i = 0; i < buf.n; i++) {
@@ -809,37 +588,25 @@ export function drawBrainMemoryIngest(
     const far01 = Math.min(1, dist / maxD)
     const nearCore = Math.min(1, dist / 56)
     const tw = 0.5 + buf.seed[i]! * 0.5
+    const hueT = (buf.seed[i]! * 0.73 + i * 0.019) % 1
+    const { r: br, g: bg, b: bb } = brainHueRgbFrom01(hueT, theme)
     const rCore = (2.2 + buf.seed[i]! * 3.8) * (0.35 + nearCore * 0.85)
-    const rGlow = rCore * (2.8 + far01 * 9.5 + strength01 * 3.2)
     const feedAlpha =
       strength01 *
       tw *
       (0.35 + far01 * 0.65) *
       (0.15 + (1 - nearCore) * (1 - nearCore)) *
-      (isLight ? 0.5 : 0.62)
+      (isLight ? 0.28 : 0.34)
 
-    const g = ctx.createRadialGradient(
-      buf.px[i]!,
-      buf.py[i]!,
-      0,
-      buf.px[i]!,
-      buf.py[i]!,
-      rGlow,
-    )
-    g.addColorStop(0, `rgba(${br},${bg},${bb},${Math.min(1, feedAlpha * 1.45)})`)
-    g.addColorStop(0.12, `rgba(${br},${bg},${bb},${feedAlpha * 0.95})`)
-    g.addColorStop(0.45, `rgba(${br},${bg},${bb},${feedAlpha * 0.32})`)
-    g.addColorStop(1, `rgba(${br},${bg},${bb},0)`)
-
-    ctx.fillStyle = g
+    ctx.fillStyle = `rgba(${br},${bg},${bb},${Math.min(1, feedAlpha * 0.85)})`
     ctx.beginPath()
-    ctx.arc(buf.px[i]!, buf.py[i]!, rGlow, 0, Math.PI * 2)
+    ctx.arc(buf.px[i]!, buf.py[i]!, rCore * 1.15, 0, Math.PI * 2)
     ctx.fill()
 
-    const coreA = Math.min(1, feedAlpha * 1.8 * (0.4 + far01 * 0.6))
-    ctx.fillStyle = `rgba(255,255,255,${coreA * (isLight ? 0.5 : 0.78)})`
+    const coreA = Math.min(1, feedAlpha * 0.95 * (0.4 + far01 * 0.6))
+    ctx.fillStyle = `rgba(255,255,255,${coreA * (isLight ? 0.35 : 0.5)})`
     ctx.beginPath()
-    ctx.arc(buf.px[i]!, buf.py[i]!, rCore * 0.55, 0, Math.PI * 2)
+    ctx.arc(buf.px[i]!, buf.py[i]!, rCore * 0.48, 0, Math.PI * 2)
     ctx.fill()
   }
   ctx.restore()

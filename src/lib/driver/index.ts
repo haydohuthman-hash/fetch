@@ -1,5 +1,19 @@
+export {
+  type DashboardHeadlinePhase,
+  type DriverLifecyclePhase,
+  driverPhaseFromBookingStatus,
+  driverPhaseLabel,
+  formatDashboardPeekLine,
+  nextDriverAdvanceLabel,
+  offerExpiryDeadlineMs,
+  resolveDashboardHeadlinePhase,
+  secondsRemaining,
+} from './driverLifecyclePhase'
 export { bookingLifecycleToMapStage } from './driverMapStage'
 export { routePathFromBookingRoute } from './routePathFromRecord'
+export { declineDispatchOffer, type DeclineDispatchParams } from './declineOffer'
+export { getDriverOnline, setDriverOnline } from './driverOnline'
+export { summarizeDriverEarnings, type DriverEarningsSummary } from './driverEarnings'
 export { acceptDispatchOffer, nextDriverStatus, type AcceptDispatchParams } from './acceptBooking'
 export {
   filterAvailableJobs,

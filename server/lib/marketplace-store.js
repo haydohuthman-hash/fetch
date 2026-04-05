@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises'
+import { advanceMatchingEngine } from './matching-engine.js'
 
 const EMPTY_MARKETPLACE = {
   bookings: [],
@@ -6,18 +7,10 @@ const EMPTY_MARKETPLACE = {
   notifications: [],
   media: [],
   paymentIntents: [],
+  driverPresence: [],
 }
 
-const DISPATCHABLE_STATUSES = new Set(['confirmed'])
-
-const LIFECYCLE_STEPS = [
-  { afterMs: 0, status: 'dispatching', kind: 'dispatching', title: 'Dispatch started', message: 'Fetch AI is finding the best nearby driver.' },
-  { afterMs: 3500, status: 'matched', kind: 'matched', title: 'Driver matched', message: 'A driver has accepted the booking.' },
-  { afterMs: 9000, status: 'en_route', kind: 'en_route', title: 'Driver en route', message: 'Your driver is heading to pickup.' },
-  { afterMs: 16000, status: 'arrived', kind: 'arrived', title: 'Driver arrived', message: 'Your driver has arrived at pickup.' },
-  { afterMs: 22000, status: 'in_progress', kind: 'in_progress', title: 'Job in progress', message: 'Your booking is now underway.' },
-  { afterMs: 32000, status: 'completed', kind: 'completed', title: 'Booking completed', message: 'The booking has been marked complete.' },
-]
+const DISPATCHABLE_STATUSES = new Set(['confirmed', 'match_failed'])
 
 function makeId(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -34,6 +27,7 @@ function cloneEmptyState() {
     notifications: [],
     media: [],
     paymentIntents: [],
+    driverPresence: [],
   }
 }
 
@@ -44,6 +38,7 @@ function normalizeState(parsed) {
     notifications: ensureArray(parsed?.notifications),
     media: ensureArray(parsed?.media),
     paymentIntents: ensureArray(parsed?.paymentIntents),
+    driverPresence: ensureArray(parsed?.driverPresence),
   }
 }
 
@@ -85,20 +80,6 @@ function ensureNotification(state, bookingId, kind, title, message, createdAt = 
   }
 }
 
-function deriveDriver(booking) {
-  const seed = String(booking.id || booking.pickupAddressText || 'fetch')
-  const names = ['Mia', 'Noah', 'Aria', 'Zane', 'Ruby', 'Kai']
-  const vehicles = ['Ute', 'Van', 'Truck']
-  let hash = 0
-  for (const char of seed) hash = (hash * 31 + char.charCodeAt(0)) >>> 0
-  return {
-    name: names[hash % names.length],
-    vehicle: vehicles[hash % vehicles.length],
-    etaMinutes: 4 + (hash % 9),
-    rating: Number((4.7 + ((hash % 25) / 100)).toFixed(2)),
-  }
-}
-
 function syncPaymentIntentToBooking(state, booking) {
   if (!booking?.paymentIntent?.id) return
   const intent = state.paymentIntents.find((row) => row.id === booking.paymentIntent.id)
@@ -111,6 +92,10 @@ function canDispatchBooking(booking) {
     DISPATCHABLE_STATUSES.has(booking.status) &&
     booking.paymentIntent?.status === 'succeeded'
   )
+}
+
+function isActivelyMatching(booking) {
+  return booking?.status === 'pending_match' || booking?.status === 'dispatching'
 }
 
 function applyBookingLifecycle(state, booking, now) {
@@ -135,22 +120,7 @@ function applyBookingLifecycle(state, booking, now) {
     ensureTimelineEntry(booking, 'booking_confirmed', 'Booking confirmed', 'Payment succeeded and the booking is ready to dispatch.', booking.updatedAt)
   }
 
-  if (!booking.dispatchMeta?.startedAt) return
-  // Driver dashboard PATCH drives status; skip demo timer progression.
-  if (booking.driverControlled) return
-
-  for (const step of LIFECYCLE_STEPS) {
-    if (now - booking.dispatchMeta.startedAt < step.afterMs) break
-    if (booking.status !== step.status) {
-      booking.status = step.status
-      booking.updatedAt = now
-      if (step.status === 'matched' || step.status === 'en_route' || step.status === 'arrived' || step.status === 'in_progress' || step.status === 'completed') {
-        booking.matchedDriver = booking.matchedDriver || deriveDriver(booking)
-      }
-    }
-    ensureTimelineEntry(booking, step.kind, step.title, step.message, booking.dispatchMeta.startedAt + step.afterMs)
-    ensureNotification(state, booking.id, step.kind, step.title, step.message, booking.dispatchMeta.startedAt + step.afterMs)
-  }
+  // Live matching + driver-controlled jobs no longer use timed demo progression here.
 }
 
 export function createMarketplaceStore(dataFile) {
@@ -174,9 +144,11 @@ export function createMarketplaceStore(dataFile) {
     state.bookings = ensureArray(state.bookings)
     state.notifications = ensureArray(state.notifications)
     state.paymentIntents = ensureArray(state.paymentIntents)
+    state.driverPresence = ensureArray(state.driverPresence)
     for (const booking of state.bookings) {
       applyBookingLifecycle(state, booking, now)
     }
+    advanceMatchingEngine(state, now, { makeId, ensureTimelineEntry, ensureNotification })
     state.bookings.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
     state.notifications.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
     return state
@@ -212,6 +184,12 @@ export function createMarketplaceStore(dataFile) {
         payload.driverControlled !== undefined
           ? Boolean(payload.driverControlled)
           : Boolean(existing?.driverControlled),
+      customerRating:
+        payload.customerRating !== undefined
+          ? payload.customerRating
+          : existing?.customerRating ?? null,
+      matchingMeta:
+        payload.matchingMeta !== undefined ? payload.matchingMeta : existing?.matchingMeta ?? null,
       status: payload.status ?? existing?.status ?? 'draft',
     }
     if (!existing) {
@@ -237,17 +215,59 @@ export function createMarketplaceStore(dataFile) {
     return notification
   }
 
+  function upsertDriverPresence(state, row) {
+    const id = typeof row.driverId === 'string' ? row.driverId.trim() : ''
+    if (!id) return null
+    const now = Date.now()
+    const next = {
+      driverId: id,
+      online: Boolean(row.online),
+      lat: typeof row.lat === 'number' && Number.isFinite(row.lat) ? row.lat : null,
+      lng: typeof row.lng === 'number' && Number.isFinite(row.lng) ? row.lng : null,
+      rating: typeof row.rating === 'number' && Number.isFinite(row.rating) ? row.rating : null,
+      completedJobs: typeof row.completedJobs === 'number' && Number.isFinite(row.completedJobs) ? row.completedJobs : null,
+      updatedAt: now,
+    }
+    const without = ensureArray(state.driverPresence).filter((p) => p.driverId !== id)
+    state.driverPresence = [next, ...without]
+    materializeState(state, now)
+    return next
+  }
+
   function startDispatch(state, bookingId) {
     const booking = state.bookings.find((entry) => entry.id === bookingId)
     if (!booking) return { booking: null, error: 'booking_not_found' }
+    if (isActivelyMatching(booking)) {
+      materializeState(state, Date.now())
+      return { booking, error: null }
+    }
     if (!canDispatchBooking(booking)) {
       return { booking: null, error: 'booking_not_dispatchable' }
     }
     const startedAt = Date.now()
-    booking.status = 'dispatching'
+    booking.status = 'pending_match'
     booking.dispatchMeta = { startedAt }
     booking.updatedAt = startedAt
-    booking.matchedDriver = deriveDriver(booking)
+    booking.matchedDriver = null
+    booking.assignedDriverId = null
+    // Real flow: driver app drives accept + lifecycle; matching-engine offer waves stay off (see matching-engine.js).
+    booking.driverControlled = true
+    booking.matchingMeta = null
+    ensureTimelineEntry(
+      booking,
+      'pending_match',
+      'Finding a driver',
+      'Matching you with the best available driver nearby.',
+      startedAt,
+    )
+    ensureNotification(
+      state,
+      booking.id,
+      'pending_match',
+      'Finding a driver',
+      'We are contacting drivers near you.',
+      startedAt,
+    )
     materializeState(state, startedAt)
     return { booking, error: null }
   }
@@ -261,5 +281,6 @@ export function createMarketplaceStore(dataFile) {
     upsertBooking,
     markNotificationRead,
     startDispatch,
+    upsertDriverPresence,
   }
 }

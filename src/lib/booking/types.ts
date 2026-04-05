@@ -1,11 +1,13 @@
 import type {
   BookingAiReview,
   BookingCoords,
+  BookingCustomerRating,
   BookingDriver,
   BookingDriverLocation,
   BookingFlowStep,
   BookingJobType,
   BookingLifecycleStatus,
+  BookingMatchingMeta,
   BookingPaymentIntent,
   BookingPricing,
   BookingQuoteBreakdown,
@@ -15,6 +17,8 @@ import type {
   BookingState,
   BookingTimelineEntry,
 } from '../assistant/types'
+
+import { isActiveBookingPersistedStatus } from './bookingLifecycle'
 
 export type FetchAiBookingDraft = {
   jobType: BookingJobType | null
@@ -54,6 +58,8 @@ export type FetchAiBookingDraft = {
   moveSize: BookingState['moveSize']
   homeBedrooms: number | null
   scanConfidence: number | null
+  /** Photo scan load hint when `moveSize` / bedrooms not set — feeds quote engine. */
+  scanEstimatedSize?: NonNullable<BookingState['scan']['result']>['estimatedSize'] | null
   bookingId?: string | null
 }
 
@@ -111,6 +117,10 @@ export type BookingRecord = {
   needsSpecialEquipment: boolean
   accessRisk: BookingState['accessRisk']
   paymentIntent: BookingPaymentIntent | null
+  /** Set when dispatch starts — used for driver-offer countdown. */
+  dispatchMeta?: { startedAt: number } | null
+  /** Server matching engine progress (offers, timeouts, retries). */
+  matchingMeta?: BookingMatchingMeta | null
   matchedDriver: BookingDriver | null
   driverLocation?: BookingDriverLocation | null
   /** When set, this booking is tied to a driver account (demo: localStorage id). */
@@ -123,6 +133,7 @@ export type BookingRecord = {
   timeline: BookingTimelineEntry[]
   createdAt: number
   updatedAt: number
+  customerRating?: BookingCustomerRating | null
 }
 
 export type BookingNotificationRecord = {
@@ -194,6 +205,7 @@ export function bookingStateToDraft(state: BookingState): FetchAiBookingDraft {
     needsSpecialEquipment: state.needsSpecialEquipment,
     accessRisk: state.accessRisk,
     scanConfidence: state.scan.confidence,
+    scanEstimatedSize: state.scan.result?.estimatedSize ?? null,
     bookingId: state.bookingId,
   }
 }
@@ -202,6 +214,7 @@ export function bookingRecordToStatePatch(record: BookingRecord): Partial<Bookin
   return {
     bookingId: record.id,
     bookingStatus: record.status,
+    matchingMeta: record.matchingMeta ?? null,
     jobType: record.jobType,
     flowStep: record.flowStep ?? 'intent',
     serviceMode: record.serviceMode,
@@ -245,6 +258,7 @@ export function bookingRecordToStatePatch(record: BookingRecord): Partial<Bookin
     needsSpecialEquipment: record.needsSpecialEquipment,
     accessRisk: record.accessRisk,
     accessDetails: { ...record.accessDetails },
+    customerRating: record.customerRating ?? null,
   }
 }
 
@@ -277,7 +291,10 @@ export function bookingStateToConfirmedUpsertPayload(
     dropoffPlace: state.dropoffPlace ?? undefined,
     dropoffCoords: state.dropoffCoords,
     route: state.route,
-    pricing: state.pricing,
+    pricing:
+      state.pricing != null
+        ? { ...state.pricing, lockedQuoteAt: Date.now() }
+        : null,
     quoteBreakdown: state.quoteBreakdown,
     aiReview: state.aiReview,
     detectedItems: [...state.detectedItems],
@@ -304,8 +321,6 @@ export function bookingStateToConfirmedUpsertPayload(
 }
 
 export function getActiveBooking(bookings: BookingRecord[]): BookingRecord | null {
-  const active = bookings.find(
-    (booking) => !['completed', 'cancelled'].includes(booking.status),
-  )
+  const active = bookings.find((booking) => isActiveBookingPersistedStatus(booking.status))
   return active ?? null
 }

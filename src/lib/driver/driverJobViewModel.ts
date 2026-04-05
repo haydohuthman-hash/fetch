@@ -1,3 +1,5 @@
+import { isTerminalPersistedStatus } from '../booking/bookingLifecycle'
+import { isWireStatusMatching } from '../booking/bookingWireConstants'
 import type { BookingRecord, MarketplaceOffer } from '../booking/types'
 import type { BookingJobType } from '../assistant/types'
 import type { DriverJobViewModel } from './types'
@@ -30,6 +32,9 @@ function routeSummaryFromRecord(booking: BookingRecord): string | null {
 function pricingSummary(booking: BookingRecord): string | null {
   const p = booking.pricing
   if (!p) return null
+  if (p.totalPrice != null) {
+    return `$${p.totalPrice} ${p.currency} (${p.minPrice}–${p.maxPrice})`
+  }
   return `$${p.minPrice}–$${p.maxPrice} ${p.currency}`
 }
 
@@ -53,17 +58,17 @@ export function toDriverJobViewModel(booking: BookingRecord): DriverJobViewModel
   }
 }
 
-const TERMINAL: BookingRecord['status'][] = ['completed', 'cancelled']
-
 export function isTerminalBookingStatus(status: BookingRecord['status']): boolean {
-  return TERMINAL.includes(status)
+  return isTerminalPersistedStatus(status)
 }
 
-/** Open dispatch pool: paid + dispatching, not assigned to another driver. */
+/** Open dispatch pool: paid + matching, not assigned to another driver. */
 export function isAvailableDispatchJob(booking: BookingRecord, myDriverId: string): boolean {
-  if (booking.status !== 'dispatching') return false
+  if (!isWireStatusMatching(booking.status)) return false
   const assigned = booking.assignedDriverId
   if (assigned && assigned !== myDriverId) return false
+  const pinged = booking.matchingMeta?.activeDriverId
+  if (pinged && pinged !== myDriverId) return false
   return true
 }
 
@@ -95,6 +100,12 @@ export function filterMyActiveJobs(
   })
 }
 
+function hasMyDeclinedOffer(bookingId: string, offers: MarketplaceOffer[], myDriverId: string): boolean {
+  return offers.some(
+    (o) => o.bookingId === bookingId && o.driverId === myDriverId && o.status === 'declined',
+  )
+}
+
 export function filterAvailableJobs(
   bookings: BookingRecord[],
   offers: MarketplaceOffer[],
@@ -103,6 +114,7 @@ export function filterAvailableJobs(
   return bookings.filter((b) => {
     if (!isAvailableDispatchJob(b, myDriverId)) return false
     if (b.assignedDriverId === myDriverId) return false
+    if (hasMyDeclinedOffer(b.id, offers, myDriverId)) return false
     const acceptedByOther = offers.some(
       (o) => o.bookingId === b.id && o.driverId !== myDriverId && o.status === 'accepted',
     )

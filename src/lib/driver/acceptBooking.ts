@@ -5,6 +5,7 @@
  */
 import type { BookingDriver, BookingLifecycleStatus } from '../assistant/types'
 import { patchBookingStatus, patchMarketplaceOffer, upsertMarketplaceOffer } from '../booking/api'
+import { getNextPersistedJobStatus } from '../booking/bookingLifecycle'
 
 export type AcceptDispatchParams = {
   bookingId: string
@@ -35,14 +36,6 @@ export async function acceptDispatchOffer({
   })
 }
 
-const PROGRESSION: Array<{ from: BookingLifecycleStatus; to: BookingLifecycleStatus }> = [
-  { from: 'matched', to: 'en_route' },
-  { from: 'en_route', to: 'arrived' },
-  { from: 'arrived', to: 'in_progress' },
-  { from: 'in_progress', to: 'completed' },
-]
-
 export function nextDriverStatus(current: BookingLifecycleStatus): BookingLifecycleStatus | null {
-  const step = PROGRESSION.find((s) => s.from === current)
-  return step?.to ?? null
+  return getNextPersistedJobStatus(current)
 }
