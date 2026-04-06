@@ -2,7 +2,7 @@
 
 /* Fallback when --orb-glow is not set on a parent (e.g. shared input styles). */
 :root {
-  --orb-glow: 220, 225, 235;
+  --orb-glow: 244, 246, 250;
 }
 
 @theme {
@@ -252,7 +252,7 @@
 .fetch-orb-ground-glow-layer {
   overflow: visible;
   /* Inherited from parent; fallback matches idle orb */
-  --orb-glow: 220, 225, 235;
+  --orb-glow: 244, 246, 250;
 }
 
 /* Fullscreen Fetch AI — ChatGPT-style message composer */
@@ -1150,7 +1150,7 @@
   transform-origin: bottom center;
 }
 
-/* Home map: speaking wash matches home-dock orb sky/blue (JarvisNeuralOrb), not booking --orb-glow. */
+/* Home map: dark theme — cyan wash matches night orb. Light theme overrides below (whiter day orb). */
 .fetch-home-vision .fetch-fetch-speech-glow-wave-a {
   background: linear-gradient(
     to top,
@@ -1181,9 +1181,9 @@
 html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-a {
   background: linear-gradient(
     to top,
-    rgba(14, 165, 233, 0.42) 0%,
-    rgba(59, 130, 246, 0.22) 32%,
-    rgba(99, 102, 241, 0.08) 58%,
+    rgba(255, 255, 255, 0.44) 0%,
+    rgba(248, 250, 252, 0.2) 32%,
+    rgba(226, 232, 240, 0.07) 58%,
     transparent 100%
   );
 }
@@ -1191,8 +1191,8 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-b {
   background: linear-gradient(
     to top,
-    rgba(59, 130, 246, 0.28) 0%,
-    rgba(14, 165, 233, 0.14) 40%,
+    rgba(248, 250, 252, 0.26) 0%,
+    rgba(226, 232, 240, 0.12) 40%,
     transparent 85%
   );
 }
@@ -1200,7 +1200,7 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-c {
   background: linear-gradient(
     to top,
-    rgba(125, 211, 252, 0.26) 0%,
+    rgba(255, 255, 255, 0.24) 0%,
     transparent 55%
   );
 }
@@ -1391,13 +1391,13 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   z-index: 4;
 }
 
-/* Home dock — upper-left rim kiss + cyan ring + inner blue (no broad top shine) */
+/* Home dock — day sphere: white rim + soft neutral inner (matches fetch-theme) */
 .fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere[data-orb-appearance='day']::after {
   box-shadow:
-    inset 5px 5px 14px -4px rgba(255, 255, 255, 0.42),
-    inset 0 0 0 1px rgba(125, 211, 252, 0.22),
-    inset 0 -28px 48px rgba(56, 189, 248, 0.16),
-    inset 0 0 40px rgba(129, 140, 246, 0.07);
+    inset 6px 6px 16px -4px rgba(255, 255, 255, 0.52),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.38),
+    inset 0 -28px 48px rgba(241, 245, 249, 0.22),
+    inset 0 0 40px rgba(248, 250, 252, 0.12);
 }
 
 .fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere[data-orb-appearance='night']::after {
@@ -2656,6 +2656,68 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   animation: none;
 }
 
+/* Idle ~1m: dog ears above orb (paired with FETCH_IDLE_REMINDER_COPY TTS). */
+.fetch-voice-fab--dog-ears-wrap {
+  overflow: visible !important;
+}
+
+.fetch-voice-fab__dog-ears {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% - 0.35rem);
+  z-index: 4;
+  width: 84%;
+  max-width: 6.5rem;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.fetch-voice-fab__dog-ears-inner {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 0 10%;
+  animation: fetch-dog-ears-appear 0.58s cubic-bezier(0.32, 1.28, 0.55, 1) both;
+}
+
+.fetch-voice-fab__dog-ear {
+  width: 1.05rem;
+  height: 1.32rem;
+  flex-shrink: 0;
+  border-radius: 72% 72% 32% 32%;
+  background: linear-gradient(168deg, #242424 0%, #0c0c0c 48%, #000000 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 3px 8px rgba(0, 0, 0, 0.4);
+}
+
+.fetch-voice-fab__dog-ear--L {
+  transform: rotate(-24deg);
+}
+
+.fetch-voice-fab__dog-ear--R {
+  transform: rotate(24deg);
+}
+
+@keyframes fetch-dog-ears-appear {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.22);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fetch-voice-fab__dog-ears-inner {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
 .fetch-home-vision .fetch-voice-fab--jarvis-solo.fetch-voice-fab--ambient {
   animation: none;
 }
@@ -3495,6 +3557,23 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   }
 }
 
+/* Intent rail: drop the tight 1px depth layer — it stacks into a “shadow line” above the promo row. */
+.fetch-home-landing-section--intent .fetch-home-service-segment {
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+}
+
+.fetch-home-landing-section--intent .fetch-home-service-segment--selected {
+  box-shadow:
+    0 4px 14px rgba(15, 23, 42, 0.06),
+    0 0 0 1px rgba(56, 189, 248, 0.2);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fetch-home-landing-section--intent .fetch-home-service-segment:hover {
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.055);
+  }
+}
+
 /* Sheet top handle: stronger grab bar + chevrons imply “pull up” when not at full snap */
 .fetch-home-booking-sheet__handle-bar {
   display: block;
@@ -3658,42 +3737,141 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   z-index: 3;
 }
 
-/* Neutral lift behind sheet top while Fetch speaks (no blue wash) */
+/* Soft cyan / sky glow behind sheet top while Fetch speaks (sits under panel z-index) */
 .fetch-home-booking-sheet__voice-halo {
   position: absolute;
-  left: 0;
-  right: 0;
+  left: -10%;
+  right: -10%;
   bottom: 100%;
   z-index: 0;
-  height: 48px;
-  margin-bottom: -8px;
+  height: 5.5rem;
+  margin-bottom: -18px;
   border-radius: 0;
-  background: linear-gradient(
-    180deg,
-    transparent 0%,
-    rgba(15, 23, 42, 0.06) 55%,
-    rgba(15, 23, 42, 0.03) 100%
-  );
+  pointer-events: none;
+  background:
+    radial-gradient(
+      ellipse 85% 95% at 50% 100%,
+      rgba(56, 189, 248, 0.42) 0%,
+      rgba(14, 165, 233, 0.22) 38%,
+      rgba(59, 130, 246, 0.08) 62%,
+      transparent 78%
+    ),
+    linear-gradient(
+      180deg,
+      rgba(125, 211, 252, 0.12) 0%,
+      rgba(56, 189, 248, 0.28) 42%,
+      rgba(14, 165, 233, 0.18) 100%
+    );
+  filter: blur(10px);
   opacity: 0;
-  transform: translate3d(0, 6px, 0);
+  transform: translate3d(0, 8px, 0) scale(0.96);
   transition:
-    opacity 0.35s ease,
-    transform 0.45s cubic-bezier(0.22, 0.88, 0.32, 1);
+    opacity 0.42s ease,
+    transform 0.5s cubic-bezier(0.22, 0.88, 0.32, 1);
 }
 
 .fetch-home-booking-sheet__voice-halo--on {
   opacity: 1;
-  transform: translate3d(0, 0, 0);
+  transform: translate3d(0, 0, 0) scale(1);
+}
+
+/* Sparkle layer — fades in with speech; inner layers pulse (see keyframes) */
+.fetch-home-booking-sheet__speech-particles {
+  position: absolute;
+  left: -8%;
+  right: -8%;
+  bottom: 100%;
+  z-index: 0;
+  height: 5.25rem;
+  margin-bottom: -14px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+
+.fetch-home-booking-sheet__speech-particles--on {
+  opacity: 1;
+}
+
+.fetch-home-booking-sheet__speech-particles::before,
+.fetch-home-booking-sheet__speech-particles::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-repeat: no-repeat;
+  background-size:
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    100% 100%,
+    100% 100%;
+  background-image:
+    radial-gradient(circle at 12% 78%, rgba(224, 242, 254, 0.95) 0 2px, transparent 3px),
+    radial-gradient(circle at 24% 52%, rgba(186, 230, 253, 0.9) 0 1.5px, transparent 2.5px),
+    radial-gradient(circle at 38% 68%, rgba(125, 211, 252, 0.88) 0 2px, transparent 3px),
+    radial-gradient(circle at 48% 40%, rgba(165, 243, 252, 0.85) 0 1.5px, transparent 2.5px),
+    radial-gradient(circle at 58% 72%, rgba(56, 189, 248, 0.82) 0 2px, transparent 3px),
+    radial-gradient(circle at 68% 48%, rgba(186, 230, 253, 0.9) 0 1.5px, transparent 2.5px),
+    radial-gradient(circle at 78% 62%, rgba(224, 242, 254, 0.92) 0 2px, transparent 3px),
+    radial-gradient(circle at 88% 38%, rgba(125, 211, 252, 0.8) 0 1.5px, transparent 2.5px),
+    radial-gradient(circle at 18% 32%, rgba(255, 255, 255, 0.55) 0 1px, transparent 2px),
+    radial-gradient(circle at 72% 28%, rgba(224, 242, 254, 0.65) 0 1px, transparent 2px),
+    radial-gradient(circle at 50% 22%, rgba(186, 230, 253, 0.5) 0 1px, transparent 2px),
+    radial-gradient(circle at 92% 72%, rgba(165, 243, 252, 0.7) 0 1.5px, transparent 2.5px);
+  animation: fetch-sheet-speech-particles-breathe 2.35s ease-in-out infinite;
+  will-change: opacity;
+}
+
+.fetch-home-booking-sheet__speech-particles::after {
+  background-image:
+    radial-gradient(circle at 16% 58%, rgba(186, 230, 253, 0.75) 0 1.5px, transparent 2.5px),
+    radial-gradient(circle at 32% 36%, rgba(125, 211, 252, 0.8) 0 2px, transparent 3px),
+    radial-gradient(circle at 44% 64%, rgba(224, 242, 254, 0.88) 0 1.5px, transparent 2.5px),
+    radial-gradient(circle at 54% 44%, rgba(56, 189, 248, 0.72) 0 2px, transparent 3px),
+    radial-gradient(circle at 64% 58%, rgba(165, 243, 252, 0.78) 0 1.5px, transparent 2.5px),
+    radial-gradient(circle at 76% 40%, rgba(186, 230, 253, 0.85) 0 2px, transparent 3px),
+    radial-gradient(circle at 84% 70%, rgba(125, 211, 252, 0.7) 0 1.5px, transparent 2.5px),
+    radial-gradient(circle at 28% 74%, rgba(224, 242, 254, 0.8) 0 2px, transparent 3px),
+    radial-gradient(circle at 8% 44%, rgba(255, 255, 255, 0.45) 0 1px, transparent 2px),
+    radial-gradient(circle at 96% 52%, rgba(186, 230, 253, 0.65) 0 1.5px, transparent 2.5px),
+    radial-gradient(circle at 50% 88%, rgba(56, 189, 248, 0.55) 0 1.5px, transparent 2.5px),
+    radial-gradient(circle at 62% 24%, rgba(224, 242, 254, 0.6) 0 1px, transparent 2px);
+  animation-delay: 0.55s;
+  animation-duration: 2.05s;
+}
+
+@keyframes fetch-sheet-speech-particles-breathe {
+  0%,
+  100% {
+    opacity: 0.22;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .fetch-home-booking-sheet__voice-halo {
     transition: opacity 0.2s ease;
     transform: none;
+    filter: blur(6px);
   }
 
   .fetch-home-booking-sheet__voice-halo--on {
     transform: none;
+  }
+
+  .fetch-home-booking-sheet__speech-particles::before,
+  .fetch-home-booking-sheet__speech-particles::after {
+    animation: none;
+    opacity: 0.55;
   }
 }
 
@@ -3737,8 +3915,22 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   }
 }
 
+.fetch-home-booking-sheet[data-edge-shell='true'] .fetch-home-booking-sheet__top-right-slot {
+  right: calc(
+    max(0.65rem, env(safe-area-inset-right, 0px)) + clamp(2.675rem, 13.5vw, 3.5rem) - 1.325rem
+  );
+  left: auto;
+  top: 2.1rem;
+}
+
+@media (min-width: 640px) {
+  .fetch-home-booking-sheet[data-edge-shell='true'] .fetch-home-booking-sheet__top-right-slot {
+    top: 2.2rem;
+  }
+}
+
 .fetch-home-vision .fetch-home-booking-sheet__shell-footer {
-  padding-bottom: max(0.35rem, env(safe-area-inset-bottom, 0px));
+  padding-bottom: max(0.14rem, env(safe-area-inset-bottom, 0px));
   padding-left: env(safe-area-inset-left, 0px);
   padding-right: env(safe-area-inset-right, 0px);
   border: none;
@@ -4374,7 +4566,7 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   visibility: visible;
 }
 
-/* TTS: `.fetch-home-booking-sheet--speaking` intentionally does not alter sheet chrome (orb halo only). */
+/* TTS: `.fetch-home-booking-sheet--speaking` is a hook for a11y/tests; visuals = voice-halo + speech-particles only. */
 
 /* Dock orb: no blue pool underfoot — neutral drop shadow + tighter top highlight from --orb-glow */
 .fetch-home-vision .fetch-home-orb-vision-halo[data-orb-idle='true'],
@@ -4554,10 +4746,8 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 /* Home intent sheet — earth-horizon top curve (all snaps; edge shell flushes bottom to screen) */
 .fetch-home-vision .fetch-home-booking-sheet[data-surface='intent'] {
   border-radius: 46% 46% 26px 26px / 17% 17% 26px 26px;
-  border: 1px solid rgba(255, 255, 255, 0.42);
-  box-shadow:
-    0 -18px 56px rgba(15, 23, 42, 0.09),
-    inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  box-shadow: 0 -18px 56px rgba(15, 23, 42, 0.06);
 }
 
 .fetch-home-vision .fetch-home-booking-sheet[data-surface='intent'][data-edge-shell='true'] {
@@ -4612,6 +4802,388 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   min-width: 0;
 }
 
+/* Drag strip between services and promo — keep hit target, no visible “pill” / rim (reads as shadow line). */
+.fetch-home-intent-sheet-pull-strip {
+  flex-shrink: 0;
+  height: 0.35rem;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  touch-action: none;
+}
+
+/* Intent closed peek: Uber-style hint — ~10% of promo image height peeks above bottom nav */
+.fetch-home-booking-sheet[data-snap='closed'][data-shell-footer='true'][data-intent-closed-peek='true'] {
+  max-height: min(12.5rem, 78dvh);
+}
+
+.fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true']
+  .fetch-home-intent-carousel-stack,
+.fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true']
+  .fetch-home-intent-sheet-pull-strip {
+  display: none;
+}
+
+.fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true']
+  .fetch-home-service-promo-label {
+  display: none;
+}
+
+/* Decorative peek only — drags pass through to the sheet (see canInitiateSheetDrag). */
+.fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true'] .fetch-home-service-promo-wrap {
+  pointer-events: none;
+}
+
+.fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true'] .fetch-home-service-promo-carousel {
+  touch-action: none;
+  pointer-events: none;
+}
+
+/*
+ * 10% of promo tile height — tile W ≈ max(11.75rem, (100cqi - gap) / 1.5).
+ * Tile height = W × (--fetch-promo-nh / --fetch-promo-nw) from first image’s natural px (set in JS).
+ */
+@supports (width: 1cqi) {
+  .fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true'] .fetch-home-service-promo-clip {
+    max-height: calc(
+      0.1 * max(11.75rem, (100cqi - 0.625rem) / 1.5) * var(--fetch-promo-nh, 4) / var(--fetch-promo-nw, 5)
+    );
+    overflow: hidden;
+  }
+}
+
+@supports not (width: 1cqi) {
+  .fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true'] .fetch-home-service-promo-clip {
+    max-height: calc(0.1 * 12rem * var(--fetch-promo-nh, 4) / var(--fetch-promo-nw, 5));
+    overflow: hidden;
+  }
+}
+
+.fetch-home-booking-sheet__body--intent-closed-peek {
+  container-type: inline-size;
+  overflow: hidden;
+  pointer-events: auto;
+  padding-top: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+@supports (width: 1cqi) {
+  .fetch-home-booking-sheet__body--intent-closed-peek,
+  .fetch-home-booking-sheet__scroll--intent-peek {
+    max-height: min(
+      calc(
+        0.1 * max(11.75rem, (100cqi - 0.625rem) / 1.5) * var(--fetch-promo-nh, 4) / var(--fetch-promo-nw, 5) + 0.45rem
+      ),
+      30dvh
+    );
+  }
+}
+
+@supports not (width: 1cqi) {
+  .fetch-home-booking-sheet__body--intent-closed-peek,
+  .fetch-home-booking-sheet__scroll--intent-peek {
+    max-height: min(calc(0.1 * 12rem * var(--fetch-promo-nh, 4) / var(--fetch-promo-nw, 5) + 0.45rem), 30dvh);
+  }
+}
+
+.fetch-home-booking-sheet__scroll--intent-peek {
+  overflow-y: hidden;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* No hairline / heavy rim above the peek strip (Uber-style dock) */
+.fetch-home-vision
+  .fetch-home-booking-sheet[data-surface='intent'][data-snap='closed'][data-intent-closed-peek='true']::before {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.fetch-home-vision
+  .fetch-home-booking-sheet[data-surface='intent'][data-snap='closed'][data-intent-closed-peek='true'] {
+  border: none;
+  box-shadow: 0 -10px 36px rgba(15, 23, 42, 0.07);
+}
+
+/* Shell nav: flat white, no seam above promo hint */
+.fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true'] .fetch-home-booking-sheet__shell-footer {
+  position: relative;
+  z-index: 6;
+  margin-top: -0.35rem;
+  padding-top: 0.2rem;
+  border-top: none;
+  box-shadow: none;
+  background: #ffffff;
+}
+
+.fetch-home-vision
+  .fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true']
+  .fetch-home-booking-sheet__shell-footer {
+  background: #ffffff;
+}
+
+/* Horizontal promo — Uber Eats–style tiles, ~1.5 visible */
+.fetch-home-service-promo-clip {
+  container-type: inline-size;
+  width: 100%;
+  min-width: 0;
+}
+
+.fetch-home-service-promo-wrap--eats {
+  margin-left: -0.75rem;
+  margin-right: -0.75rem;
+  width: calc(100% + 1.5rem);
+}
+
+.fetch-home-service-promo-carousel {
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 1rem;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x;
+}
+
+.fetch-home-service-promo-track {
+  width: max-content;
+  display: flex;
+  flex-flow: row nowrap;
+  align-items: stretch;
+  gap: 0.65rem;
+  padding: 0 1rem 0.55rem;
+}
+
+.fetch-home-service-promo-card {
+  scroll-snap-align: start;
+  scroll-snap-stop: normal;
+  border: none;
+  /* Negative spread keeps glow below the card (no dark halo above the rail). */
+  box-shadow: 0 5px 16px -4px rgba(15, 23, 42, 0.07);
+}
+
+.fetch-home-service-promo-card:hover {
+  box-shadow: 0 7px 20px -4px rgba(15, 23, 42, 0.09);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fetch-home-service-promo-card:hover {
+    box-shadow: 0 5px 16px -4px rgba(15, 23, 42, 0.07);
+  }
+}
+
+/* Home-moving wide banner: keep subject on the right; no text from the left column */
+.fetch-home-service-promo-card__img--banner-right {
+  object-position: 91% center;
+}
+
+/* Bond-cleaning wide banner: headline + CTA on the left */
+.fetch-home-service-promo-card__img--banner-left {
+  object-position: 18% center;
+}
+
+@supports (width: 1cqi) {
+  .fetch-home-service-promo-clip .fetch-home-service-promo-card {
+    width: max(11.75rem, calc((100cqi - 0.625rem) / 1.5));
+    max-width: calc(100cqi - 1.25rem);
+  }
+}
+
+/* Service info sheet (portal) */
+.fetch-home-service-info-root {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+  pointer-events: none;
+}
+
+.fetch-home-service-info-root > * {
+  pointer-events: auto;
+}
+
+.fetch-home-service-info-backdrop {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  border: none;
+  padding: 0;
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  cursor: pointer;
+  animation: fetch-home-info-fade-in 0.28s cubic-bezier(0.22, 0.88, 0.32, 1) both;
+}
+
+.fetch-home-service-info-panel {
+  position: relative;
+  display: flex;
+  width: 100%;
+  max-width: min(100%, 26rem);
+  max-height: min(88dvh, 40rem);
+  flex-direction: column;
+  border-radius: 1.35rem 1.35rem 0 0;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-bottom: none;
+  box-shadow:
+    0 -20px 60px rgba(15, 23, 42, 0.12),
+    0 -1px 0 rgba(255, 255, 255, 0.9) inset;
+  padding-bottom: max(0.85rem, env(safe-area-inset-bottom));
+  animation: fetch-home-info-slide-up 0.38s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+.fetch-home-service-info-panel__chrome {
+  position: absolute;
+  right: 0.65rem;
+  top: 0.55rem;
+  z-index: 3;
+}
+
+.fetch-home-service-info-close {
+  display: flex;
+  height: 2.25rem;
+  width: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: rgba(51, 65, 85, 0.85);
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.08);
+  cursor: pointer;
+  transition:
+    transform 0.15s ease,
+    background 0.15s ease;
+}
+
+.fetch-home-service-info-close:hover {
+  background: #fff;
+}
+
+.fetch-home-service-info-close:active {
+  transform: scale(0.94);
+}
+
+.fetch-home-service-info-hero {
+  position: relative;
+  flex-shrink: 0;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 1.35rem 1.35rem 0 0;
+}
+
+.fetch-home-service-info-hero__img {
+  display: block;
+  width: 100%;
+  height: min(13.5rem, 38dvh);
+  object-fit: cover;
+  object-position: 86% center;
+}
+
+.fetch-home-service-info-hero__img--banner-right {
+  object-position: 93% center;
+}
+
+.fetch-home-service-info-hero__fallback {
+  height: min(13.5rem, 38dvh);
+  width: 100%;
+  background: linear-gradient(135deg, #e0f2fe 0%, #dbeafe 40%, #e0e7ff 100%);
+}
+
+.fetch-home-service-info-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1rem 1.15rem 0.5rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.fetch-home-service-info-title {
+  margin: 0;
+  font-size: 1.375rem;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+  color: #0f172a;
+}
+
+.fetch-home-service-info-subtitle {
+  margin: 0.35rem 0 0;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.35;
+  color: rgba(71, 85, 105, 0.88);
+}
+
+.fetch-home-service-info-copy {
+  margin: 0.85rem 0 0;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.55;
+  letter-spacing: -0.015em;
+  color: rgba(51, 65, 85, 0.92);
+}
+
+.fetch-home-service-info-footer {
+  flex-shrink: 0;
+  padding: 0.65rem 1.15rem 0.15rem;
+}
+
+@keyframes fetch-home-info-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fetch-home-info-slide-up {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 1.25rem, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fetch-home-service-info-backdrop,
+  .fetch-home-service-info-panel {
+    animation: none;
+  }
+
+  .fetch-home-booking-sheet[data-snap='closed'] .fetch-home-intent-carousel-stack {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+
+@media (min-width: 640px) {
+  .fetch-home-service-info-root {
+    align-items: center;
+    padding: 1rem;
+  }
+
+  .fetch-home-service-info-panel {
+    max-height: min(82dvh, 36rem);
+    border-radius: 1.35rem;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+    box-shadow: 0 28px 72px rgba(15, 23, 42, 0.14);
+  }
+
+  .fetch-home-service-info-hero,
+  .fetch-home-service-info-hero__img,
+  .fetch-home-service-info-hero__fallback {
+    border-radius: 1.35rem 1.35rem 0 0;
+  }
+}
+
 /* Mic centered in the open band above the service cards */
 .fetch-home-intent-mic-strip {
   display: flex;
@@ -4663,15 +5235,56 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   outline-offset: 2px;
 }
 
-/* Full-width bottom bar — home / maps / account (feather blends via shell-footer gradient). */
+.fetch-home-intent-magic-btn {
+  display: flex;
+  height: 2.65rem;
+  width: 2.65rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 1px solid rgba(167, 139, 250, 0.45);
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.55) 0%,
+    rgba(237, 233, 254, 0.42) 45%,
+    rgba(224, 231, 255, 0.38) 100%
+  );
+  color: rgba(91, 33, 182, 0.88);
+  cursor: pointer;
+  box-shadow:
+    0 6px 18px rgba(91, 33, 182, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  transition:
+    transform 0.14s ease,
+    box-shadow 0.18s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fetch-home-intent-magic-btn:hover {
+  box-shadow:
+    0 8px 22px rgba(91, 33, 182, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.fetch-home-intent-magic-btn:active {
+  transform: scale(0.96);
+}
+
+.fetch-home-intent-magic-btn:focus-visible {
+  outline: 2px solid rgba(139, 92, 246, 0.5);
+  outline-offset: 2px;
+}
+
+/* Full-width bottom bar — home / maps / account (thinner dock). */
 .fetch-home-intent-bottom-nav {
   display: flex;
   width: 100%;
   align-items: stretch;
   justify-content: space-between;
   margin-top: 0;
-  padding: 0.55rem max(0.65rem, env(safe-area-inset-left, 0px)) 0.5rem
-    max(0.65rem, env(safe-area-inset-right, 0px));
+  padding: 0.24rem max(0.45rem, env(safe-area-inset-left, 0px)) 0.2rem
+    max(0.45rem, env(safe-area-inset-right, 0px));
   border-radius: 0;
   border: none;
   background: transparent;
@@ -4686,8 +5299,8 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   align-items: center;
   justify-content: center;
   min-width: 0;
-  min-height: 3.15rem;
-  padding: 0.45rem 0.35rem;
+  min-height: 2.15rem;
+  padding: 0.16rem 0.22rem;
   border: none;
   border-radius: 0.75rem;
   background: transparent;
@@ -4751,6 +5364,11 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 .fetch-home-landing-section--intent .fetch-home-service-rail-row {
   margin-top: 0;
   margin-bottom: 0.6rem;
+}
+
+.fetch-home-landing-section--intent .fetch-home-service-rail-row:has(.fetch-home-service-promo-wrap--eats) {
+  margin-bottom: 0;
+  gap: 0;
 }
 
 .fetch-home-landing-section--intent .fetch-home-intent-composer {
@@ -5528,13 +6146,13 @@ body,
   margin: 0;
   min-height: 100%;
   height: 100%;
+  background: transparent;
 }
 
 body {
   display: flex;
   justify-content: center;
   min-height: 100dvh;
-  background: var(--color-fetch-soft-gray);
   color: var(--color-fetch-charcoal);
   font-family:
     ui-sans-serif,
@@ -5555,6 +6173,7 @@ body {
   max-width: 1024px;
   min-height: 100dvh;
   margin-inline: auto;
+  background: transparent;
 }
 
 /* Fullscreen Fetch AI — “mind tour” how-it-works diagram */
@@ -7774,33 +8393,38 @@ html[data-fetch-theme='dark'] .fetch-splash-eye__ball {
   animation: fetch-splash-blink-once 0.52s cubic-bezier(0.45, 0, 0.2, 1) forwards;
 }
 
+/* Splash handoff: eyes brighten and open wider — hold a slightly alert rest pose (no final squeeze shut). */
 @keyframes fetch-splash-wake {
   0% {
     transform: scaleY(1) scaleX(1);
-    filter: brightness(0.9);
+    filter: brightness(0.88);
   }
-  42% {
-    transform: scaleY(1.14) scaleX(0.96);
-    filter: brightness(1.14);
+  38% {
+    transform: scaleY(1.18) scaleX(0.94);
+    filter: brightness(1.16);
+  }
+  68% {
+    transform: scaleY(1.1) scaleX(0.97);
+    filter: brightness(1.08);
   }
   100% {
-    transform: scaleY(1) scaleX(1);
-    filter: brightness(1);
+    transform: scaleY(1.08) scaleX(0.98);
+    filter: brightness(1.05);
   }
 }
 
 @keyframes fetch-splash-wake-glow {
   0% {
-    opacity: 0.82;
-    transform: scale(0.94);
+    opacity: 0.72;
+    transform: scale(0.92);
   }
-  55% {
+  45% {
     opacity: 1;
-    transform: scale(1.08);
+    transform: scale(1.1);
   }
   100% {
     opacity: 1;
-    transform: scale(1.02);
+    transform: scale(1.06);
   }
 }
 
@@ -8206,4 +8830,19 @@ html[data-fetch-theme='dark'] .fetch-bootstrap-skel-service-label {
     opacity: 1;
     transform: none;
   }
+}
+
+/* FetchMap — custom minimal markers (not default Mapbox pins) */
+.fetch-map-pin {
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  border: 2px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+.fetch-map-pin--pickup {
+  background: #22c55e;
+}
+.fetch-map-pin--dropoff {
+  background: #f97316;
 }

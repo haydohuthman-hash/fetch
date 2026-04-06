@@ -258,7 +258,7 @@
           "createdAt": 1775146614970
         }
       ],
-      "updatedAt": 1775480870409,
+      "updatedAt": 1775488361354,
       "createdAt": 1775146614970,
       "dispatchMeta": {
         "startedAt": 1775146657399
@@ -1824,7 +1824,7 @@
           "createdAt": 1775146398198
         }
       ],
-      "updatedAt": 1775480870409,
+      "updatedAt": 1775488361354,
       "createdAt": 1775146398198,
       "dispatchMeta": {
         "startedAt": 1775146515017
@@ -2009,7 +2009,7 @@
         "autoHelpers": 0
       },
       "dropoffAddressText": "88 Charlotte St, Brisbane City QLD",
-      "updatedAt": 1775480870409,
+      "updatedAt": 1775488361354,
       "createdAt": 1775145215194,
       "dispatchMeta": {
         "startedAt": 1775145215227
@@ -2231,6 +2231,22 @@
   ],
   "media": [],
   "paymentIntents": [
+    {
+      "id": "pi_1775488361354_0h2934",
+      "bookingId": null,
+      "metadata": null,
+      "status": "requires_confirmation",
+      "amount": 240,
+      "currency": "AUD",
+      "paymentMethodId": null,
+      "clientSecret": "secret_1775488361354_yu3kk9_client_secret",
+      "lastError": null,
+      "createdAt": 1775488361354,
+      "confirmedAt": null,
+      "provider": "demo",
+      "webhookConfirmedAt": null,
+      "stripePaymentIntentId": null
+    },
     {
       "id": "pi_1775480870252_atujty",
       "bookingId": null,

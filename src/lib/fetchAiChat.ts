@@ -198,10 +198,10 @@ export async function postFetchAiChat(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Debug-Session-Id': '59c911',
+          'X-Debug-Session-Id': '217219',
         },
         body: JSON.stringify({
-          sessionId: '59c911',
+          sessionId: '217219',
           hypothesisId: 'H3',
           location: 'fetchAiChat.ts:pre-fetch',
           message: 'postFetchAiChat request',
@@ -250,11 +250,11 @@ export async function postFetchAiChat(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Debug-Session-Id': '59c911',
+          'X-Debug-Session-Id': '217219',
         },
         body: JSON.stringify({
-          sessionId: '59c911',
-          hypothesisId: 'H3',
+          sessionId: '217219',
+          hypothesisId: 'H5',
           location: 'fetchAiChat.ts:fetch-catch',
           message: 'fetch threw',
           data: { name, msg },
@@ -289,11 +289,11 @@ export async function postFetchAiChat(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Debug-Session-Id': '59c911',
+          'X-Debug-Session-Id': '217219',
         },
         body: JSON.stringify({
-          sessionId: '59c911',
-          hypothesisId: 'H1-H4',
+          sessionId: '217219',
+          hypothesisId: 'H4',
           location: 'fetchAiChat.ts:!res.ok',
           message: 'chat HTTP error body',
           data: {
@@ -318,10 +318,10 @@ export async function postFetchAiChat(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Debug-Session-Id': '59c911',
+          'X-Debug-Session-Id': '217219',
         },
         body: JSON.stringify({
-          sessionId: '59c911',
+          sessionId: '217219',
           hypothesisId: 'H2',
           location: 'fetchAiChat.ts:empty_reply',
           message: '200 but empty reply',

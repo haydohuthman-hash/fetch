@@ -1,13 +1,41 @@
 import { useId } from 'react'
 import type { BookingJobType } from '../../lib/assistant/types'
-import homeMovingTruck from '../../assets/icons/home-moving-truck.png'
-import junkRemovalScene from '../../assets/icons/junk-removal.png'
-import deliveryPickupScene from '../../assets/icons/delivery-pickup.png'
-import cleaningBucket from '../../assets/icons/cleaning-bucket.png'
+import homeServiceCardsSprite from '../../assets/icons/home-service-cards-sprite.png'
 
 export type HomeServiceIllustrationProps = {
   jobType: BookingJobType
   className?: string
+}
+
+/** 2×2 sprite: TL moving van, TR junk bin, BL pick-up-&-drop (house + box), BR cleaning. */
+type SpriteQuadrant = 'tl' | 'tr' | 'bl' | 'br'
+
+const SPRITE_BG_POS: Record<SpriteQuadrant, string> = {
+  tl: '0% 0%',
+  tr: '100% 0%',
+  bl: '0% 100%',
+  br: '100% 100%',
+}
+
+function ServiceSpriteCell({
+  quadrant,
+  className,
+}: {
+  quadrant: SpriteQuadrant
+  className?: string
+}) {
+  return (
+    <span
+      className={['block shrink-0 select-none bg-transparent', className].filter(Boolean).join(' ')}
+      style={{
+        backgroundImage: `url(${homeServiceCardsSprite})`,
+        backgroundSize: '200% 200%',
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: SPRITE_BG_POS[quadrant],
+      }}
+      aria-hidden
+    />
+  )
 }
 
 function useSvgIds() {
@@ -15,7 +43,7 @@ function useSvgIds() {
   return (name: string) => `hsi-${raw}-${name}`
 }
 
-/** Service marks: vector illustrations where specified; PNGs for moving, junk, delivery, cleaning. */
+/** Service marks: shared clay-style sprite for moving / junk / pick-up-&-drop / cleaning; SVGs for helper + heavy. */
 export function HomeServiceTypeIllustration({
   jobType,
   className,
@@ -51,58 +79,13 @@ export function HomeServiceTypeIllustration({
 
   switch (jobType) {
     case 'homeMoving':
-      return (
-        <img
-          src={homeMovingTruck}
-          alt=""
-          width={72}
-          height={72}
-          draggable={false}
-          className={[
-            'shrink-0 bg-transparent object-contain object-center select-none',
-            className,
-          ]
-            .filter(Boolean)
-            .join(' ')}
-          aria-hidden
-        />
-      )
+      return <ServiceSpriteCell quadrant="tl" className={className} />
 
     case 'junkRemoval':
-      return (
-        <img
-          src={junkRemovalScene}
-          alt=""
-          width={72}
-          height={72}
-          draggable={false}
-          className={[
-            'shrink-0 bg-transparent object-contain object-center select-none',
-            className,
-          ]
-            .filter(Boolean)
-            .join(' ')}
-          aria-hidden
-        />
-      )
+      return <ServiceSpriteCell quadrant="tr" className={className} />
 
     case 'deliveryPickup':
-      return (
-        <img
-          src={deliveryPickupScene}
-          alt=""
-          width={72}
-          height={72}
-          draggable={false}
-          className={[
-            'shrink-0 bg-transparent object-contain object-center select-none',
-            className,
-          ]
-            .filter(Boolean)
-            .join(' ')}
-          aria-hidden
-        />
-      )
+      return <ServiceSpriteCell quadrant="bl" className={className} />
 
     case 'helper':
       return (
@@ -187,22 +170,7 @@ export function HomeServiceTypeIllustration({
       )
 
     case 'cleaning':
-      return (
-        <img
-          src={cleaningBucket}
-          alt=""
-          width={72}
-          height={72}
-          draggable={false}
-          className={[
-            'shrink-0 bg-transparent object-contain object-center select-none',
-            className,
-          ]
-            .filter(Boolean)
-            .join(' ')}
-          aria-hidden
-        />
-      )
+      return <ServiceSpriteCell quadrant="br" className={className} />
 
     case 'heavyItem':
       return (

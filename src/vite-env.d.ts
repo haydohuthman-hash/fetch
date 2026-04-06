@@ -1,14 +1,23 @@
 /// <reference types="vite/client" />
 
 /**
- * TTS: the Node server route `POST /api/voice/tts` uses Google Cloud Text-to-Speech when
+ * TTS: `POST /api/tts` and `POST /api/voice/tts` use Google Cloud Text-to-Speech when
  * `GOOGLE_TEXT_TO_SPEECH_API_KEY`, `GOOGLE_CLOUD_API_KEY`, or `GOOGLE_TTS_API_KEY` is set in server `.env`.
- * Optional server env: `GOOGLE_TTS_VOICE` (default `en-AU-Neural2-B`).
+ * Optional server env: `GOOGLE_TTS_VOICE` (default `en-US-Chirp-HD-D`; falls back to Neural2 if unavailable).
  */
 interface ImportMetaEnv {
   readonly VITE_GOOGLE_MAPS_API_KEY?: string
   /** Vector Map ID from Google Cloud Console — enables 3D tilt + buildings. */
   readonly VITE_GOOGLE_MAPS_MAP_ID?: string
+  /** Mapbox public token (pk.*) — home `MapboxMapLayer` + optional `FetchMap` / Directions. */
+  readonly VITE_MAPBOX_TOKEN?: string
+  /** @deprecated Prefer `VITE_MAPBOX_TOKEN`. Same use as token above for home Mapbox. */
+  readonly VITE_MAPBOX_ACCESS_TOKEN?: string
+  /**
+   * Home shell basemap: `google` (default) or `mapbox`.
+   * Mapbox mode shows Mapbox GL only; route/pin overlays still need a Google port.
+   */
+  readonly VITE_HOME_MAP_ENGINE?: string
   /**
    * Node API origin when it differs from the SPA (dev LAN, split deploy).
    * If unset in production, `/api/*` is called same-origin — deploy the Express app behind the same host or use this.

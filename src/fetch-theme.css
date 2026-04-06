@@ -22,7 +22,7 @@ html[data-fetch-theme='light'] {
   --color-fetch-charcoal: #121826;
   --color-fetch-muted: #5a6578;
   --color-fetch-soft-gray: #eef2f9;
-  --orb-glow: 56, 189, 248;
+  --orb-glow: 246, 248, 251;
 }
 
 /* --- Account / auth chrome --- */
@@ -300,6 +300,12 @@ html[data-fetch-theme='dark'] .fetch-account-input:focus-visible {
 
 /* --- App shell (optional class) --- */
 .fetch-app-shell-bg {
+  background-color: transparent;
+}
+
+/* Splash / lazy fallback still need an opaque stage (shell bg is transparent for map bleed). */
+.fetch-splash-root.fetch-app-shell-bg,
+.fetch-app-phase-fallback.fetch-app-shell-bg {
   background-color: var(--fetch-chrome-bg);
 }
 
@@ -433,12 +439,7 @@ html[data-fetch-theme='light'] .fetch-home-booking-sheet::before {
   );
 }
 
-html[data-fetch-theme='light'] .fetch-home-booking-sheet--speaking {
-  background-image: linear-gradient(180deg, #eef1f6 0%, #e2e6ee 100%);
-  box-shadow:
-    0 -8px 28px rgba(15, 23, 42, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.55);
-}
+/* TTS: sheet body stays on normal snap gradient — blue glow + particles live in index.css halos */
 
 html[data-fetch-theme='light'] .fetch-mystery-panel__card {
   background: linear-gradient(180deg, #f4f6fa 0%, #e8ecf3 100%);
@@ -629,6 +630,23 @@ html[data-fetch-theme='light'] .fetch-home-service-segment--selected {
   }
 }
 
+/* Intent landing rail: avoid the tight 1px layer + double shadow stack above the promo row. */
+html[data-fetch-theme='light'] .fetch-home-landing-section--intent .fetch-home-service-segment {
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+}
+
+html[data-fetch-theme='light'] .fetch-home-landing-section--intent .fetch-home-service-segment--selected {
+  box-shadow:
+    0 4px 14px rgba(15, 23, 42, 0.06),
+    0 0 0 1px rgba(56, 189, 248, 0.2);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html[data-fetch-theme='light'] .fetch-home-landing-section--intent .fetch-home-service-segment:hover {
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.055);
+  }
+}
+
 html[data-fetch-theme='light'] .fetch-home-service-segment:focus-visible {
   outline-color: rgba(64, 64, 64, 0.4);
 }
@@ -667,13 +685,13 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-service-segment-ico
   color: rgba(82, 82, 84, 0.76);
 }
 
-/* Light theme — day home orb: upper-left rim + airy blue inner */
+/* Light theme — day home orb: upper-left rim + soft white inner */
 .fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere[data-orb-appearance='day']::after {
   box-shadow:
-    inset 6px 6px 16px -4px rgba(255, 255, 255, 0.48),
-    inset 0 0 0 1px rgba(56, 189, 248, 0.18),
-    inset 0 -26px 50px rgba(56, 189, 248, 0.12),
-    inset 0 0 48px rgba(186, 230, 253, 0.08);
+    inset 6px 6px 16px -4px rgba(255, 255, 255, 0.52),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.38),
+    inset 0 -26px 50px rgba(241, 245, 249, 0.22),
+    inset 0 0 48px rgba(248, 250, 252, 0.12);
 }
 
 html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-orb-vision-halo[data-orb-idle='true'],
@@ -683,7 +701,7 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-orb-vision-halo:no
     0 18px 36px rgba(15, 23, 42, 0.2),
     0 8px 18px rgba(15, 23, 42, 0.12),
     0 3px 8px rgba(15, 23, 42, 0.08),
-    0 -6px 18px -4px rgba(56, 189, 248, 0.55),
+    0 -6px 18px -4px rgba(255, 255, 255, 0.72),
     0 -2px 8px -1px rgba(255, 255, 255, 0.95);
 }
 
@@ -732,9 +750,9 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-orb-chat-bubble--f
 }
 
 html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-orb-chat-bubble--user {
-  background: rgba(224, 242, 254, 0.88);
-  border: 1px solid rgba(56, 189, 248, 0.28);
-  box-shadow: 0 8px 24px rgba(15, 90, 110, 0.08);
+  background: rgba(248, 250, 252, 0.92);
+  border: 1px solid rgba(226, 232, 240, 0.65);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
 }
 
 html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-orb-chat-bubble--user p {
@@ -742,7 +760,7 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-orb-chat-bubble--u
 }
 
 html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-orb-chat-bubble--speaking {
-  border-color: rgba(56, 189, 248, 0.45);
+  border-color: rgba(203, 213, 225, 0.55);
   box-shadow:
     0 10px 36px rgba(15, 90, 110, 0.12),
     0 0 24px rgba(52, 211, 153, 0.12);

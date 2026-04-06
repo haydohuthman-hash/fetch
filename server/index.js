@@ -142,17 +142,20 @@ const GOOGLE_TTS_API_KEY =
     process.env.GOOGLE_TTS_API_KEY ||
     ''
   ).trim()
-const GOOGLE_TTS_VOICE = (process.env.GOOGLE_TTS_VOICE || 'en-AU-Neural2-B').trim()
+/** Premium assistant default (Jarvis-style Chirp HD). Override with `GOOGLE_TTS_VOICE`. */
+const DEFAULT_GOOGLE_TTS_VOICE = 'en-US-Chirp-HD-D'
+const GOOGLE_TTS_VOICE = (process.env.GOOGLE_TTS_VOICE || DEFAULT_GOOGLE_TTS_VOICE).trim()
 const GOOGLE_TTS_TIMEOUT_MS = 12000
 
 function googleLanguageCodeFromVoiceName(voiceName) {
   const parts = voiceName.split('-')
   if (parts.length >= 2) return `${parts[0]}-${parts[1]}`
-  return 'en-AU'
+  return 'en-US'
 }
 
 /** @returns {Promise<Buffer | null>} */
 async function synthesizeGoogleTtsToMp3(text) {
+  /* v1 REST has no silence-trim; MP3 + speakingRate only. */
   if (!GOOGLE_TTS_API_KEY) return null
   const endpoint = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(GOOGLE_TTS_API_KEY)}`
 
@@ -170,7 +173,7 @@ async function synthesizeGoogleTtsToMp3(text) {
           voice: { languageCode, name: voiceName },
           audioConfig: {
             audioEncoding: 'MP3',
-            speakingRate: 0.95,
+            speakingRate: 1.05,
             pitch: 0,
           },
         }),
@@ -184,7 +187,7 @@ async function synthesizeGoogleTtsToMp3(text) {
       }
       if (!upstream.ok) {
         const msg = data?.error?.message ?? raw.slice(0, 500)
-        console.error('[voice_tts] Google Cloud TTS HTTP', upstream.status, msg)
+        console.error('[voice_tts] Google Cloud TTS HTTP', voiceName, upstream.status, msg)
         return null
       }
       const b64 = data?.audioContent
@@ -201,12 +204,18 @@ async function synthesizeGoogleTtsToMp3(text) {
     }
   }
 
-  let buf = await tryVoice(GOOGLE_TTS_VOICE)
-  if (!buf && GOOGLE_TTS_VOICE !== 'en-GB-Neural2-B') {
-    console.warn('[voice_tts] Retrying Google TTS with voice en-GB-Neural2-B')
-    buf = await tryVoice('en-GB-Neural2-B')
+  const fallbackVoices = ['en-US-Neural2-D', 'en-GB-Neural2-B']
+  const chain = [GOOGLE_TTS_VOICE, ...fallbackVoices.filter((v) => v !== GOOGLE_TTS_VOICE)]
+  for (const voiceName of chain) {
+    const buf = await tryVoice(voiceName)
+    if (buf) {
+      if (voiceName !== GOOGLE_TTS_VOICE) {
+        console.warn('[voice_tts] Using fallback voice', voiceName)
+      }
+      return buf
+    }
   }
-  return buf
+  return null
 }
 const MAX_IMAGES_PER_REQUEST = 8
 const SCAN_UPLOAD_FIELD = 'images'
@@ -645,7 +654,7 @@ if (!process.env.VERCEL) {
   )
 }
 
-app.post('/api/voice/tts', async (req, res) => {
+async function handleGoogleTtsPost(req, res) {
   const perfRun = readPerfRun(req)
   const perfT0 = Date.now()
   if (perfRun) perfLog(perfRun, '4_backend_request_received', { route: 'voice_tts' })
@@ -696,7 +705,13 @@ app.post('/api/voice/tts', async (req, res) => {
     server_total_ms: Date.now() - perfT0,
   })
   return res.send(audio)
-})
+}
+
+/** Legacy path — same synthesis as `POST /api/tts`. */
+app.post('/api/voice/tts', handleGoogleTtsPost)
+
+/** Canonical TTS: `POST { text }` → `audio/mpeg` (Google Cloud TTS, server-side key only). */
+app.post('/api/tts', handleGoogleTtsPost)
 
 app.post('/api/fetch-ai/review', async (req, res) => {
   try {

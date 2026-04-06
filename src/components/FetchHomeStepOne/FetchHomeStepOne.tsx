@@ -3,6 +3,7 @@ import type { BookingStage } from '../../lib/assistant'
 import { useFetchTheme } from '../../theme/FetchThemeContext'
 import { FakeMapBackground } from './FakeMapBackground'
 import { GoogleMapLayer } from './GoogleMapLayer'
+import { MapboxMapLayer } from './MapboxMapLayer'
 import type { ExploreMapPoi } from '../../lib/mapsExplorePlaces'
 import {
   BookingMapReflection,
@@ -101,6 +102,10 @@ function FetchHomeStepOneInner({
 }: FetchHomeStepOneProps) {
   const [map, setMap] = useState<google.maps.Map | null>(null)
   const mapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ?? ''
+  const mapboxToken =
+    import.meta.env.VITE_MAPBOX_TOKEN?.trim() ??
+    import.meta.env.VITE_MAPBOX_ACCESS_TOKEN?.trim() ??
+    ''
   const { resolved: theme } = useFetchTheme()
 
   useEffect(() => {
@@ -115,10 +120,18 @@ function FetchHomeStepOneInner({
   const appleNavChrome = mapNavStrip?.navChrome === 'apple'
 
   return (
-    <div className="relative h-full min-h-dvh w-full overflow-hidden bg-white">
+    <div
+      className={[
+        'relative h-full min-h-dvh w-full',
+        mapboxToken
+          ? 'overflow-x-clip overflow-y-visible bg-transparent'
+          : 'overflow-hidden bg-white',
+      ].join(' ')}
+    >
       <div
         className={[
-          'fetch-home-map-tunnel-layer absolute inset-0 flex min-h-0 flex-col will-change-[filter,transform]',
+          'fetch-home-map-tunnel-layer absolute inset-0 flex flex-col will-change-[filter,transform]',
+          mapboxToken ? 'min-h-dvh' : 'min-h-0',
           tunnelPhase === 'tunnel' ? 'fetch-home-map-tunnel-layer--active' : '',
         ].join(' ')}
         data-map-tunnel={tunnelPhase}
@@ -131,15 +144,32 @@ function FetchHomeStepOneInner({
         }
       >
         <div
-          className="fetch-home-map-viewport relative mt-[var(--fetch-map-header-h)] min-h-0 flex-1 overflow-hidden rounded-t-[1.375rem] bg-white shadow-[0_-4px_28px_rgba(15,23,42,0.05)] ring-1 ring-white"
+          className={[
+            'fetch-home-map-viewport relative z-0 mt-[var(--fetch-map-header-h)] flex-1',
+            mapboxToken
+              ? 'min-h-[calc(100dvh-var(--fetch-map-header-h))] overflow-visible rounded-none bg-transparent shadow-none ring-0'
+              : 'min-h-0 overflow-hidden rounded-t-[1.375rem] bg-white shadow-[0_-4px_28px_rgba(15,23,42,0.05)] ring-1 ring-white',
+          ].join(' ')}
           role="presentation"
         >
           <div
-            className="absolute inset-0 overflow-hidden rounded-t-[1.375rem]"
+            className={[
+              'absolute inset-0 z-0 min-h-full w-full',
+              mapboxToken ? 'overflow-visible' : 'overflow-hidden rounded-t-[1.375rem]',
+            ].join(' ')}
             role="presentation"
             aria-label="Job map preview"
           >
-            {mapsApiKey ? (
+            {mapboxToken ? (
+              <MapboxMapLayer
+                accessToken={mapboxToken}
+                onJavaScriptReady={onMapsJavaScriptReady}
+                onMapReady={() => setMap(null)}
+                userLocationCoords={userLocationCoords}
+                pickupCoords={pickupCoords}
+                routePath={routePath}
+              />
+            ) : mapsApiKey ? (
               <GoogleMapLayer
                 apiKey={mapsApiKey}
                 onMapReady={setMap}
@@ -172,7 +202,7 @@ function FetchHomeStepOneInner({
             )}
           </div>
           {showRouteChrome && onMapFollowUserChange ? (
-            <div className="pointer-events-auto absolute bottom-[max(6.5rem,env(safe-area-inset-bottom)+5rem)] right-4 z-[42]">
+            <div className="pointer-events-auto absolute bottom-[max(6.5rem,env(safe-area-inset-bottom)+5rem)] right-4 z-[20]">
               <button
                 type="button"
                 onClick={() => onMapFollowUserChange(!mapFollowUser)}
@@ -194,7 +224,7 @@ function FetchHomeStepOneInner({
           ) : null}
           {chatBookingHintLabel ? (
             <div
-              className="pointer-events-none absolute left-3 right-3 top-3 z-[41] flex justify-center px-1"
+              className="pointer-events-none absolute left-3 right-3 top-3 z-[20] flex justify-center px-1"
               role="status"
               aria-live="polite"
             >

@@ -49,7 +49,7 @@ function initialHomeBootstrapOpen(): boolean {
 }
 
 function PhaseFallback() {
-  return <div className="fetch-app-shell-bg min-h-dvh" aria-hidden />
+  return <div className="fetch-app-phase-fallback fetch-app-shell-bg min-h-dvh" aria-hidden />
 }
 
 function App() {
@@ -121,8 +121,8 @@ function App() {
 
   return (
     <FetchVoiceProvider>
-      <div className="fetch-app-shell-bg flex min-h-dvh min-h-[100dvh] w-full justify-center">
-        <div className="fetch-app-shell-inner relative mx-auto min-h-dvh min-h-[100dvh] w-full max-w-[1024px] overflow-x-clip overflow-y-visible">
+      <div className="fetch-app-shell-bg relative flex min-h-dvh min-h-[100dvh] w-full justify-center">
+        <div className="fetch-app-shell-inner relative z-[1] mx-auto min-h-dvh min-h-[100dvh] w-full max-w-[1024px] overflow-x-clip overflow-y-visible">
           {phase === 'splash' ? (
             <SplashScreen onComplete={handleSplashComplete} />
           ) : phase === 'driver' ? (

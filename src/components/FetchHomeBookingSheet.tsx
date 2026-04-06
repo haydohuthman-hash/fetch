@@ -45,11 +45,22 @@ function canInitiateSheetDrag(
   snap: HomeBookingSheetSnap,
   scrollEl: HTMLElement | null,
   expanded: boolean,
+  intentClosedPeek: boolean,
 ): boolean {
   const el = target as HTMLElement | null
   if (!el) return false
   if (el.closest('.fetch-home-booking-sheet__handle')) return true
-  if (!expanded) return false
+  if (!expanded) {
+    if (intentClosedPeek && snap === 'closed') {
+      if (el.closest('textarea, input, select, a, [data-sheet-no-drag]')) return false
+      if (el.closest('.fetch-home-booking-sheet__peek button')) return false
+      if (el.closest('.fetch-home-booking-sheet__shell-footer button')) return false
+      if (el.closest('.fetch-home-booking-sheet__body button')) return false
+      if (el.closest('.fetch-home-booking-sheet')) return true
+      return false
+    }
+    return false
+  }
   if (el.closest('textarea, input, select, a, [data-sheet-no-drag]')) return false
   if (el.closest('[role="option"]')) return false
   if (el.closest('.fetch-home-booking-sheet__peek button')) return false
@@ -103,11 +114,18 @@ export type FetchHomeBookingSheetProps = {
   shellFooterNav?: ReactNode
   /** e.g. mic — absolutely positioned under the handle, top-left of the sheet body. */
   topLeftAccessory?: ReactNode
+  /** e.g. magic / surprise — mirrors topLeftAccessory on the right (intent home). */
+  topRightAccessory?: ReactNode
   /**
    * Wizard-style booking: when closed, hide the peek row (nav / home / account) so only the
    * handle shows — avoids duplicate chrome with in-flow back actions.
    */
   suppressPeekBar?: boolean
+  /**
+   * Intent home: when the sheet is closed, keep a thin slice of body content (promo cards)
+   * visible above the shell footer; drag anywhere on the sheet (except buttons) to expand.
+   */
+  intentClosedPeek?: boolean
   children: ReactNode
 }
 
@@ -180,7 +198,9 @@ export function FetchHomeBookingSheet({
   edgeToEdgeShell = false,
   shellFooterNav,
   topLeftAccessory,
+  topRightAccessory,
   suppressPeekBar = false,
+  intentClosedPeek = false,
   children,
 }: FetchHomeBookingSheetProps) {
   const panelRef = useRef<HTMLDivElement>(null)
@@ -284,7 +304,8 @@ export function FetchHomeBookingSheet({
   const onPanelPointerDownCapture = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
       if (!cardVisible) return
-      if (!canInitiateSheetDrag(e.target, snap, scrollRef.current, expanded)) return
+      if (!canInitiateSheetDrag(e.target, snap, scrollRef.current, expanded, intentClosedPeek))
+        return
       const panel = panelRef.current
       if (!panel) return
       try {
@@ -298,7 +319,7 @@ export function FetchHomeBookingSheet({
       setDragging(true)
       onSheetGestureActiveChange?.(true)
     },
-    [cardVisible, snap, expanded, onSheetGestureActiveChange],
+    [cardVisible, snap, expanded, intentClosedPeek, onSheetGestureActiveChange],
   )
 
   const onPanelPointerMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
@@ -323,7 +344,7 @@ export function FetchHomeBookingSheet({
         return
       }
       const dy = e.clientY - d.startY
-      const threshold = 52
+      const threshold = 44
       const tap = Math.abs(dy) < 10
       const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
       const dt = Math.max(1, now - d.lastT)
@@ -412,6 +433,13 @@ export function FetchHomeBookingSheet({
           ].join(' ')}
         />
         <div
+          aria-hidden
+          className={[
+            'fetch-home-booking-sheet__speech-particles pointer-events-none',
+            isSpeechPlaying ? 'fetch-home-booking-sheet__speech-particles--on' : '',
+          ].join(' ')}
+        />
+        <div
           ref={panelRef}
           data-snap={snap}
           data-surface={surface}
@@ -419,6 +447,7 @@ export function FetchHomeBookingSheet({
           data-maps-compact-peek={mapsCompactPeek ? 'true' : undefined}
           data-shell-footer={shellFooterNav ? 'true' : undefined}
           data-edge-shell={edgeToEdgeShell ? 'true' : undefined}
+          data-intent-closed-peek={intentClosedPeek ? 'true' : undefined}
           onPointerDownCapture={onPanelPointerDownCapture}
           onPointerMove={onPanelPointerMove}
           onPointerUp={onPanelPointerUp}
@@ -449,6 +478,11 @@ export function FetchHomeBookingSheet({
         {topLeftAccessory ? (
           <div className="fetch-home-booking-sheet__top-left-slot pointer-events-auto absolute left-6 z-[4] top-[2.1rem] sm:left-7 sm:top-[2.25rem]">
             {topLeftAccessory}
+          </div>
+        ) : null}
+        {topRightAccessory ? (
+          <div className="fetch-home-booking-sheet__top-right-slot pointer-events-auto absolute right-6 z-[4] top-[2.1rem] sm:right-7 sm:top-[2.25rem]">
+            {topRightAccessory}
           </div>
         ) : null}
         {expanded && shellToggleActive && !hideExpandedHeaderChrome ? (
@@ -729,9 +763,11 @@ export function FetchHomeBookingSheet({
               ? snap === 'compact'
                 ? 'min-h-0 flex-none opacity-100'
                 : 'min-h-0 flex-1 opacity-100'
-              : 'pointer-events-none max-h-0 min-h-0 flex-none overflow-hidden opacity-0',
+              : intentClosedPeek
+                ? 'fetch-home-booking-sheet__body--intent-closed-peek min-h-0 flex-none opacity-100'
+                : 'pointer-events-none max-h-0 min-h-0 flex-none overflow-hidden opacity-0',
           ].join(' ')}
-          aria-hidden={!expanded}
+          aria-hidden={!expanded && !intentClosedPeek}
         >
           <div
             ref={scrollRef}
@@ -739,7 +775,10 @@ export function FetchHomeBookingSheet({
               'fetch-home-booking-sheet__scroll min-h-0 overflow-x-hidden overscroll-contain pb-1',
               snap === 'compact' ? 'flex-none' : 'flex min-h-0 flex-1 flex-col',
               snap === 'full' || snap === 'half' ? 'overflow-y-auto touch-pan-y' : 'overflow-y-hidden',
-            ].join(' ')}
+              !expanded && intentClosedPeek ? 'fetch-home-booking-sheet__scroll--intent-peek' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
           >
             <div className="fetch-home-sheet-inner">{children}</div>
           </div>

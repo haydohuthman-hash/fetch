@@ -1,6 +1,10 @@
+export type MysteryExperienceKind = 'adventure' | 'restaurant'
+
 export type MysteryAdventurePanelProps = {
   open: boolean
   loading: boolean
+  /** Drives loading / error / secondary CTA copy (default adventure — maps toolbar). */
+  experienceKind?: MysteryExperienceKind
   title: string
   formattedAddress?: string
   placeSummary: string
@@ -15,6 +19,7 @@ export type MysteryAdventurePanelProps = {
 export function MysteryAdventurePanel({
   open,
   loading,
+  experienceKind = 'adventure',
   title,
   formattedAddress,
   placeSummary,
@@ -25,6 +30,14 @@ export function MysteryAdventurePanel({
   onNavigate,
   onAnother,
 }: MysteryAdventurePanelProps) {
+  const isRestaurant = experienceKind === 'restaurant'
+  const loadingTitle = isRestaurant ? 'Finding your table…' : 'Finding your mystery spot…'
+  const loadingSubtitle = isRestaurant
+    ? 'Hang tight — Fetch is picking somewhere worth the trip.'
+    : 'Hang tight — Fetch is picking somewhere nearby.'
+  const errorHeading = isRestaurant ? 'Couldn’t load that pick' : 'Couldn’t load mystery'
+  const anotherLabel = isRestaurant ? 'Another pick' : 'Another mystery'
+
   if (!open) return null
   return (
     <div
@@ -44,13 +57,13 @@ export function MysteryAdventurePanel({
         </button>
         {loading ? (
           <div className="fetch-mystery-panel__body space-y-3 p-5 pt-12">
-            <p className="text-[15px] font-semibold">Finding your mystery spot…</p>
-            <p className="text-[13px] opacity-80">Hang tight — Fetch is picking somewhere nearby.</p>
+            <p className="text-[15px] font-semibold">{loadingTitle}</p>
+            <p className="text-[13px] opacity-80">{loadingSubtitle}</p>
           </div>
         ) : error ? (
           <div className="fetch-mystery-panel__body space-y-3 p-5 pt-12">
             <p id="fetch-mystery-title" className="text-[15px] font-semibold">
-              Couldn’t load mystery
+              {errorHeading}
             </p>
             <p className="text-[13px] opacity-85">{error}</p>
             <button
@@ -119,7 +132,7 @@ export function MysteryAdventurePanel({
                   onClick={onAnother}
                   className="fetch-mystery-panel__cta-secondary flex-1 rounded-2xl py-3.5 text-[14px] font-semibold"
                 >
-                  Another mystery
+                  {anotherLabel}
                 </button>
               </div>
             </div>

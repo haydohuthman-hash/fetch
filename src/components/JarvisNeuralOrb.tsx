@@ -114,7 +114,7 @@ export type JarvisNeuralOrbProps = {
   ariaLive?: boolean
 }
 
-const DEFAULT_GLOW = { r: 220, g: 225, b: 235 }
+const DEFAULT_GLOW = { r: 244, g: 246, b: 250 }
 type GlowRGB = { r: number; g: number; b: number }
 const IDLE_BREATH = (Math.PI * 2) / 3.35
 /** ~20% larger face vs prior (eyes + spacing + mouth track together). */
@@ -772,15 +772,24 @@ export function JarvisNeuralOrb({
   useEffect(() => {
     if (!autonomous) return
     const pool: FetchOrbExpression[] = [
-      'curious',
       'playful',
-      'happy',
+      'playful',
+      'playful',
       'content',
-      'thinking',
-      'waving',
+      'content',
+      'content',
+      'content',
+      'curious',
+      'curious',
+      'happy',
+      'happy',
+      'awake',
+      'awake',
+      'awake',
       'proud',
       'excited',
-      'awake',
+      'thinking',
+      'waving',
     ]
     let cancelled = false
     const step = () => {
@@ -788,12 +797,12 @@ export function JarvisNeuralOrb({
       setAutoMood(pool[Math.floor(Math.random() * pool.length)]!)
       autonomousTimerRef.current = window.setTimeout(
         step,
-        4200 + Math.random() * 7600,
+        2200 + Math.random() * 4800,
       )
     }
     autonomousTimerRef.current = window.setTimeout(
       step,
-      600 + Math.random() * 1400,
+      350 + Math.random() * 950,
     )
     return () => {
       cancelled = true
@@ -889,6 +898,29 @@ export function JarvisNeuralOrb({
         (st === 'idle' || st === 'aware' || st === undefined) &&
         (userExpr === 'awake' || userExpr === 'idle')
       const expr: FetchOrbExpression = autoOn ? autoMoodRef.current : userExpr
+
+      const dockHighLoad =
+        expr === 'sleepy' ||
+        expr === 'thinking' ||
+        expr === 'searching' ||
+        expr === 'surprised' ||
+        expr === 'intense' ||
+        expr === 'concerned'
+      const dockAmbientLife =
+        homeMagicalDock &&
+        !reduceMotionRef.current &&
+        !speak &&
+        !dockHighLoad &&
+        expr !== 'speaking' &&
+        expr !== 'listening'
+      const dockCalmBreath =
+        dockAmbientLife &&
+        (expr === 'awake' ||
+          expr === 'idle' ||
+          expr === 'curious' ||
+          expr === 'content' ||
+          expr === 'proud')
+
       const targetT = resolveOrbExpressionTargets(expr)
       let lerpU = 0.11
       if (reduceMotionRef.current) lerpU = 0.16
@@ -904,9 +936,13 @@ export function JarvisNeuralOrb({
         mapImpulseRef.current *= 0.965
       }
 
+      const breathAmpEff = vis.breathAmp * (dockCalmBreath ? 1.2 : 1)
       const breath =
         1 +
-        Math.sin(t * IDLE_BREATH) * vis.breathAmp +
+        Math.sin(t * IDLE_BREATH) * breathAmpEff +
+        (dockCalmBreath
+          ? Math.sin(t * IDLE_BREATH * 2.02 + 1.05) * breathAmpEff * 0.17
+          : 0) +
         (expr === 'speaking' || speak ? Math.sin(t * 6.2) * 0.0026 * act : 0)
 
       const blinkSlow = Math.max(0.75, vis.blinkSlow)
@@ -936,9 +972,15 @@ export function JarvisNeuralOrb({
       }
       if (autoOn && !reduceMotionRef.current) {
         liftPx += Math.sin(t * 2.12) * 5.2 + Math.sin(t * 0.88) * 2.9
+      } else if (dockAmbientLife) {
+        liftPx += Math.sin(t * 1.85) * 3.1 + Math.sin(t * 0.76) * 1.6
       }
 
-      shimmerPhaseRef.current += 0.014 * vis.shimmerSpeed * (0.5 + vis.shimmer)
+      shimmerPhaseRef.current +=
+        0.014 *
+        vis.shimmerSpeed *
+        (0.5 + vis.shimmer) *
+        (dockCalmBreath ? 1.3 : 1)
       if (vis.mouthKind === 'speak_line') {
         const tgt = clamp01(getSpeechAmplitude())
         const cur = lipOpenVisualRef.current
@@ -1093,12 +1135,18 @@ export function JarvisNeuralOrb({
             cy,
             R * 0.91,
           )
-          const b0 = (dayOrb ? 0.26 : 0.34) * pulse
-          const b1 = (dayOrb ? 0.16 : 0.22) * pulse
-          const b2 = (dayOrb ? 0.075 : 0.12) * pulse
-          blueFill.addColorStop(0, `rgba(56, 189, 248, ${b0})`)
-          blueFill.addColorStop(0.38, `rgba(129, 140, 246, ${b1})`)
-          blueFill.addColorStop(0.72, `rgba(59, 130, 246, ${b2})`)
+          const b0 = (dayOrb ? 0.15 : 0.34) * pulse
+          const b1 = (dayOrb ? 0.09 : 0.22) * pulse
+          const b2 = (dayOrb ? 0.042 : 0.12) * pulse
+          if (dayOrb) {
+            blueFill.addColorStop(0, `rgba(255, 255, 255, ${b0})`)
+            blueFill.addColorStop(0.4, `rgba(248, 250, 252, ${b1})`)
+            blueFill.addColorStop(0.74, `rgba(226, 232, 240, ${b2})`)
+          } else {
+            blueFill.addColorStop(0, `rgba(56, 189, 248, ${b0})`)
+            blueFill.addColorStop(0.38, `rgba(129, 140, 246, ${b1})`)
+            blueFill.addColorStop(0.72, `rgba(59, 130, 246, ${b2})`)
+          }
           blueFill.addColorStop(1, dayOrb ? 'rgba(255,255,255,0)' : 'rgba(0,0,0,0)')
           ctx.fillStyle = blueFill
           ctx.globalCompositeOperation = dayOrb ? 'soft-light' : 'lighter'
@@ -1107,9 +1155,18 @@ export function JarvisNeuralOrb({
           ctx.fill()
 
           const edgeBlue = ctx.createRadialGradient(cx, cy, R * 0.62, cx, cy, R * 0.995)
-          edgeBlue.addColorStop(0, 'rgba(56, 189, 248, 0)')
-          edgeBlue.addColorStop(0.72, dayOrb ? 'rgba(125, 211, 252, 0.08)' : 'rgba(56, 189, 248, 0.12)')
-          edgeBlue.addColorStop(1, dayOrb ? 'rgba(96, 165, 250, 0.2)' : 'rgba(56, 189, 248, 0.22)')
+          edgeBlue.addColorStop(
+            0,
+            dayOrb ? 'rgba(248, 250, 252, 0)' : 'rgba(56, 189, 248, 0)',
+          )
+          edgeBlue.addColorStop(
+            0.72,
+            dayOrb ? 'rgba(255, 255, 255, 0.05)' : 'rgba(56, 189, 248, 0.12)',
+          )
+          edgeBlue.addColorStop(
+            1,
+            dayOrb ? 'rgba(226, 232, 240, 0.11)' : 'rgba(56, 189, 248, 0.22)',
+          )
           ctx.fillStyle = edgeBlue
           ctx.globalCompositeOperation = dayOrb ? 'source-over' : 'lighter'
           ctx.beginPath()
@@ -1117,7 +1174,7 @@ export function JarvisNeuralOrb({
           ctx.fill()
 
           ctx.globalCompositeOperation = 'source-over'
-          ctx.strokeStyle = dayOrb ? 'rgba(147, 197, 253, 0.38)' : 'rgba(125, 211, 252, 0.32)'
+          ctx.strokeStyle = dayOrb ? 'rgba(226, 232, 240, 0.4)' : 'rgba(125, 211, 252, 0.32)'
           ctx.lineWidth = Math.max(1, R * 0.018)
           ctx.beginPath()
           ctx.arc(cx, cy, R * 0.985, 0, Math.PI * 2)
@@ -1128,9 +1185,9 @@ export function JarvisNeuralOrb({
           const ly = cy - R * 0.7
           const rimGlow = ctx.createRadialGradient(lx, ly, 0, lx, ly, R * 0.28)
           if (dayOrb) {
-            rimGlow.addColorStop(0, `rgba(255,255,255,${0.42 * pulse})`)
-            rimGlow.addColorStop(0.35, `rgba(224, 242, 254, ${0.22 * pulse})`)
-            rimGlow.addColorStop(0.65, `rgba(125, 211, 252, ${0.08 * pulse})`)
+            rimGlow.addColorStop(0, `rgba(255,255,255,${0.46 * pulse})`)
+            rimGlow.addColorStop(0.35, `rgba(248, 250, 252, ${0.16 * pulse})`)
+            rimGlow.addColorStop(0.65, `rgba(226, 232, 240, ${0.05 * pulse})`)
             rimGlow.addColorStop(1, 'rgba(255,255,255,0)')
           } else {
             rimGlow.addColorStop(0, `rgba(255,255,255,${0.2 * pulse})`)
@@ -1158,7 +1215,9 @@ export function JarvisNeuralOrb({
             const pr = 0.42 + (i % 3) * 0.2
             const alpha =
               (0.042 + Math.sin(t * 0.76 + i * 1.13) * 0.022) * dustAlphaMul
-            ctx.fillStyle = `rgba(199, 210, 254, ${alpha})`
+            ctx.fillStyle = dayOrb
+              ? `rgba(248, 250, 252, ${alpha})`
+              : `rgba(199, 210, 254, ${alpha})`
             ctx.beginPath()
             ctx.arc(px, py, pr, 0, Math.PI * 2)
             ctx.fill()
@@ -1198,7 +1257,11 @@ export function JarvisNeuralOrb({
       const microDriftY =
         Math.sin(t * 0.55 + 1.2) * R * 0.008 + Math.sin(t * 0.22) * R * 0.005
       const autoSwayX =
-        autoOn && !reduceMotionRef.current ? Math.sin(t * 1.08) * R * 0.045 : 0
+        autoOn && !reduceMotionRef.current
+          ? Math.sin(t * 1.08) * R * 0.045
+          : dockAmbientLife
+            ? Math.sin(t * 0.95) * R * 0.022 + Math.sin(t * 0.41) * R * 0.011
+            : 0
       const faceCx = cx + swayX + autoSwayX
       const ldMul = lookDownRef.current ? Math.max(0.5, lookDownDepthRef.current) : 0
       const lookUpY = lookAtCardRef.current
@@ -1238,8 +1301,24 @@ export function JarvisNeuralOrb({
       const halfH = R * BASE_HH * vis.eyeScaleH * listenBoost
 
       const tilt = vis.tiltY * R
-      const gazeX = (vis.pupilShiftX * R * 0.04 + scan) * 0.85
-      const gazeY = vis.pupilShiftY * R * 0.035 + gazeCardY
+      const mapAtten =
+        mapImpulseRef.current > 0.12
+          ? Math.max(0.28, 1 - mapImpulseRef.current * 0.5)
+          : 1
+      const dockPupilDx = dockAmbientLife
+        ? (Math.sin(t * 0.31) * 0.92 + Math.cos(t * 0.19) * 0.68) *
+          R *
+          0.0068 *
+          mapAtten
+        : 0
+      const dockPupilDy = dockAmbientLife
+        ? (Math.cos(t * 0.27) * 0.88 + Math.sin(t * 0.23) * 0.62) *
+          R *
+          0.0059 *
+          mapAtten
+        : 0
+      const gazeX = (vis.pupilShiftX * R * 0.04 + scan) * 0.85 + dockPupilDx
+      const gazeY = vis.pupilShiftY * R * 0.035 + gazeCardY + dockPupilDy
 
       const sleepyPeek =
         expr === 'sleepy'
@@ -1339,7 +1418,12 @@ export function JarvisNeuralOrb({
         const pg = ctx.createRadialGradient(cx, cy, R * 0.92, cx, cy, pr)
         if (dayOrb) {
           pg.addColorStop(0, `rgba(${gc.r},${gc.g},${gc.b},${p * 0.14})`)
-          pg.addColorStop(0.45, `rgba(56,189,248,${p * 0.08})`)
+          pg.addColorStop(
+            0.45,
+            dayOrb
+              ? `rgba(248, 250, 252, ${p * 0.1})`
+              : `rgba(56, 189, 248, ${p * 0.08})`,
+          )
           pg.addColorStop(1, 'rgba(255,255,255,0)')
         } else {
           pg.addColorStop(0, `rgba(${gc.r},${gc.g},${gc.b},${p * 0.12})`)

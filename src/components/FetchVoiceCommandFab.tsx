@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   JarvisNeuralOrb,
   type FetchOrbExpression,
@@ -31,6 +31,10 @@ export function FetchVoiceCommandFab({
   orbAppearance,
   autonomous = false,
   suspendAutonomous = false,
+  /** Intent dock: drag up on the orb starts a sheet expand (tap still opens assistant). */
+  onSheetPullExpand,
+  /** While HomeView plays the 1m idle reminder line — black dog ears above the orb during that TTS only. */
+  dogEars = false,
 }: {
   onOpen: () => void
   id?: string
@@ -52,9 +56,18 @@ export function FetchVoiceCommandFab({
   orbAppearance?: 'night' | 'day'
   autonomous?: boolean
   suspendAutonomous?: boolean
+  onSheetPullExpand?: () => void
+  dogEars?: boolean
 }) {
   const { isSpeechPlaying, muted, playUiEvent } = useFetchVoice()
   const [pulseActive, setPulseActive] = useState(false)
+  const sheetPullRef = useRef<{
+    id: number
+    x: number
+    y: number
+    fired: boolean
+  } | null>(null)
+  const skipNextClickRef = useRef(false)
   const speaking = isSpeechPlaying && !muted
   const dim = compact
     ? 'h-[3.25rem] w-[3.25rem]'
@@ -122,8 +135,43 @@ export function FetchVoiceCommandFab({
     <button
       id={id}
       type="button"
-      onPointerDown={primeVoicePlaybackFromUserGesture}
+      onPointerDown={(e) => {
+        primeVoicePlaybackFromUserGesture()
+        if (homeSheetDock && onSheetPullExpand && !homeSheetDockCompact) {
+          sheetPullRef.current = {
+            id: e.pointerId,
+            x: e.clientX,
+            y: e.clientY,
+            fired: false,
+          }
+        }
+      }}
+      onPointerMove={(e) => {
+        const p = sheetPullRef.current
+        if (!p || p.id !== e.pointerId || p.fired || !onSheetPullExpand) return
+        const dy = e.clientY - p.y
+        const dx = e.clientX - p.x
+        if (dy < -36 && Math.abs(dy) > Math.abs(dx) * 1.05) {
+          p.fired = true
+          skipNextClickRef.current = true
+          onSheetPullExpand()
+        }
+      }}
+      onPointerUp={(e) => {
+        if (sheetPullRef.current?.id === e.pointerId) {
+          sheetPullRef.current = null
+        }
+      }}
+      onPointerCancel={(e) => {
+        if (sheetPullRef.current?.id === e.pointerId) {
+          sheetPullRef.current = null
+        }
+      }}
       onClick={() => {
+        if (skipNextClickRef.current) {
+          skipNextClickRef.current = false
+          return
+        }
         primeVoicePlaybackFromUserGesture()
         playUiEvent('orb_tap')
         onOpen()
@@ -131,6 +179,7 @@ export function FetchVoiceCommandFab({
       aria-label="Fetch assistant"
       className={[
         'fetch-voice-fab fetch-voice-fab--jarvis-solo pointer-events-auto relative z-0 flex shrink-0 items-center justify-center rounded-full bg-transparent text-white transition-transform duration-300 hover:scale-[1.02] active:scale-[0.97]',
+        dogEars ? 'fetch-voice-fab--dog-ears-wrap overflow-visible' : '',
         dim,
         looksDormant ? 'fetch-voice-fab--ambient' : '',
         onboardingPulse ? 'fetch-voice-fab--onboarding' : '',
@@ -140,6 +189,17 @@ export function FetchVoiceCommandFab({
         typingActive ? 'fetch-voice-fab--typing' : '',
       ].join(' ')}
     >
+      {dogEars ? (
+        <span
+          className="fetch-voice-fab__dog-ears pointer-events-none"
+          aria-hidden
+        >
+          <span className="fetch-voice-fab__dog-ears-inner">
+            <span className="fetch-voice-fab__dog-ear fetch-voice-fab__dog-ear--L" />
+            <span className="fetch-voice-fab__dog-ear fetch-voice-fab__dog-ear--R" />
+          </span>
+        </span>
+      ) : null}
       <span className="relative z-[2] flex h-full w-full items-center justify-center">
         <JarvisNeuralOrb
           expression={expression}
