@@ -104,6 +104,40 @@ function parseFetchAiChatNavigation(raw: unknown): FetchAiChatNavigation | null 
   }
 }
 
+/** Structured UI affordance from `/api/fetch-ai/chat` (Neural Field uses `choices`; extend with union later). */
+export type FetchAiChatInteraction =
+  | {
+      type: 'choices'
+      choices: [string, string, string, string]
+      prompt?: string
+      freeformHint?: string
+    }
+  | { type: 'visual'; heroImageUrl: string; caption?: string }
+
+function parseFetchAiChatInteraction(raw: unknown): FetchAiChatInteraction | null {
+  if (!raw || typeof raw !== 'object') return null
+  const o = raw as Record<string, unknown>
+  if (o.type !== 'choices') return null
+  const choicesRaw = o.choices
+  if (!Array.isArray(choicesRaw) || choicesRaw.length !== 4) return null
+  const choices = choicesRaw.map((c) =>
+    typeof c === 'string' ? c.trim() : '',
+  ) as [string, string, string, string]
+  if (!choices.every((c) => c.length > 0)) return null
+  const prompt =
+    typeof o.prompt === 'string' && o.prompt.trim() ? o.prompt.trim() : undefined
+  const freeformHint =
+    typeof o.freeformHint === 'string' && o.freeformHint.trim()
+      ? o.freeformHint.trim()
+      : undefined
+  return {
+    type: 'choices',
+    choices,
+    ...(prompt ? { prompt } : {}),
+    ...(freeformHint ? { freeformHint } : {}),
+  }
+}
+
 export type PostFetchAiChatOptions = {
   signal?: AbortSignal
   /** e.g. en-AU for STT alignment */
@@ -123,6 +157,7 @@ export async function postFetchAiChat(
 ): Promise<{
   reply: string
   navigation: FetchAiChatNavigation | null
+  interaction: FetchAiChatInteraction | null
   perfTiming?: FetchPerfServerTiming | null
 }> {
   const controller = new AbortController()
@@ -223,7 +258,12 @@ export async function postFetchAiChat(
       throw new Error(CHAT_ERROR_NETWORK)
     }
 
-    let data: { reply?: string; error?: string; navigation?: unknown } = {}
+    let data: {
+      reply?: string
+      error?: string
+      navigation?: unknown
+      interaction?: unknown
+    } = {}
     try {
       data = (await res.json()) as typeof data
     } catch {
@@ -284,8 +324,9 @@ export async function postFetchAiChat(
 
     const perfTiming = parseFetchPerfTimingHeader(res)
     const navigation = parseFetchAiChatNavigation(data.navigation)
+    const interaction = parseFetchAiChatInteraction(data.interaction)
 
-    return { reply, navigation, perfTiming }
+    return { reply, navigation, interaction, perfTiming }
   } finally {
     window.clearTimeout(tid)
     if (outer) {

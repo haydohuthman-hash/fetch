@@ -21,7 +21,10 @@ import {
   fetchPerfMark,
   fetchPerfSetServerTiming,
 } from '../lib/fetchPerf'
-import { INTENT_COMPOSER_PLACEHOLDER_HINTS } from '../views/homeConstants'
+import {
+  INTENT_COMPOSER_INTENT_LANDING_HINTS,
+  INTENT_COMPOSER_PLACEHOLDER_HINTS,
+} from '../views/homeConstants'
 import { voiceFlowDebug, voiceFlowSttError } from '../voice/voiceFlowDebug'
 import { primeVoicePlaybackFromUserGesture } from '../voice/fetchVoice'
 import { buildFetchUserMemoryContext } from '../lib/fetchUserMemoryContext'
@@ -66,6 +69,7 @@ type HomeChatRole = 'user' | 'assistant' | 'system'
 type HomeChatMessage = { role: HomeChatRole; content: string }
 
 export function HomeIntentChatComposer({
+  variant = 'default',
   appendOrbChatTurn,
   onChatNavigation,
   onListeningChange,
@@ -75,6 +79,8 @@ export function HomeIntentChatComposer({
   onStartNavigationToPlace,
   onAddressEntryIntentChange,
 }: {
+  /** `intentLanding`: below service chips, darker field, service-only placeholders. */
+  variant?: 'default' | 'intentLanding'
   appendOrbChatTurn: (role: 'user' | 'assistant', text: string) => void
   /** Live route from server (Google Directions + traffic) — drives map + minimal nav sheet. */
   onChatNavigation?: (nav: FetchAiChatNavigation | null) => void
@@ -117,9 +123,23 @@ export function HomeIntentChatComposer({
   const recognitionRef = useRef<unknown>(null)
   const sttSpeakPendingRef = useRef(false)
   const chatAbortRef = useRef<AbortController | null>(null)
+  /** Blocks overlapping home chat turns before `chatPending` re-renders (double send / Enter spam). */
+  const homeAiChatInFlightRef = useRef(false)
   const convRef = useRef<HomeChatMessage[]>([])
   const [chatPending, setChatPending] = useState(false)
   const [placeholderIndex, setPlaceholderIndex] = useState(0)
+
+  const placeholderHints = useMemo(
+    () =>
+      variant === 'intentLanding'
+        ? INTENT_COMPOSER_INTENT_LANDING_HINTS
+        : INTENT_COMPOSER_PLACEHOLDER_HINTS,
+    [variant],
+  )
+
+  useEffect(() => {
+    setPlaceholderIndex(0)
+  }, [variant])
   const [deviceLocationStatus, setDeviceLocationStatus] = useState<
     'pending' | 'granted' | 'denied'
   >('pending')
@@ -128,6 +148,7 @@ export function HomeIntentChatComposer({
   }, [onPlaceSuggestionsOpenChange])
 
   const composerFileInputRef = useRef<HTMLInputElement>(null)
+  const composerDateInputRef = useRef<HTMLInputElement>(null)
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null)
   const chatGeoRef = useRef<{ latitude: number; longitude: number } | null>(null)
   const chatGeoRequestedRef = useRef(false)
@@ -155,8 +176,9 @@ export function HomeIntentChatComposer({
     if (!el) return
     el.style.height = '0px'
     const next = Math.min(el.scrollHeight, 128)
-    el.style.height = `${Math.max(44, next)}px`
-  }, [])
+    const minPx = variant === 'intentLanding' ? 38 : 44
+    el.style.height = `${Math.max(minPx, next)}px`
+  }, [variant])
 
   useEffect(() => {
     resizeComposerTextarea()
@@ -185,7 +207,9 @@ export function HomeIntentChatComposer({
     async (userContent: string, fromStt: boolean) => {
       const trimmed = userContent.trim()
       if (!trimmed) return
-
+      if (homeAiChatInFlightRef.current) return
+      homeAiChatInFlightRef.current = true
+      try {
       const perfRunId = fetchPerfIsEnabled() ? createPerfRunId('fetch_ai_turn') : undefined
       if (perfRunId) {
         fetchPerfMark(perfRunId, '1_user_action', { fromStt, surface: 'home_intent_chat' })
@@ -280,6 +304,9 @@ export function HomeIntentChatComposer({
           }
         }
       }
+      } finally {
+        homeAiChatInFlightRef.current = false
+      }
     },
     [speakLine, playUiEvent, appendOrbChatTurn, onChatNavigation],
   )
@@ -321,7 +348,46 @@ export function HomeIntentChatComposer({
     })
   }, [])
 
+  const openComposerDatePicker = useCallback(() => {
+    const el = composerDateInputRef.current
+    if (!el) return
+    const withPicker = el as HTMLInputElement & { showPicker?: () => void }
+    if (typeof withPicker.showPicker === 'function') {
+      try {
+        withPicker.showPicker()
+        return
+      } catch {
+        /* fall through */
+      }
+    }
+    el.click()
+  }, [])
+
+  const onComposerDateChange = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      const v = e.target.value
+      if (!v) return
+      const d = new Date(`${v}T12:00:00`)
+      if (Number.isNaN(d.getTime())) return
+      const label = d.toLocaleDateString(undefined, {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      })
+      setComposerText((t) => {
+        const s = t.trim()
+        return s ? `${s} — ${label}` : label
+      })
+      playUiEvent('success')
+      e.target.value = ''
+      window.requestAnimationFrame(() => resizeComposerTextarea())
+    },
+    [playUiEvent, resizeComposerTextarea],
+  )
+
   const submitComposer = useCallback(() => {
+    if (homeAiChatInFlightRef.current) return
     const t = composerText.trim()
     const photos = composerPhotos
     const n = photos.length
@@ -398,21 +464,27 @@ export function HomeIntentChatComposer({
 
   useEffect(() => {
     if (!onAddressEntryIntentChange) return
-    onAddressEntryIntentChange(intentNavChrome.addressIntentCore)
-  }, [intentNavChrome.addressIntentCore, onAddressEntryIntentChange])
+    /* Step-1 sheet: no address / nav chrome from this field */
+    onAddressEntryIntentChange(
+      variant === 'intentLanding' ? false : intentNavChrome.addressIntentCore,
+    )
+  }, [variant, intentNavChrome.addressIntentCore, onAddressEntryIntentChange])
 
   const onComposerKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === 'Enter' && !e.shiftKey) {
+        if (e.repeat) return
+        if (e.nativeEvent.isComposing) return
         e.preventDefault()
-        if (intentNavChrome.showNavGoArrow) {
+        if (homeAiChatInFlightRef.current) return
+        if (variant !== 'intentLanding' && intentNavChrome.showNavGoArrow) {
           startNavFromTypedQuery()
           return
         }
         submitComposer()
       }
     },
-    [submitComposer, intentNavChrome.showNavGoArrow, startNavFromTypedQuery],
+    [variant, submitComposer, intentNavChrome.showNavGoArrow, startNavFromTypedQuery],
   )
 
   const onComposerVoicePointerDown = useCallback(() => {
@@ -542,7 +614,7 @@ export function HomeIntentChatComposer({
   }, [onAddressEntryIntentChange])
 
   useEffect(() => {
-    const hints = INTENT_COMPOSER_PLACEHOLDER_HINTS
+    const hints = placeholderHints
     if (hints.length < 2) return
     if (composerText.trim().length > 0 || chatPending) return
     if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -552,23 +624,24 @@ export function HomeIntentChatComposer({
       setPlaceholderIndex((i) => (i + 1) % hints.length)
     }, 4200)
     return () => window.clearInterval(id)
-  }, [composerText, chatPending])
+  }, [composerText, chatPending, placeholderHints])
 
   const hasSendableDraft =
     composerText.trim().length > 0 || composerPhotos.length > 0
-  const showNavGoArrow = intentNavChrome.showNavGoArrow
+  const showNavGoArrow =
+    variant !== 'intentLanding' && intentNavChrome.showNavGoArrow
   const showSendArrow =
     hasSendableDraft && !showNavGoArrow && !listening && !micPrimed
   const rotatingPlaceholder =
-    INTENT_COMPOSER_PLACEHOLDER_HINTS[
-      placeholderIndex % Math.max(1, INTENT_COMPOSER_PLACEHOLDER_HINTS.length)
-    ] ?? 'Ask Fetch anything…'
+    placeholderHints[placeholderIndex % Math.max(1, placeholderHints.length)] ??
+    'Ask Fetch anything…'
 
   /** Empty while there is text — avoids iOS/WebKit drawing hint on top of typed addresses. */
   const composerPlaceholder = composerText.trim().length > 0 ? '' : rotatingPlaceholder
 
   const locationHintId = 'fetch-intent-location-hint'
   const showLocationHint =
+    variant !== 'intentLanding' &&
     deviceLocationStatus === 'denied' &&
     Boolean(mapsApiKey) &&
     Boolean(onStartNavigationToPlace) &&
@@ -577,7 +650,12 @@ export function HomeIntentChatComposer({
   const composerDescribedBy = [showLocationHint ? locationHintId : null].filter(Boolean).join(' ')
 
   return (
-    <div className="pointer-events-auto mt-1 w-full">
+    <div
+      className={[
+        'pointer-events-auto w-full',
+        variant === 'intentLanding' ? 'mt-2' : 'mt-1',
+      ].join(' ')}
+    >
       <input
         ref={composerFileInputRef}
         type="file"
@@ -588,14 +666,36 @@ export function HomeIntentChatComposer({
         onChange={onComposerPhotosSelected}
         aria-hidden
       />
+      <input
+        ref={composerDateInputRef}
+        type="date"
+        className="sr-only"
+        tabIndex={-1}
+        aria-hidden
+        onChange={onComposerDateChange}
+      />
 
       {showGuestAccountHint ? (
-        <p className="mb-1.5 px-1 text-[11px] font-medium leading-snug text-white/50 [text-wrap:pretty]">
+        <p
+          className={[
+            'mb-1.5 px-1 text-[11px] font-medium leading-snug [text-wrap:pretty]',
+            variant === 'intentLanding'
+              ? 'text-slate-500'
+              : 'text-white/50',
+          ].join(' ')}
+        >
           Sign in via Account to save places and cards on this device.
         </p>
       ) : null}
 
-      <div className="fetch-ai-composer-shell fetch-home-intent-composer w-full">
+      <div
+        className={[
+          'fetch-ai-composer-shell fetch-home-intent-composer w-full',
+          variant === 'intentLanding' ? 'fetch-home-intent-composer--intent-landing' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+      >
         {composerPhotos.length > 0 ? (
           <div className="fetch-ai-composer-attachments flex gap-2 overflow-x-auto px-3 pt-3 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {composerPhotos.map((p) => (
@@ -628,152 +728,331 @@ export function HomeIntentChatComposer({
             navigate.
           </p>
         ) : null}
-        <div className="flex min-h-[3rem] items-center gap-2 px-2 py-2">
-          <button
-            type="button"
-            onClick={() => composerFileInputRef.current?.click()}
-            className="fetch-ai-composer-plus flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-[transform,color,opacity] active:scale-[0.96]"
-            aria-label="Add photos"
-          >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-          </button>
-          <div className="relative min-w-0 flex-1">
-            <textarea
-              ref={composerTextareaRef}
-              rows={1}
-              value={composerText}
-              onChange={(e) => setComposerText(e.target.value)}
-              onKeyDown={onComposerKeyDown}
-              placeholder={composerPlaceholder}
-              className="fetch-ai-composer-input max-h-32 min-h-11 w-full resize-none bg-transparent py-3 text-[16px] leading-5 text-white placeholder:text-neutral-500 focus:outline-none"
-              aria-label="Message"
-              aria-describedby={composerDescribedBy || undefined}
-              aria-autocomplete="none"
-              disabled={chatPending}
-            />
-          </div>
-          <button
-            type="button"
-            onPointerDown={
-              showSendArrow || showNavGoArrow ? undefined : onComposerVoicePointerDown
-            }
-            onClick={() => {
-              if (showNavGoArrow) {
-                primeVoicePlaybackFromUserGesture()
-                startNavFromTypedQuery()
-              } else if (showSendArrow) {
-                submitComposer()
-              } else {
-                startListening()
-              }
-            }}
-            disabled={
-              showNavGoArrow
-                ? chatPending
-                : showSendArrow
-                  ? chatPending
-                  : listening || chatPending
-            }
-            className={[
-              'fetch-ai-voice-btn',
-              showSendArrow ? 'fetch-ai-voice-btn--send-draft' : '',
-              showNavGoArrow ? 'fetch-ai-voice-btn--nav-go' : '',
-              !showSendArrow && !showNavGoArrow ? 'fetch-ai-voice-btn--plain-mic' : '',
-              !showSendArrow &&
-              !showNavGoArrow &&
-              (listening || micPrimed)
-                ? 'fetch-ai-voice-btn--listening'
-                : '',
-              !showSendArrow &&
-              !showNavGoArrow &&
-              isSpeechPlaying
-                ? 'fetch-ai-voice-btn--speaking'
-                : '',
-            ]
-              .filter(Boolean)
-              .join(' ')}
-            aria-label={
-              showNavGoArrow
-                ? 'Start directions to this address'
-                : showSendArrow
-                  ? 'Send message'
-                  : 'Voice'
-            }
-          >
-            <span className="fetch-ai-voice-btn__ring" aria-hidden />
-            <span className="fetch-ai-voice-btn__glow" aria-hidden />
-            <span
-              className={[
-                'fetch-ai-voice-btn__core flex items-center justify-center',
-                showSendArrow || showNavGoArrow ? '' : 'fetch-ai-voice-btn__core--plain-mic',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-            >
-              {showNavGoArrow ? (
-                <svg
-                  width="22"
-                  height="22"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="fetch-ai-voice-btn__nav-icon"
-                  aria-hidden
-                >
-                  <path d="M12 3v10.5" />
-                  <path d="M7.5 8.5L12 3l4.5 5.5" />
-                  <path d="M8 21h8" />
-                  <path d="M12 13.5V21" />
+        <div
+          className={[
+            'fetch-intent-composer-control-row flex min-h-0 items-center',
+            variant === 'intentLanding' ? 'w-full px-0 py-0' : 'gap-1.5 px-2 py-1.5',
+          ].join(' ')}
+        >
+          {variant === 'intentLanding' ? (
+            <div className="fetch-intent-composer-inline-shell flex w-full min-h-0 items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => composerFileInputRef.current?.click()}
+                className="fetch-ai-composer-plus fetch-intent-composer-inline-icon-btn flex h-9 w-9 shrink-0 items-center justify-center self-center rounded-full transition-[transform,colors] active:scale-[0.96]"
+                aria-label="Add photos"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 5v14M5 12h14" />
                 </svg>
-              ) : showSendArrow ? (
+              </button>
+              <div className="relative flex min-h-[2.375rem] min-w-0 flex-1 items-stretch self-stretch">
+                <textarea
+                  ref={composerTextareaRef}
+                  rows={1}
+                  value={composerText}
+                  onChange={(e) => setComposerText(e.target.value)}
+                  onKeyDown={onComposerKeyDown}
+                  placeholder={composerPlaceholder}
+                  className="fetch-ai-composer-input fetch-ai-composer-input--intent-landing-light max-h-32 min-h-0 w-full flex-1 resize-none border-0 bg-transparent text-[15px] font-bold tracking-[-0.015em] focus:outline-none focus:ring-0 focus-visible:ring-0"
+                  aria-label="Describe the service you need"
+                  aria-describedby={composerDescribedBy || undefined}
+                  aria-autocomplete="none"
+                  disabled={chatPending}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={openComposerDatePicker}
+                disabled={chatPending}
+                className="fetch-intent-composer-inline-icon-btn fetch-intent-composer-inline-date-btn flex h-8 w-8 shrink-0 items-center justify-center self-center rounded-full transition-[transform,colors] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label="Add date"
+              >
                 <svg
-                  width="22"
-                  height="22"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.25"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="fetch-ai-voice-btn__send-icon"
-                  aria-hidden
-                >
-                  <path d="M12 19V6M6 11l6-6 6 6" />
-                </svg>
-              ) : (
-                <svg
-                  width="22"
-                  height="22"
+                  width="17"
+                  height="17"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
                   strokeWidth="2"
                   strokeLinecap="round"
                   strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                  <path d="M16 2v4M8 2v4M3 10h18" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onPointerDown={
+                  showSendArrow || showNavGoArrow ? undefined : onComposerVoicePointerDown
+                }
+                onClick={() => {
+                  if (showNavGoArrow) {
+                    primeVoicePlaybackFromUserGesture()
+                    startNavFromTypedQuery()
+                  } else if (showSendArrow) {
+                    submitComposer()
+                  } else {
+                    startListening()
+                  }
+                }}
+                disabled={
+                  showNavGoArrow
+                    ? chatPending
+                    : showSendArrow
+                      ? chatPending
+                      : listening || chatPending
+                }
+                className={[
+                  'fetch-ai-voice-btn fetch-intent-composer-inline-voice shrink-0',
+                  showSendArrow ? 'fetch-ai-voice-btn--send-draft' : '',
+                  showNavGoArrow ? 'fetch-ai-voice-btn--nav-go' : '',
+                  !showSendArrow && !showNavGoArrow ? 'fetch-ai-voice-btn--plain-mic' : '',
+                  !showSendArrow &&
+                  !showNavGoArrow &&
+                  (listening || micPrimed)
+                    ? 'fetch-ai-voice-btn--listening'
+                    : '',
+                  !showSendArrow &&
+                  !showNavGoArrow &&
+                  isSpeechPlaying
+                    ? 'fetch-ai-voice-btn--speaking'
+                    : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                aria-label={
+                  showNavGoArrow
+                    ? 'Start directions to this address'
+                    : showSendArrow
+                      ? 'Send message'
+                      : 'Voice'
+                }
+              >
+                <span className="fetch-ai-voice-btn__ring" aria-hidden />
+                <span className="fetch-ai-voice-btn__glow" aria-hidden />
+                <span
                   className={[
-                    'fetch-ai-voice-btn__mic-icon',
-                    listening || micPrimed ? 'fetch-ai-voice-btn__mic-icon--active' : '',
-                    isSpeechPlaying && !listening && !micPrimed
-                      ? 'fetch-ai-voice-btn__mic-icon--speaking'
-                      : '',
+                    'fetch-ai-voice-btn__core flex items-center justify-center',
+                    showSendArrow || showNavGoArrow ? '' : 'fetch-ai-voice-btn__core--plain-mic',
                   ]
                     .filter(Boolean)
                     .join(' ')}
-                  aria-hidden
                 >
-                  <path d="M12 14a3 3 0 0 0 3-3V7a3 3 0 0 0-6 0v4a3 3 0 0 0 3 3Z" />
-                  <path d="M19 11a7 7 0 0 1-14 0" />
-                  <path d="M12 18v3" />
-                  <path d="M8 21h8" />
+                  {showNavGoArrow ? (
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="fetch-ai-voice-btn__nav-icon"
+                      aria-hidden
+                    >
+                      <path d="M12 3v10.5" />
+                      <path d="M7.5 8.5L12 3l4.5 5.5" />
+                      <path d="M8 21h8" />
+                      <path d="M12 13.5V21" />
+                    </svg>
+                  ) : showSendArrow ? (
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.25"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="fetch-ai-voice-btn__send-icon"
+                      aria-hidden
+                    >
+                      <path d="M12 19V6M6 11l6-6 6 6" />
+                    </svg>
+                  ) : (
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className={[
+                        'fetch-ai-voice-btn__mic-icon',
+                        listening || micPrimed ? 'fetch-ai-voice-btn__mic-icon--active' : '',
+                        isSpeechPlaying && !listening && !micPrimed
+                          ? 'fetch-ai-voice-btn__mic-icon--speaking'
+                          : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      aria-hidden
+                    >
+                      <path d="M12 14a3 3 0 0 0 3-3V7a3 3 0 0 0-6 0v4a3 3 0 0 0 3 3Z" />
+                      <path d="M19 11a7 7 0 0 1-14 0" />
+                      <path d="M12 18v3" />
+                      <path d="M8 21h8" />
+                    </svg>
+                  )}
+                </span>
+              </button>
+            </div>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => composerFileInputRef.current?.click()}
+                className="fetch-ai-composer-plus flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-[transform,color,opacity] active:scale-[0.96]"
+                aria-label="Add photos"
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 5v14M5 12h14" />
                 </svg>
-              )}
-            </span>
-          </button>
+              </button>
+              <div className="relative min-w-0 flex-1">
+                <textarea
+                  ref={composerTextareaRef}
+                  rows={1}
+                  value={composerText}
+                  onChange={(e) => setComposerText(e.target.value)}
+                  onKeyDown={onComposerKeyDown}
+                  placeholder={composerPlaceholder}
+                  className="fetch-ai-composer-input max-h-32 min-h-[2.5rem] w-full resize-none bg-transparent py-2 text-[16px] font-semibold leading-snug tracking-[-0.01em] text-white placeholder:text-neutral-400 focus:outline-none"
+                  aria-label="Message"
+                  aria-describedby={composerDescribedBy || undefined}
+                  aria-autocomplete="none"
+                  disabled={chatPending}
+                />
+              </div>
+              <button
+                type="button"
+                onPointerDown={
+                  showSendArrow || showNavGoArrow ? undefined : onComposerVoicePointerDown
+                }
+                onClick={() => {
+                  if (showNavGoArrow) {
+                    primeVoicePlaybackFromUserGesture()
+                    startNavFromTypedQuery()
+                  } else if (showSendArrow) {
+                    submitComposer()
+                  } else {
+                    startListening()
+                  }
+                }}
+                disabled={
+                  showNavGoArrow
+                    ? chatPending
+                    : showSendArrow
+                      ? chatPending
+                      : listening || chatPending
+                }
+                className={[
+                  'fetch-ai-voice-btn',
+                  showSendArrow ? 'fetch-ai-voice-btn--send-draft' : '',
+                  showNavGoArrow ? 'fetch-ai-voice-btn--nav-go' : '',
+                  !showSendArrow && !showNavGoArrow ? 'fetch-ai-voice-btn--plain-mic' : '',
+                  !showSendArrow &&
+                  !showNavGoArrow &&
+                  (listening || micPrimed)
+                    ? 'fetch-ai-voice-btn--listening'
+                    : '',
+                  !showSendArrow &&
+                  !showNavGoArrow &&
+                  isSpeechPlaying
+                    ? 'fetch-ai-voice-btn--speaking'
+                    : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                aria-label={
+                  showNavGoArrow
+                    ? 'Start directions to this address'
+                    : showSendArrow
+                      ? 'Send message'
+                      : 'Voice'
+                }
+              >
+                <span className="fetch-ai-voice-btn__ring" aria-hidden />
+                <span className="fetch-ai-voice-btn__glow" aria-hidden />
+                <span
+                  className={[
+                    'fetch-ai-voice-btn__core flex items-center justify-center',
+                    showSendArrow || showNavGoArrow ? '' : 'fetch-ai-voice-btn__core--plain-mic',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                >
+                  {showNavGoArrow ? (
+                    <svg
+                      width="22"
+                      height="22"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="fetch-ai-voice-btn__nav-icon"
+                      aria-hidden
+                    >
+                      <path d="M12 3v10.5" />
+                      <path d="M7.5 8.5L12 3l4.5 5.5" />
+                      <path d="M8 21h8" />
+                      <path d="M12 13.5V21" />
+                    </svg>
+                  ) : showSendArrow ? (
+                    <svg
+                      width="22"
+                      height="22"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.25"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="fetch-ai-voice-btn__send-icon"
+                      aria-hidden
+                    >
+                      <path d="M12 19V6M6 11l6-6 6 6" />
+                    </svg>
+                  ) : (
+                    <svg
+                      width="22"
+                      height="22"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className={[
+                        'fetch-ai-voice-btn__mic-icon',
+                        listening || micPrimed ? 'fetch-ai-voice-btn__mic-icon--active' : '',
+                        isSpeechPlaying && !listening && !micPrimed
+                          ? 'fetch-ai-voice-btn__mic-icon--speaking'
+                          : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      aria-hidden
+                    >
+                      <path d="M12 14a3 3 0 0 0 3-3V7a3 3 0 0 0-6 0v4a3 3 0 0 0 3 3Z" />
+                      <path d="M19 11a7 7 0 0 1-14 0" />
+                      <path d="M12 18v3" />
+                      <path d="M8 21h8" />
+                    </svg>
+                  )}
+                </span>
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

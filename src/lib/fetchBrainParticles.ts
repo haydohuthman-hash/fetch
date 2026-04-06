@@ -51,6 +51,10 @@ export function brainPaletteCore(t01: number, theme: 'light' | 'dark'): Rgb {
 }
 
 /** Neon rim / glow — electric light blues (dark) or brighter sky blues (light). */
+function neonTintedWithGlow(t01: number, theme: 'light' | 'dark', userGlow: Rgb): Rgb {
+  return lerpRgb(brainPaletteNeon(t01, theme), userGlow, 0.36)
+}
+
 export function brainPaletteNeon(t01: number, theme: 'light' | 'dark'): Rgb {
   const u = ((t01 % 1) + 1) % 1
   const darkNeons: Rgb[] = [
@@ -325,7 +329,7 @@ export function drawBrainParticles(
   mind: FetchBrainMindState,
   dissolve01: number,
   speechAmp: number,
-  _glowRgb: { r: number; g: number; b: number },
+  glowRgb: { r: number; g: number; b: number },
   _scratch: BrainParticleScratch,
   cortexCalm = false,
   cortexSpread01 = 0,
@@ -410,7 +414,7 @@ export function drawBrainParticles(
         (k / childCap) * twoPi + t * (reducedMotion ? 0 : 0.55) + phase[i]! * 0.08
       const ck = hash01(i * 16 + k, 80)
       const childHue = ((hue01[i]! + ck * 0.22) % 1 + 1) % 1
-      const cr = brainPaletteNeon(childHue, theme)
+      const cr = neonTintedWithGlow(childHue, theme, glowRgb)
       const ox = x + Math.cos(ang) * orbit
       const oy = y + Math.sin(ang) * orbit
       const ca = childAlpha * (0.55 + ck * 0.45)

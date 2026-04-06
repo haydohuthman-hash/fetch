@@ -1,25 +1,25 @@
 /**
- * Internal state updates for voice routing (e.g. ElevenLabs vs browser).
+ * Internal state updates for voice routing (cloud TTS vs browser).
  * Console diagnostics use `[FetchVoice]` in fetchVoice.ts.
  */
 
 export type VoiceActiveSource =
   | { kind: 'idle' }
-  | { kind: 'elevenlabs' }
+  | { kind: 'cloud_tts' }
   | { kind: 'browser_fallback'; reason: string }
 
 export type VoiceSourceDebugState = {
   active: VoiceActiveSource
-  lastElevenLabsError: string | null
+  lastTtsError: string | null
 }
 
 let state: VoiceSourceDebugState = {
   active: { kind: 'idle' },
-  lastElevenLabsError: null,
+  lastTtsError: null,
 }
 
 export function patchVoiceSourceDebug(
-  patch: Partial<Pick<VoiceSourceDebugState, 'active' | 'lastElevenLabsError'>>,
+  patch: Partial<Pick<VoiceSourceDebugState, 'active' | 'lastTtsError'>>,
 ): void {
   state = { ...state, ...patch }
 }

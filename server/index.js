@@ -5,8 +5,6 @@ import dotenv from 'dotenv'
 import { execSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
-import { Readable } from 'node:stream'
-import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
 import { createPaymentIntentRecord, reviewBookingDraft as reviewFetchAiBookingDraft } from './lib/fetch-ai-booking.js'
 import { getHardwareSkuPriceAud } from './lib/hardware-catalog.js'
@@ -56,13 +54,79 @@ const upload = multer({ storage: multer.memoryStorage() })
 const PORT = Number(process.env.PORT || 8787)
 const OPENAI_API_KEY =
   process.env.OPENAI_API_KEY || process.env.VITE_OPENAI_API_KEY
-const ELEVENLABS_API_KEY =
-  process.env.ELEVENLABS_API_KEY || process.env.VITE_ELEVENLABS_API_KEY
-const ELEVENLABS_VOICE_ID =
-  process.env.ELEVENLABS_VOICE_ID ||
-  process.env.VITE_ELEVENLABS_VOICE_ID ||
-  'onwK4e9ZLuTAKqWW03F9'
-const ELEVENLABS_TIMEOUT_MS = 12000
+/** Google Cloud Text-to-Speech API key (enable “Cloud Text-to-Speech API” in GCP). */
+const GOOGLE_TTS_API_KEY =
+  (process.env.GOOGLE_TEXT_TO_SPEECH_API_KEY ||
+    process.env.GOOGLE_CLOUD_API_KEY ||
+    process.env.GOOGLE_TTS_API_KEY ||
+    ''
+  ).trim()
+const GOOGLE_TTS_VOICE = (process.env.GOOGLE_TTS_VOICE || 'en-AU-Neural2-B').trim()
+const GOOGLE_TTS_TIMEOUT_MS = 12000
+
+function googleLanguageCodeFromVoiceName(voiceName) {
+  const parts = voiceName.split('-')
+  if (parts.length >= 2) return `${parts[0]}-${parts[1]}`
+  return 'en-AU'
+}
+
+/** @returns {Promise<Buffer | null>} */
+async function synthesizeGoogleTtsToMp3(text) {
+  if (!GOOGLE_TTS_API_KEY) return null
+  const endpoint = `https://texttospeech.googleapis.com/v1/text:synthesize?key=${encodeURIComponent(GOOGLE_TTS_API_KEY)}`
+
+  async function tryVoice(voiceName) {
+    const languageCode = googleLanguageCodeFromVoiceName(voiceName)
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), GOOGLE_TTS_TIMEOUT_MS)
+    try {
+      const upstream = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          input: { text: text.slice(0, 5000) },
+          voice: { languageCode, name: voiceName },
+          audioConfig: {
+            audioEncoding: 'MP3',
+            speakingRate: 0.95,
+            pitch: 0,
+          },
+        }),
+      })
+      const raw = await upstream.text()
+      let data
+      try {
+        data = JSON.parse(raw)
+      } catch {
+        data = null
+      }
+      if (!upstream.ok) {
+        const msg = data?.error?.message ?? raw.slice(0, 500)
+        console.error('[voice_tts] Google Cloud TTS HTTP', upstream.status, msg)
+        return null
+      }
+      const b64 = data?.audioContent
+      if (typeof b64 === 'string' && b64.length > 0) {
+        return Buffer.from(b64, 'base64')
+      }
+      console.error('[voice_tts] Google response missing audioContent', data ? Object.keys(data) : 'non-json')
+      return null
+    } catch (e) {
+      console.error('[voice_tts] Google Cloud TTS request error', e instanceof Error ? e.message : e)
+      return null
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  let buf = await tryVoice(GOOGLE_TTS_VOICE)
+  if (!buf && GOOGLE_TTS_VOICE !== 'en-GB-Neural2-B') {
+    console.warn('[voice_tts] Retrying Google TTS with voice en-GB-Neural2-B')
+    buf = await tryVoice('en-GB-Neural2-B')
+  }
+  return buf
+}
 const MAX_IMAGES_PER_REQUEST = 8
 const SCAN_UPLOAD_FIELD = 'images'
 const ALLOWED_SERVICES = new Set(['junk', 'moving', 'pickup', 'heavy'])
@@ -176,108 +240,66 @@ async function buildReviewedBookingPayload(payload) {
 app.use(cors())
 app.use(express.json({ limit: '15mb' }))
 
+if (!process.env.VERCEL) {
+  console.log(
+    '[voice_tts] startup:',
+    GOOGLE_TTS_API_KEY
+      ? `Google key loaded (${GOOGLE_TTS_API_KEY.length} chars, voice ${GOOGLE_TTS_VOICE})`
+      : 'no Google TTS key (set GOOGLE_TEXT_TO_SPEECH_API_KEY, GOOGLE_CLOUD_API_KEY, or GOOGLE_TTS_API_KEY)',
+  )
+}
+
 app.post('/api/voice/tts', async (req, res) => {
   const perfRun = readPerfRun(req)
   const perfT0 = Date.now()
   if (perfRun) perfLog(perfRun, '4_backend_request_received', { route: 'voice_tts' })
 
   const rawText = typeof req.body?.text === 'string' ? req.body.text.trim() : ''
-  const voiceId =
-    typeof req.body?.voiceId === 'string' && req.body.voiceId.trim()
-      ? req.body.voiceId.trim()
-      : ELEVENLABS_VOICE_ID
 
   if (!rawText) {
     return res.status(400).json({ error: 'text_required' })
   }
 
-  if (!ELEVENLABS_API_KEY) {
-    return res.status(500).json({ error: 'missing_elevenlabs_api_key' })
+  if (!GOOGLE_TTS_API_KEY) {
+    return res.status(500).json({
+      error: 'missing_google_tts',
+      detail:
+        'Set GOOGLE_TEXT_TO_SPEECH_API_KEY, GOOGLE_CLOUD_API_KEY, or GOOGLE_TTS_API_KEY on the server.',
+    })
   }
 
-  try {
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), ELEVENLABS_TIMEOUT_MS)
-    const elevenUrl = new URL(
-      `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`,
-    )
-    elevenUrl.searchParams.set('optimize_streaming_latency', '4')
-
-    if (perfRun) perfLog(perfRun, '7_tts_generation_starts', { route: 'voice_tts' })
-    const tElevenStart = Date.now()
-    const upstream = await fetch(elevenUrl, {
-      method: 'POST',
-      headers: {
-        'xi-api-key': ELEVENLABS_API_KEY,
-        'Content-Type': 'application/json',
-        Accept: 'audio/mpeg',
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        text: rawText.slice(0, 320),
-        model_id: 'eleven_turbo_v2_5',
-        voice_settings: {
-          stability: 0.72,
-          similarity_boost: 0.78,
-          style: 0.16,
-          use_speaker_boost: true,
-          speed: 1,
-        },
-      }),
-    }).finally(() => {
-      clearTimeout(timeout)
+  if (perfRun) perfLog(perfRun, '7_tts_generation_starts', { route: 'voice_tts_google' })
+  const tGoogleStart = Date.now()
+  const audio = await synthesizeGoogleTtsToMp3(rawText)
+  const google_tts_fetch_ms = Date.now() - tGoogleStart
+  if (perfRun) {
+    perfLog(perfRun, '7b_tts_upstream_response', {
+      route: 'voice_tts_google',
+      ok: Boolean(audio),
+      google_tts_fetch_ms,
     })
-    const elevenlabs_fetch_ms = Date.now() - tElevenStart
-    if (perfRun) {
-      perfLog(perfRun, '7b_tts_upstream_response', {
-        route: 'voice_tts',
-        ok: upstream.ok,
-        elevenlabs_fetch_ms,
-      })
-    }
+  }
 
-    if (!upstream.ok) {
-      const detail = await upstream.text().catch(() => '')
-      attachPerfTimingHeader(res, perfRun, {
-        route: 'voice_tts',
-        elevenlabs_fetch_ms,
-        server_total_ms: Date.now() - perfT0,
-      })
-      return res.status(upstream.status).json({
-        error: 'elevenlabs_request_failed',
-        detail: detail.slice(0, 300),
-      })
-    }
-
-    res.setHeader('Content-Type', 'audio/mpeg')
-    res.setHeader('Cache-Control', 'public, max-age=86400')
+  if (!audio) {
     attachPerfTimingHeader(res, perfRun, {
-      route: 'voice_tts',
-      elevenlabs_fetch_ms,
+      route: 'voice_tts_google',
+      google_tts_fetch_ms,
       server_total_ms: Date.now() - perfT0,
     })
-    try {
-      if (upstream.body) {
-        await pipeline(Readable.fromWeb(upstream.body), res)
-        return
-      }
-      const audio = Buffer.from(await upstream.arrayBuffer())
-      return res.send(audio)
-    } catch (streamErr) {
-      if (!res.headersSent) {
-        return res.status(502).json({
-          error: 'elevenlabs_proxy_failed',
-          detail: streamErr instanceof Error ? streamErr.message : 'stream_failed',
-        })
-      }
-      throw streamErr
-    }
-  } catch (error) {
     return res.status(502).json({
-      error: 'elevenlabs_proxy_failed',
-      detail: error instanceof Error ? error.message : 'unknown_error',
+      error: 'google_tts_failed',
+      detail: 'Google Cloud Text-to-Speech did not return audio. Check server logs for [voice_tts].',
     })
   }
+
+  res.setHeader('Content-Type', 'audio/mpeg')
+  res.setHeader('Cache-Control', 'public, max-age=86400')
+  attachPerfTimingHeader(res, perfRun, {
+    route: 'voice_tts_google',
+    google_tts_fetch_ms,
+    server_total_ms: Date.now() - perfT0,
+  })
+  return res.send(audio)
 })
 
 app.post('/api/fetch-ai/review', async (req, res) => {
@@ -302,7 +324,11 @@ You sound human: clear spoken English, Australian tone where it fits. When you h
 You help with moving, deliveries, junk removal, bookings, quotes, and how Fetch works.
 Keep replies short: usually two to four sentences when explaining routes or traffic; otherwise one to three. No markdown, no bullet lists, no emojis—this will be read aloud.
 If you are unsure, ask one short clarifying question. Do not give medical, legal, or financial advice. Do not invent booking details you were not told.
-The user is in the Fetch app (map and booking sheet); help them book or answer questions about the service.`
+The user is in the Fetch app (map and booking sheet); help them book or answer questions about the service.
+
+Respond with a single JSON object only (no markdown, no code fences). Shape:
+{"say":"string — natural words for voice and chat; one to four short sentences; no markdown or bullet lists in say.","sheet":null OR {"prompt":"optional short header for a choice sheet","choices":["four","non-empty","short","options"],"freeformHint":"optional placeholder for typing"}}
+Use "sheet":null for casual replies. When a clarifying question fits exactly four clear taps (e.g. vehicle size, timing window, service type), set sheet with exactly four concise choice strings. Choices must be plain text.`
 
 /** Fresh read per request — avoids stale module snapshot; trims whitespace-only values. */
 function openAiApiKeyForChat() {
@@ -624,6 +650,60 @@ function parseBrainLearningMemory(body) {
   return t.length > 0 ? t.slice(0, 700) : ''
 }
 
+const FETCH_AI_CHAT_REPLY_MAX = 1200
+const FETCH_AI_CHAT_CHOICE_MAX = 200
+const FETCH_AI_CHAT_SHEET_PROMPT_MAX = 200
+const FETCH_AI_CHAT_FREEFORM_HINT_MAX = 120
+
+/**
+ * @returns {{ reply: string, interaction: object | null }}
+ */
+function parseFetchAiChatModelContent(raw) {
+  if (typeof raw !== 'string') return { reply: '', interaction: null }
+  const trimmed = raw.trim()
+  if (!trimmed) return { reply: '', interaction: null }
+  let obj
+  try {
+    obj = JSON.parse(trimmed)
+  } catch {
+    return { reply: trimmed.slice(0, FETCH_AI_CHAT_REPLY_MAX), interaction: null }
+  }
+  if (!obj || typeof obj !== 'object') {
+    return { reply: trimmed.slice(0, FETCH_AI_CHAT_REPLY_MAX), interaction: null }
+  }
+  const say = typeof obj.say === 'string' ? obj.say.trim() : ''
+  if (!say) {
+    return { reply: trimmed.slice(0, FETCH_AI_CHAT_REPLY_MAX), interaction: null }
+  }
+  let interaction = null
+  const sheet = obj.sheet
+  if (sheet && typeof sheet === 'object') {
+    const choicesRaw = sheet.choices
+    if (Array.isArray(choicesRaw) && choicesRaw.length === 4) {
+      const choices = choicesRaw.map((c) =>
+        typeof c === 'string' ? c.trim().slice(0, FETCH_AI_CHAT_CHOICE_MAX) : '',
+      )
+      if (choices.every((c) => c.length > 0)) {
+        const prompt =
+          typeof sheet.prompt === 'string' && sheet.prompt.trim()
+            ? sheet.prompt.trim().slice(0, FETCH_AI_CHAT_SHEET_PROMPT_MAX)
+            : undefined
+        const freeformHint =
+          typeof sheet.freeformHint === 'string' && sheet.freeformHint.trim()
+            ? sheet.freeformHint.trim().slice(0, FETCH_AI_CHAT_FREEFORM_HINT_MAX)
+            : undefined
+        interaction = {
+          type: 'choices',
+          choices,
+          ...(prompt ? { prompt } : {}),
+          ...(freeformHint ? { freeformHint } : {}),
+        }
+      }
+    }
+  }
+  return { reply: say.slice(0, FETCH_AI_CHAT_REPLY_MAX), interaction }
+}
+
 async function buildChatContextAppendix(body) {
   const { timeZone, lat, lon } = parseChatContext(body)
   const timeLine = `Current local time (user device timezone ${timeZone}): ${formatLocalContextTime(timeZone)}.`
@@ -749,7 +829,8 @@ app.post('/api/fetch-ai/chat', async (req, res) => {
       body: JSON.stringify({
         model: 'gpt-4o-mini',
         temperature: 0.68,
-        max_tokens: 240,
+        max_tokens: 400,
+        response_format: { type: 'json_object' },
         messages,
       }),
     })
@@ -791,7 +872,9 @@ app.post('/api/fetch-ai/chat', async (req, res) => {
 
     const payload = await openaiRes.json()
     const raw = payload?.choices?.[0]?.message?.content
-    const reply = typeof raw === 'string' ? raw.trim() : ''
+    const { reply, interaction } = parseFetchAiChatModelContent(
+      typeof raw === 'string' ? raw : '',
+    )
     if (!reply) {
       agentDebugLog({
         hypothesisId: 'H2',
@@ -812,7 +895,11 @@ app.post('/api/fetch-ai/chat', async (req, res) => {
       hypothesisId: 'H1-H5',
       location: 'server/index.js:chat',
       message: 'chat success',
-      data: { replyLen: reply.length, navActive: Boolean(navBundle.navigation?.active) },
+      data: {
+        replyLen: reply.length,
+        navActive: Boolean(navBundle.navigation?.active),
+        interaction: Boolean(interaction),
+      },
     })
 
     attachPerfTimingHeader(res, perfRun, {
@@ -821,7 +908,8 @@ app.post('/api/fetch-ai/chat', async (req, res) => {
       openai_ms,
       server_total_ms: Date.now() - perfT0,
     })
-    const payloadOut = { reply: reply.slice(0, 1200) }
+    const payloadOut = { reply }
+    if (interaction) payloadOut.interaction = interaction
     if (navBundle.navigation?.active) {
       payloadOut.navigation = navBundle.navigation
     }

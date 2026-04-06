@@ -284,6 +284,11 @@
   .fetch-home-booking-sheet .fetch-home-address-input,
   .fetch-home-booking-sheet .fetch-stage-text-input {
     font-size: 16px !important;
+    font-weight: 650 !important;
+  }
+
+  .fetch-home-booking-sheet .fetch-ai-composer-input--intent-landing-light {
+    font-weight: 750 !important;
   }
 }
 
@@ -2907,11 +2912,31 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   transform: translateX(-50%);
 }
 
+/* Maps route / booking nav strip: orb over map top-left */
+.fetch-home-orb-sheet-follow.fetch-home-orb-sheet-follow--nav-map-top-left {
+  left: max(0.55rem, env(safe-area-inset-left));
+  right: auto;
+  top: max(0.45rem, env(safe-area-inset-top));
+  bottom: auto;
+  transform: none;
+}
+
+/* Tunnel animation must not re-center the orb when docked top-left */
+.fetch-home-orb-sheet-follow--nav-map-top-left.fetch-home-orb-tunnel-drop {
+  transform: translateY(36px);
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .fetch-home-orb-sheet-follow {
     transition:
       bottom 0.42s cubic-bezier(0.32, 1.22, 0.32, 1),
       transform 0.48s cubic-bezier(0.18, 0.82, 0.32, 1);
+  }
+
+  .fetch-home-orb-sheet-follow.fetch-home-orb-sheet-follow--nav-map-top-left {
+    transition:
+      top 0.42s cubic-bezier(0.32, 1.22, 0.32, 1),
+      left 0.42s cubic-bezier(0.32, 1.22, 0.32, 1);
   }
 }
 
@@ -2925,23 +2950,44 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   }
 }
 
-/* Home address / labor pill inputs — stage-tinted border, no glow */
+/* Home address / labor pill inputs — stronger rim, bold readable type */
 .fetch-home-vision .fetch-home-address-input {
-  border-color: rgba(var(--orb-glow), 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.22);
   background: linear-gradient(180deg, rgba(12, 10, 20, 0.98) 0%, rgba(4, 4, 10, 0.99) 100%);
-  color: rgba(232, 234, 237, 0.96);
+  color: rgba(248, 250, 252, 0.98);
+  font-size: 1rem;
+  font-weight: 650;
+  line-height: 1.45;
+  letter-spacing: -0.015em;
   box-shadow: none;
 }
 
 .fetch-home-vision .fetch-home-address-input::placeholder {
-  color: rgba(154, 160, 166, 0.38);
+  color: rgba(186, 194, 204, 0.55);
+  font-weight: 550;
 }
 
 .fetch-home-vision .fetch-home-address-input:focus,
 .fetch-home-vision .fetch-home-address-input:focus-visible {
-  border-color: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.38);
   box-shadow: 0 2px 14px rgba(0, 0, 0, 0.35);
   outline: none;
+}
+
+/* Booking-flow text fields (pickup/dropoff/etc.) — match scale + weight */
+.fetch-home-vision .fetch-home-booking-sheet .fetch-home-stage-field-input,
+.fetch-home-vision .fetch-home-booking-sheet .fetch-stage-text-input:not(textarea) {
+  font-size: 1rem;
+  font-weight: 650;
+  line-height: 1.45;
+  letter-spacing: -0.015em;
+}
+
+.fetch-home-vision .fetch-home-booking-sheet textarea.fetch-stage-text-input {
+  font-size: 1rem;
+  font-weight: 650;
+  line-height: 1.45;
+  letter-spacing: -0.015em;
 }
 
 /* Home sheet CTAs — deep base, glassy highlight, violet rim (premium) */
@@ -3140,7 +3186,7 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   pointer-events: auto;
   width: 100%;
   max-width: min(100%, 26rem);
-  max-height: min(78vh, 480px);
+  max-height: min(72vh, 440px);
   display: flex;
   flex-direction: column;
   border-radius: 1.25rem 1.25rem 0 0;
@@ -3343,17 +3389,6 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   height: 3.375rem;
 }
 
-/* Cleaning art: larger read than other service PNGs */
-.fetch-home-service-segment-icon.fetch-home-service-illustration--cleaning {
-  width: 5.5rem;
-  height: 5.5rem;
-}
-
-.fetch-home-advanced-service-row__icon.fetch-home-service-illustration--cleaning {
-  width: 5.65rem;
-  height: 5.65rem;
-}
-
 .fetch-home-service-segment-label {
   display: block;
   width: 100%;
@@ -3459,7 +3494,7 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 
 .fetch-home-booking-sheet__body--compact {
   /* Orb center sits on sheet top — reserve lower half of orb + gap so content starts clearly below it. */
-  padding-top: calc(6.5rem * 0.5 + 0.85rem);
+  padding-top: calc(6.5rem * 0.45 + 0.65rem);
   padding-bottom: 0.15rem;
 }
 
@@ -3701,23 +3736,26 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 /* Maps explore UI — light cards on white sheet */
 .fetch-home-vision .fetch-maps-explore-input {
   background: #f8fafc;
-  border-color: #e2e8f0;
+  border: 1px solid rgba(15, 23, 42, 0.2);
   color: #0f172a;
+  font-weight: 650;
+  letter-spacing: -0.015em;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 .fetch-home-vision .fetch-maps-explore-input::placeholder {
-  color: var(--color-fetch-muted);
-  opacity: 0.72;
+  color: rgba(15, 23, 42, 0.5);
+  opacity: 1;
+  font-weight: 550;
 }
 
 .fetch-home-vision .fetch-maps-explore-input:focus,
 .fetch-home-vision .fetch-maps-explore-input:focus-visible {
-  border-color: rgba(14, 165, 233, 0.55);
+  border-color: rgba(15, 23, 42, 0.38);
   outline: none;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 0 0 2px rgba(14, 165, 233, 0.12);
+    0 0 0 2px rgba(14, 165, 233, 0.14);
 }
 
 .fetch-home-vision .fetch-maps-explore-input-clear {
@@ -3727,6 +3765,41 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 .fetch-home-vision .fetch-maps-explore-input-clear:hover {
   background: rgba(255, 255, 255, 0.06);
   color: var(--color-fetch-charcoal);
+}
+
+.fetch-home-vision .fetch-maps-explore-search-inner .fetch-maps-explore-input-icon {
+  color: rgba(15, 23, 42, 0.42);
+  pointer-events: none;
+}
+
+.fetch-home-vision .fetch-maps-explore-input-mic {
+  color: rgba(15, 23, 42, 0.48);
+}
+
+.fetch-home-vision .fetch-maps-explore-input-mic:hover {
+  background: rgba(15, 23, 42, 0.06);
+  color: rgba(15, 23, 42, 0.75);
+}
+
+.fetch-home-vision .fetch-maps-explore-input-mic--listening {
+  color: #0ea5e9;
+  animation: fetch-maps-mic-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes fetch-maps-mic-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fetch-home-vision .fetch-maps-explore-input-mic--listening {
+    animation: none;
+  }
 }
 
 .fetch-home-vision .fetch-maps-explore-suggestions {
@@ -3926,22 +3999,22 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 */
 .fetch-home-booking-sheet[data-snap='closed'] {
   height: auto;
-  max-height: 7.35rem;
+  max-height: min(7rem, 28dvh);
 }
 
 .fetch-home-booking-sheet[data-snap='compact'] {
   height: auto;
-  max-height: min(62dvh, 36rem);
+  max-height: min(58dvh, 34rem);
 }
 
 .fetch-home-booking-sheet[data-snap='half'] {
-  height: min(50dvh, 36rem);
-  max-height: min(50dvh, 36rem);
+  height: min(48dvh, 34rem);
+  max-height: min(48dvh, 34rem);
 }
 
 .fetch-home-booking-sheet[data-snap='full'] {
-  height: min(90dvh, 42rem);
-  max-height: min(90dvh, 42rem);
+  height: min(88dvh, 40rem);
+  max-height: min(88dvh, 40rem);
 }
 
 /* Maps tab + active route/nav strip only (see HomeView homeSheetNavMapChrome). */
@@ -3979,18 +4052,22 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   background: rgba(232, 238, 245, 0.88);
 }
 
+.fetch-home-booking-sheet[data-nav-map-chrome='true'][data-snap='closed'] {
+  max-height: 6rem;
+}
+
 .fetch-home-booking-sheet[data-nav-map-chrome='true'][data-snap='compact'] {
-  max-height: min(25dvh, 22rem);
+  max-height: min(20dvh, 18rem);
 }
 
 .fetch-home-booking-sheet[data-nav-map-chrome='true'][data-snap='half'] {
-  height: min(50dvh, 38rem);
-  max-height: min(50dvh, 38rem);
+  height: min(44dvh, 32rem);
+  max-height: min(44dvh, 32rem);
 }
 
 .fetch-home-booking-sheet[data-nav-map-chrome='true'][data-snap='full'] {
-  height: min(80dvh, 42rem);
-  max-height: min(80dvh, 42rem);
+  height: min(72dvh, 38rem);
+  max-height: min(72dvh, 38rem);
 }
 
 .fetch-home-booking-sheet--hidden {
@@ -4168,6 +4245,17 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   margin-top: 0;
 }
 
+/* Step 1 intent: slightly smaller mic/send control to match shorter row */
+.fetch-home-landing-section--intent .fetch-home-intent-composer .fetch-ai-voice-btn {
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+.fetch-home-landing-section--intent .fetch-home-intent-composer .fetch-ai-voice-btn__core:not(.fetch-ai-voice-btn__core--plain-mic) {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
 .fetch-sound-wave-bars__bar {
   transform-origin: center bottom;
   flex-shrink: 0;
@@ -4226,6 +4314,181 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
     animation: none;
     opacity: 0.85;
   }
+}
+
+/* Intent step 1 (booking sheet): light pill; + textarea mic inside one field; dark type only */
+.fetch-home-booking-sheet .fetch-home-intent-composer.fetch-home-intent-composer--intent-landing.fetch-ai-composer-shell {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.fetch-home-booking-sheet .fetch-home-intent-composer--intent-landing .fetch-intent-composer-inline-shell {
+  border-radius: 9999px;
+  border: 1px solid rgba(15, 23, 42, 0.42);
+  background: #ffffff;
+  padding: 0.12rem 0.3rem 0.12rem 0.2rem;
+}
+
+.fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-intent-composer-inline-shell:focus-within {
+  border-color: rgba(15, 23, 42, 0.58);
+}
+
+.fetch-home-booking-sheet .fetch-home-intent-composer--intent-landing .fetch-ai-composer-input--intent-landing-light {
+  box-sizing: border-box;
+  color: #0a0f1a;
+  font-weight: 750;
+  margin: 0;
+  /* 8px + 1.375rem line + 8px = 2.375rem (38px): centers single line with min height from resize */
+  padding: 0.5rem 0;
+  line-height: 1.375rem;
+  box-shadow: none !important;
+  outline: none !important;
+  filter: none;
+}
+
+.fetch-home-booking-sheet .fetch-home-intent-composer--intent-landing .fetch-ai-composer-input--intent-landing-light::placeholder {
+  color: rgba(30, 41, 59, 0.72);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1.375rem;
+  letter-spacing: -0.015em;
+  opacity: 1;
+  transition: none;
+  white-space: nowrap;
+}
+
+.fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-ai-composer-input--intent-landing-light:placeholder-shown {
+  white-space: nowrap;
+  overflow-x: hidden;
+  text-overflow: ellipsis;
+}
+
+.fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-intent-composer-inline-shell
+  .fetch-intent-composer-inline-icon-btn {
+  color: rgba(15, 23, 42, 0.52);
+}
+
+.fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-intent-composer-inline-shell
+  .fetch-intent-composer-inline-icon-btn:hover {
+  color: rgba(15, 23, 42, 0.78);
+  background: rgba(15, 23, 42, 0.05);
+}
+
+.fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-intent-composer-inline-shell
+  .fetch-intent-composer-inline-date-btn {
+  color: rgba(15, 23, 42, 0.48);
+}
+
+.fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-intent-composer-inline-shell
+  .fetch-intent-composer-inline-date-btn:hover:not(:disabled) {
+  color: rgba(15, 23, 42, 0.78);
+  background: rgba(15, 23, 42, 0.05);
+}
+
+/* Voice / send inside inline field — compact, no halo */
+.fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-intent-composer-inline-shell
+  .fetch-ai-voice-btn {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
+.fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-intent-composer-inline-shell
+  .fetch-ai-voice-btn__ring,
+.fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-intent-composer-inline-shell
+  .fetch-ai-voice-btn__glow {
+  display: none !important;
+}
+
+.fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-intent-composer-inline-shell
+  .fetch-ai-voice-btn__core {
+  width: 2.125rem;
+  height: 2.125rem;
+}
+
+.fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-intent-composer-inline-shell
+  .fetch-ai-voice-btn__core--plain-mic {
+  color: rgba(15, 23, 42, 0.55) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-intent-composer-inline-shell
+  .fetch-ai-voice-btn--plain-mic:hover:not(:disabled)
+  .fetch-ai-voice-btn__core.fetch-ai-voice-btn__core--plain-mic {
+  color: rgba(15, 23, 42, 0.82) !important;
+}
+
+.fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-intent-composer-inline-shell
+  .fetch-ai-voice-btn--plain-mic:focus-visible
+  .fetch-ai-voice-btn__core.fetch-ai-voice-btn__core--plain-mic {
+  outline: 2px solid rgba(15, 23, 42, 0.22);
+  outline-offset: 1px;
+  border-radius: 9999px;
+}
+
+.fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-intent-composer-inline-shell
+  .fetch-ai-voice-btn__mic-icon {
+  color: rgba(15, 23, 42, 0.58);
+}
+
+.fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-intent-composer-inline-shell
+  .fetch-ai-voice-btn__mic-icon--active,
+.fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-intent-composer-inline-shell
+  .fetch-ai-voice-btn__mic-icon--speaking {
+  color: rgba(14, 116, 144, 0.95);
+}
+
+.fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-intent-composer-inline-shell
+  .fetch-ai-voice-btn__send-icon {
+  color: rgba(255, 255, 255, 0.98);
+}
+
+.fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-intent-composer-inline-shell
+  .fetch-ai-voice-btn__nav-icon {
+  color: rgba(255, 255, 255, 0.98);
+}
+
+.fetch-home-intent-location-hint--on-sheet {
+  color: rgba(51, 65, 85, 0.92) !important;
 }
 
 /* Intent composer mic: stroke icon only — no ring, glow, or disc */
@@ -4324,8 +4587,43 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   animation: none;
 }
 
+.fetch-home-vision .fetch-home-intent-composer .fetch-ai-voice-btn--send-draft .fetch-ai-voice-btn__core {
+  background: linear-gradient(165deg, #1c1c1c 0%, #0a0a0a 55%, #050505 100%) !important;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.1) inset,
+    0 2px 12px rgba(0, 0, 0, 0.28) !important;
+  color: #fafafa;
+}
+
+.fetch-home-vision
+  .fetch-home-intent-composer
+  .fetch-ai-voice-btn--send-draft:hover:not(:disabled)
+  .fetch-ai-voice-btn__core {
+  background: linear-gradient(165deg, #2a2a2a 0%, #141414 55%, #0a0a0a 100%) !important;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.14) inset,
+    0 3px 14px rgba(0, 0, 0, 0.32) !important;
+}
+
+.fetch-home-vision
+  .fetch-home-intent-composer
+  .fetch-ai-voice-btn--send-draft:active:not(:disabled)
+  .fetch-ai-voice-btn__core {
+  background: linear-gradient(165deg, #0f0f0f 0%, #050505 100%) !important;
+}
+
+.fetch-home-vision
+  .fetch-home-intent-composer
+  .fetch-ai-voice-btn--send-draft:focus-visible
+  .fetch-ai-voice-btn__core {
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.28),
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+    0 2px 12px rgba(0, 0, 0, 0.3) !important;
+}
+
 .fetch-home-vision .fetch-home-intent-composer .fetch-ai-voice-btn__send-icon {
-  color: rgba(255, 255, 255, 0.95);
+  color: rgba(255, 255, 255, 0.96);
 }
 
 .fetch-home-vision .fetch-home-intent-composer .fetch-ai-voice-btn--nav-go .fetch-ai-voice-btn__ring,
@@ -4369,11 +4667,14 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 }
 
 .fetch-home-vision .fetch-home-intent-composer .fetch-ai-composer-input {
-  color: rgba(248, 250, 252, 0.95);
+  color: rgba(252, 252, 255, 0.98);
+  font-weight: 650;
+  letter-spacing: -0.015em;
 }
 
 .fetch-home-vision .fetch-home-intent-composer .fetch-ai-composer-input::placeholder {
-  color: rgba(255, 255, 255, 0.38);
+  color: rgba(255, 255, 255, 0.48);
+  font-weight: 550;
 }
 
 .fetch-home-vision .fetch-home-intent-composer .fetch-ai-composer-input:not(:placeholder-shown)::placeholder {
@@ -5043,6 +5344,1149 @@ html[data-fetch-theme='light'] .fetch-home-orb-tunnel-vignette {
   mix-blend-mode: multiply;
 }
 
+/* Neural field — frosted glass disc behind header orb */
+.fetch-brain-orb-header__glass {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  padding: 0.3rem;
+  isolation: isolate;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(20px) saturate(170%);
+  -webkit-backdrop-filter: blur(20px) saturate(170%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.fetch-brain-shell--light.fetch-brain-immersion .fetch-brain-orb-header__glass {
+  border-color: rgba(255, 255, 255, 0.55);
+  background: linear-gradient(
+    155deg,
+    rgba(255, 255, 255, 0.4) 0%,
+    rgba(255, 255, 255, 0.12) 100%
+  );
+  backdrop-filter: blur(40px) saturate(200%);
+  -webkit-backdrop-filter: blur(40px) saturate(200%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    inset 0 -1px 0 rgba(15, 23, 42, 0.04),
+    0 4px 20px rgba(15, 23, 42, 0.08);
+}
+
+/* Neural field — header orb: one sphere (no stacked drop-shadow “double orb”) */
+.fetch-brain-orb-header__art {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+
+.fetch-brain-immersion .fetch-brain-orb-header__art .fetch-assistant-face-orb.fetch-jarvis-neural-sphere {
+  animation: none;
+  filter: none;
+  box-shadow: 0 6px 14px -6px rgba(0, 0, 0, 0.35);
+}
+
+.fetch-brain-shell--light.fetch-brain-immersion
+  .fetch-brain-orb-header__art
+  .fetch-assistant-face-orb.fetch-jarvis-neural-sphere {
+  box-shadow: 0 5px 12px -6px rgba(0, 0, 0, 0.18);
+}
+
+/* Chat shell (WhatsApp / ChatGPT style column) */
+.fetch-brain-chat-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.fetch-brain-chat-shell--panel-open {
+  padding-bottom: min(62vh, 480px);
+}
+
+.fetch-brain-chat-shell--panel-open.fetch-brain-chat-shell--panel-open--intake {
+  padding-bottom: min(74vh, 580px);
+}
+
+@keyframes fetch-brain-choice-sheet-in {
+  from {
+    opacity: 0.88;
+    transform: translate3d(0, 100%, 0);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.fetch-brain-choice-sheet {
+  transform: translateZ(0);
+  animation: fetch-brain-choice-sheet-in 0.38s cubic-bezier(0.22, 0.82, 0.2, 1) both;
+}
+
+/* Service intake sheet: swipe to next question */
+.fetch-brain-intake-step {
+  transition:
+    opacity 0.28s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.fetch-brain-intake-step--out {
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-11%);
+}
+
+.fetch-brain-intake-step--in {
+  animation: fetch-brain-intake-enter 0.34s cubic-bezier(0.22, 0.82, 0.2, 1) both;
+}
+
+@keyframes fetch-brain-intake-enter {
+  from {
+    opacity: 0;
+    transform: translateX(16%);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fetch-brain-intake-step {
+    transition: none;
+  }
+
+  .fetch-brain-intake-step--out {
+    opacity: 0;
+    transform: none;
+  }
+
+  .fetch-brain-intake-step--in {
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fetch-brain-choice-sheet {
+    animation: none;
+  }
+}
+
+/* Service carousel: tighten cards on narrow phones; constrain illustration size */
+@media (max-width: 420px) {
+  .fetch-brain-service-carousel__track {
+    gap: 0.375rem;
+  }
+
+  .fetch-brain-service-carousel__card {
+    min-width: 6rem;
+    max-width: 6.85rem;
+    padding-inline: 0.5rem;
+  }
+}
+
+.fetch-brain-service-carousel__illu {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fetch-brain-service-carousel__illu img,
+.fetch-brain-service-carousel__illu svg {
+  width: 2.5rem;
+  height: 2.5rem;
+  max-width: 2.5rem;
+  max-height: 2.5rem;
+  object-fit: contain;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fetch-brain-service-carousel__card {
+    transform: none !important;
+  }
+}
+
+/* Intake options: horizontal scroll-snap on very small viewports (MVP swipe affordance) */
+@media (max-width: 380px) {
+  .fetch-brain-intake-options.fetch-brain-intake-options--snap-sm {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    gap: 0.5rem;
+    padding-bottom: 0.35rem;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .fetch-brain-intake-options.fetch-brain-intake-options--snap-sm > li {
+    flex: 0 0 min(88vw, 16rem);
+    scroll-snap-align: start;
+  }
+
+  .fetch-brain-intake-options.fetch-brain-intake-options--snap-sm > li > button {
+    height: 100%;
+    min-height: 3.25rem;
+  }
+}
+
+/* Dims + blocks taps to composer/messages while a bottom sheet is open */
+.fetch-brain-sheet-backdrop {
+  pointer-events: auto;
+  z-index: 18;
+  background: rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(10px) saturate(150%);
+  -webkit-backdrop-filter: blur(10px) saturate(150%);
+}
+
+.fetch-brain-shell--light .fetch-brain-sheet-backdrop {
+  background: rgba(15, 23, 42, 0.22);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+}
+
+/* Composer sits under sheet stack (z-11 < backdrop 18 < sheets 19–20) */
+.fetch-brain-composer-anchor {
+  position: relative;
+  z-index: 11;
+  width: 100%;
+  max-width: 42rem;
+  margin-left: auto;
+  margin-right: auto;
+  pointer-events: auto;
+}
+
+.fetch-brain-glass-sheet {
+  border-width: 1px;
+  border-style: solid;
+  backdrop-filter: blur(40px) saturate(180%);
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  box-shadow:
+    0 -12px 48px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.fetch-brain-shell--light .fetch-brain-glass-sheet {
+  box-shadow:
+    0 -10px 40px rgba(15, 23, 42, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.fetch-brain-assistant-chrome {
+  display: flex;
+  max-width: min(85%, 22rem);
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0;
+  padding-top: 0.2rem;
+  padding-left: 0;
+}
+
+.fetch-splash-eyes.fetch-brain-msg-eyes-anchor {
+  position: absolute;
+  left: 0.1rem;
+  top: 100%;
+  margin-top: 0.08rem;
+  transform: scale(0.19);
+  margin-left: 0;
+  margin-right: 0;
+  margin-bottom: 0;
+  opacity: 0.93;
+  pointer-events: none;
+}
+
+.fetch-brain-assistant-action {
+  display: inline-flex;
+  height: 1.5rem;
+  min-width: 1.5rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.3rem;
+  border: 1px solid transparent;
+  padding: 0 0.2rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.12s ease;
+}
+
+.fetch-brain-assistant-action:active {
+  transform: scale(0.92);
+}
+
+.fetch-brain-assistant-action.fetch-brain-assistant-action--ghost {
+  border: none;
+  background: transparent;
+  height: 1.45rem;
+  min-width: 1.45rem;
+  padding: 0 0.18rem;
+  border-radius: 0.25rem;
+}
+
+.fetch-brain-shell--dark .fetch-brain-assistant-action {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(248, 250, 252, 0.88);
+}
+
+.fetch-brain-shell--dark .fetch-brain-assistant-action:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.fetch-brain-shell--dark .fetch-brain-assistant-action.fetch-brain-assistant-action--ghost {
+  border-color: transparent;
+  background: transparent;
+  color: rgba(248, 250, 252, 0.38);
+}
+
+.fetch-brain-shell--dark .fetch-brain-assistant-action.fetch-brain-assistant-action--ghost:hover {
+  background: transparent;
+  color: rgba(248, 250, 252, 0.88);
+}
+
+.fetch-brain-shell--dark .fetch-brain-assistant-action--active-up {
+  border-color: rgba(52, 211, 153, 0.45);
+  background: rgba(52, 211, 153, 0.12);
+  color: rgb(167, 243, 208);
+}
+
+.fetch-brain-shell--dark .fetch-brain-assistant-action--active-down {
+  border-color: rgba(248, 113, 113, 0.45);
+  background: rgba(248, 113, 113, 0.1);
+  color: rgb(254, 202, 202);
+}
+
+.fetch-brain-shell--dark
+  .fetch-brain-assistant-action.fetch-brain-assistant-action--ghost.fetch-brain-assistant-action--active-up {
+  border-color: transparent;
+  background: transparent;
+  color: rgb(110, 231, 183);
+}
+
+.fetch-brain-shell--dark
+  .fetch-brain-assistant-action.fetch-brain-assistant-action--ghost.fetch-brain-assistant-action--active-down {
+  border-color: transparent;
+  background: transparent;
+  color: rgb(252, 165, 165);
+}
+
+.fetch-brain-shell--light .fetch-brain-assistant-action {
+  border-color: rgba(15, 23, 42, 0.1);
+  background: rgba(255, 255, 255, 0.72);
+  color: rgba(15, 23, 42, 0.78);
+}
+
+.fetch-brain-shell--light .fetch-brain-assistant-action:hover {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.fetch-brain-shell--light .fetch-brain-assistant-action.fetch-brain-assistant-action--ghost {
+  border-color: transparent;
+  background: transparent;
+  color: rgba(15, 23, 42, 0.38);
+}
+
+.fetch-brain-shell--light .fetch-brain-assistant-action.fetch-brain-assistant-action--ghost:hover {
+  background: transparent;
+  color: rgba(15, 23, 42, 0.82);
+}
+
+.fetch-brain-shell--light .fetch-brain-assistant-action--active-up {
+  border-color: rgba(5, 150, 105, 0.35);
+  background: rgba(209, 250, 229, 0.95);
+  color: rgb(6, 95, 70);
+}
+
+.fetch-brain-shell--light .fetch-brain-assistant-action--active-down {
+  border-color: rgba(220, 38, 38, 0.3);
+  background: rgba(254, 226, 226, 0.95);
+  color: rgb(127, 29, 29);
+}
+
+.fetch-brain-shell--light
+  .fetch-brain-assistant-action.fetch-brain-assistant-action--ghost.fetch-brain-assistant-action--active-up {
+  border-color: transparent;
+  background: transparent;
+  color: rgb(5, 122, 85);
+}
+
+.fetch-brain-shell--light
+  .fetch-brain-assistant-action.fetch-brain-assistant-action--ghost.fetch-brain-assistant-action--active-down {
+  border-color: transparent;
+  background: transparent;
+  color: rgb(185, 28, 28);
+}
+
+.fetch-brain-chat-header {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: minmax(2.5rem, 1fr) minmax(0, auto) minmax(2.5rem, 1fr);
+  align-items: flex-end;
+  column-gap: 0.375rem;
+  padding: max(0.35rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right)) 0
+    max(0.75rem, env(safe-area-inset-left));
+  isolation: isolate;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: linear-gradient(180deg, rgba(24, 26, 34, 0.55) 0%, rgba(14, 16, 22, 0.4) 100%);
+  backdrop-filter: blur(22px) saturate(170%);
+  -webkit-backdrop-filter: blur(22px) saturate(170%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    0 1px 0 rgba(0, 0, 0, 0.2);
+}
+
+.fetch-brain-chat-header__side-left {
+  justify-self: start;
+  padding-bottom: 0.5rem;
+}
+
+.fetch-brain-chat-header__side-right {
+  justify-self: end;
+  padding-bottom: 0.5rem;
+}
+
+.fetch-brain-chat-header__center {
+  display: flex;
+  max-width: 100%;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0;
+  /* Sphere sits on the header border — lower half reads into the transcript */
+  margin-bottom: -1.35rem;
+  padding-top: 0.125rem;
+}
+
+.fetch-brain-shell--light .fetch-brain-chat-header {
+  border-bottom-color: rgba(0, 0, 0, 0.07);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.52) 0%, rgba(255, 255, 255, 0.32) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.88),
+    0 1px 0 rgba(15, 23, 42, 0.06);
+}
+
+/* Blue bottom glow — only while TTS / speaking (see FetchBrainMemoryOverlay voiceHot) */
+.fetch-brain-field-blue-glow-stack {
+  contain: layout style;
+}
+
+.fetch-brain-field-blue-glow {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  pointer-events: none;
+  transform-origin: 50% 100%;
+  will-change: transform, opacity, filter;
+}
+
+.fetch-brain-field-blue-glow--deep {
+  height: min(44vh, 320px);
+  background: radial-gradient(
+    ellipse 88% 62% at 50% 100%,
+    rgba(56, 189, 248, 0.42) 0%,
+    rgba(var(--brain-glow), 0.28) 38%,
+    rgba(59, 130, 246, 0.14) 52%,
+    transparent 72%
+  );
+  animation: fetch-brain-blueglow-a 2.85s ease-in-out infinite;
+}
+
+.fetch-brain-field-blue-glow--mid {
+  height: min(36vh, 270px);
+  background: radial-gradient(
+    ellipse 72% 52% at 46% 100%,
+    rgba(129, 140, 246, 0.32) 0%,
+    rgba(56, 189, 248, 0.14) 48%,
+    transparent 70%
+  );
+  animation: fetch-brain-blueglow-b 3.45s ease-in-out infinite;
+  animation-delay: -0.85s;
+}
+
+.fetch-brain-field-blue-glow--accent {
+  height: min(28vh, 210px);
+  background: radial-gradient(
+    ellipse 62% 46% at 54% 100%,
+    rgba(147, 197, 253, 0.38) 0%,
+    rgba(96, 165, 250, 0.12) 45%,
+    transparent 68%
+  );
+  animation: fetch-brain-blueglow-c 2.25s ease-in-out infinite;
+  animation-delay: -1.35s;
+}
+
+.fetch-brain-shell--light .fetch-brain-field-blue-glow--deep {
+  background: radial-gradient(
+    ellipse 88% 62% at 50% 100%,
+    rgba(14, 165, 233, 0.32) 0%,
+    rgba(var(--brain-glow), 0.2) 40%,
+    rgba(59, 130, 246, 0.1) 54%,
+    transparent 74%
+  );
+}
+
+.fetch-brain-shell--light .fetch-brain-field-blue-glow--mid {
+  background: radial-gradient(
+    ellipse 72% 52% at 46% 100%,
+    rgba(99, 102, 241, 0.22) 0%,
+    rgba(56, 189, 248, 0.1) 50%,
+    transparent 72%
+  );
+}
+
+.fetch-brain-shell--light .fetch-brain-field-blue-glow--accent {
+  background: radial-gradient(
+    ellipse 62% 46% at 54% 100%,
+    rgba(125, 211, 252, 0.28) 0%,
+    rgba(96, 165, 250, 0.08) 48%,
+    transparent 70%
+  );
+}
+
+@keyframes fetch-brain-blueglow-a {
+  0%,
+  100% {
+    opacity: 0.78;
+    transform: scale3d(1, 1, 1) translate3d(0, 0, 0);
+    filter: hue-rotate(0deg) brightness(1);
+  }
+  28% {
+    opacity: 1;
+    transform: scale3d(1.05, 1.06, 1) translate3d(-0.8%, 0, 0);
+    filter: hue-rotate(-14deg) brightness(1.14);
+  }
+  55% {
+    opacity: 0.86;
+    transform: scale3d(0.97, 0.98, 1) translate3d(0.6%, 0, 0);
+    filter: hue-rotate(10deg) brightness(1.08);
+  }
+  78% {
+    opacity: 0.94;
+    transform: scale3d(1.02, 1.03, 1) translate3d(0.3%, 0, 0);
+    filter: hue-rotate(-6deg) brightness(1.1);
+  }
+}
+
+@keyframes fetch-brain-blueglow-b {
+  0%,
+  100% {
+    opacity: 0.65;
+    transform: scale3d(1, 1, 1) translate3d(0, 0, 0);
+    filter: hue-rotate(0deg) brightness(1);
+  }
+  35% {
+    opacity: 0.95;
+    transform: scale3d(1.08, 1.04, 1) translate3d(1.2%, -1%, 0);
+    filter: hue-rotate(12deg) brightness(1.12);
+  }
+  62% {
+    opacity: 0.72;
+    transform: scale3d(0.94, 0.96, 1) translate3d(-1%, 0.5%, 0);
+    filter: hue-rotate(-18deg) brightness(1.05);
+  }
+}
+
+@keyframes fetch-brain-blueglow-c {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale3d(1, 1, 1) translate3d(0, 0, 0);
+    filter: hue-rotate(0deg) brightness(1);
+  }
+  22% {
+    opacity: 0.88;
+    transform: scale3d(1.12, 1.1, 1) translate3d(-1.5%, 0, 0);
+    filter: hue-rotate(-10deg) brightness(1.18);
+  }
+  48% {
+    opacity: 0.62;
+    transform: scale3d(0.92, 0.94, 1) translate3d(1.2%, 0, 0);
+    filter: hue-rotate(16deg) brightness(1.06);
+  }
+  71% {
+    opacity: 0.8;
+    transform: scale3d(1.06, 1.05, 1) translate3d(0.4%, 0, 0);
+    filter: hue-rotate(6deg) brightness(1.12);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fetch-brain-field-blue-glow--deep,
+  .fetch-brain-field-blue-glow--mid,
+  .fetch-brain-field-blue-glow--accent {
+    animation: fetch-brain-blueglow-subtle 3.5s ease-in-out infinite;
+    filter: none !important;
+  }
+
+  @keyframes fetch-brain-blueglow-subtle {
+    0%,
+    100% {
+      opacity: 0.75;
+    }
+    50% {
+      opacity: 0.95;
+    }
+  }
+}
+
+.fetch-brain-composer-send--neutral {
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  background: rgba(82, 82, 91, 0.45) !important;
+  color: #fafafa !important;
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 2px 10px rgba(0, 0, 0, 0.15) !important;
+}
+
+.fetch-brain-shell--light .fetch-brain-composer-send--neutral {
+  border: 1px solid rgba(255, 255, 255, 0.75) !important;
+  background: rgba(63, 63, 70, 0.35) !important;
+  color: #fafafa !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 2px 12px rgba(15, 23, 42, 0.1) !important;
+}
+
+.fetch-brain-composer-send--neutral:not(:disabled):hover {
+  filter: brightness(1.06);
+}
+
+.fetch-brain-chat-header__icon-btn {
+  flex-shrink: 0;
+  display: flex;
+  height: 2.5rem;
+  width: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  isolation: isolate;
+  position: relative;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: linear-gradient(
+    155deg,
+    rgba(255, 255, 255, 0.16) 0%,
+    rgba(255, 255, 255, 0.06) 100%
+  );
+  color: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 3px 14px rgba(0, 0, 0, 0.16);
+  transition:
+    transform 0.15s ease,
+    background 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+/* Light shell: translucent so backdrop-filter can frost the field behind the bar */
+.fetch-brain-shell--light.fetch-brain-immersion .fetch-brain-chat-header__icon-btn {
+  border-color: rgba(255, 255, 255, 0.55);
+  background: linear-gradient(
+    155deg,
+    rgba(255, 255, 255, 0.38) 0%,
+    rgba(255, 255, 255, 0.12) 55%,
+    rgba(255, 255, 255, 0.06) 100%
+  );
+  color: rgba(30, 41, 59, 0.92);
+  backdrop-filter: blur(40px) saturate(200%);
+  -webkit-backdrop-filter: blur(40px) saturate(200%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    inset 0 -1px 0 rgba(15, 23, 42, 0.04),
+    0 2px 16px rgba(15, 23, 42, 0.07);
+}
+
+.fetch-brain-chat-header__icon-btn:hover {
+  background: linear-gradient(
+    155deg,
+    rgba(255, 255, 255, 0.24) 0%,
+    rgba(255, 255, 255, 0.1) 100%
+  );
+  border-color: rgba(255, 255, 255, 0.32);
+}
+
+.fetch-brain-shell--light.fetch-brain-immersion .fetch-brain-chat-header__icon-btn:hover {
+  background: linear-gradient(
+    155deg,
+    rgba(255, 255, 255, 0.52) 0%,
+    rgba(255, 255, 255, 0.2) 100%
+  );
+  border-color: rgba(255, 255, 255, 0.85);
+}
+
+.fetch-brain-chat-header__icon-btn:active {
+  transform: scale(0.94);
+}
+
+.fetch-brain-chat-header__actions {
+  display: flex;
+  min-width: 2.5rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.fetch-brain-chat-header__mute-btn--active {
+  opacity: 1;
+  border-color: rgba(255, 255, 255, 0.38) !important;
+  background: linear-gradient(
+    155deg,
+    rgba(255, 255, 255, 0.28) 0%,
+    rgba(255, 255, 255, 0.1) 100%
+  ) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 0 0 1px rgba(255, 255, 255, 0.08) !important;
+}
+
+.fetch-brain-shell--light.fetch-brain-immersion .fetch-brain-chat-header__mute-btn--active {
+  border-color: rgba(63, 63, 70, 0.16) !important;
+  background: linear-gradient(
+    155deg,
+    rgba(255, 255, 255, 0.55) 0%,
+    rgba(255, 255, 255, 0.22) 100%
+  ) !important;
+  backdrop-filter: blur(40px) saturate(200%) !important;
+  -webkit-backdrop-filter: blur(40px) saturate(200%) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 -1px 0 rgba(15, 23, 42, 0.05),
+    0 2px 14px rgba(15, 23, 42, 0.08) !important;
+}
+
+.fetch-brain-chat-header__icon-spacer {
+  display: block;
+  height: 2.5rem;
+  width: 2.5rem;
+}
+
+.fetch-brain-chat-header__clear {
+  flex-shrink: 0;
+  border-radius: 9999px;
+  isolation: isolate;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: linear-gradient(
+    155deg,
+    rgba(255, 255, 255, 0.16) 0%,
+    rgba(255, 255, 255, 0.06) 100%
+  );
+  padding: 0.375rem 0.65rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 3px 14px rgba(0, 0, 0, 0.14);
+  transition:
+    transform 0.15s ease,
+    background 0.2s ease;
+}
+
+.fetch-brain-shell--light.fetch-brain-immersion .fetch-brain-chat-header__clear {
+  border-color: rgba(255, 255, 255, 0.55);
+  background: linear-gradient(
+    155deg,
+    rgba(255, 255, 255, 0.38) 0%,
+    rgba(255, 255, 255, 0.1) 100%
+  );
+  color: rgba(30, 41, 59, 0.92);
+  backdrop-filter: blur(40px) saturate(200%);
+  -webkit-backdrop-filter: blur(40px) saturate(200%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    inset 0 -1px 0 rgba(15, 23, 42, 0.04),
+    0 2px 16px rgba(15, 23, 42, 0.07);
+}
+
+.fetch-brain-chat-header__clear:active {
+  transform: scale(0.94);
+}
+
+.fetch-brain-chat-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Clear the header orb dipping below the border */
+  padding: 1.25rem 0.875rem 0.35rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.fetch-brain-chat-messages__inner {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 0.5rem;
+}
+
+.fetch-brain-chat-messages--thinking-dim {
+  opacity: 0.38;
+  transition: opacity 0.32s ease;
+}
+
+.fetch-brain-shell--light .fetch-brain-chat-messages--thinking-dim {
+  opacity: 0.44;
+}
+
+.fetch-brain-chat-empty {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  padding: 0.25rem 0 0.5rem;
+  text-align: left;
+}
+
+.fetch-brain-chat-empty__title {
+  font-size: 0.9375rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.fetch-brain-shell--dark .fetch-brain-chat-empty__title {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.fetch-brain-shell--light .fetch-brain-chat-empty__title {
+  color: rgba(15, 23, 42, 0.88);
+}
+
+.fetch-brain-chat-empty__hint {
+  max-width: 16rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  opacity: 0.55;
+}
+
+.fetch-brain-msg-row {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+}
+
+.fetch-brain-msg-row--user {
+  align-items: flex-end;
+}
+
+.fetch-brain-msg-row--assistant {
+  align-items: flex-start;
+}
+
+.fetch-brain-assistant-bubble-slot {
+  position: relative;
+  align-self: flex-start;
+  max-width: min(85%, 22rem);
+  width: fit-content;
+}
+
+.fetch-brain-assistant-bubble-slot .fetch-brain-msg {
+  max-width: 100%;
+}
+
+.fetch-brain-assistant-bubble-slot--eyes-front {
+  z-index: 12;
+}
+
+.fetch-brain-shell--dark .fetch-brain-msg-row--assistant + .fetch-brain-msg-row--assistant {
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.fetch-brain-shell--light .fetch-brain-msg-row--assistant + .fetch-brain-msg-row--assistant {
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.fetch-brain-msg__label {
+  margin-bottom: 0.25rem;
+  padding-left: 0.25rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.45;
+}
+
+.fetch-brain-shell--dark .fetch-brain-msg__label {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.fetch-brain-shell--light .fetch-brain-msg__label {
+  color: rgba(15, 23, 42, 0.65);
+}
+
+.fetch-brain-msg {
+  max-width: min(85%, 22rem);
+  border-radius: 1.125rem;
+  padding: 0.625rem 0.875rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.45;
+  text-wrap: pretty;
+  box-shadow: none;
+}
+
+.fetch-brain-shell--dark .fetch-brain-msg--user {
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: #ffffff;
+  color: rgba(24, 24, 27, 0.92);
+  border-bottom-right-radius: 0.35rem;
+}
+
+.fetch-brain-shell--dark .fetch-brain-msg--assistant {
+  border: none;
+  background: transparent;
+  color: rgba(248, 250, 252, 0.9);
+  border-bottom-left-radius: 1.125rem;
+}
+
+.fetch-brain-shell--light .fetch-brain-msg--user {
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #ffffff;
+  color: rgba(24, 24, 27, 0.92);
+  border-bottom-right-radius: 0.35rem;
+}
+
+.fetch-brain-shell--light .fetch-brain-msg--assistant {
+  border: none;
+  background: transparent;
+  color: rgba(24, 24, 27, 0.88);
+  border-bottom-left-radius: 1.125rem;
+}
+
+.fetch-brain-msg--speaking {
+  /* Glow handled by field bottom radial — keep bubble flat */
+  opacity: 1;
+}
+
+.fetch-brain-msg__text {
+  margin: 0;
+  min-width: 0;
+  white-space: pre-line;
+  text-align: left;
+}
+
+/* Composer capsule + mic (reuse mic listening glow) */
+.fetch-brain-composer {
+  flex-shrink: 0;
+  width: 100%;
+  max-width: 42rem;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 0.5rem 0.75rem 0.25rem;
+}
+
+.fetch-brain-composer-pill {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  border-radius: 1.5rem;
+  padding: 0.45rem 0.5rem 0.45rem 0.45rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(22, 24, 32, 0.42);
+  backdrop-filter: blur(22px) saturate(170%);
+  -webkit-backdrop-filter: blur(22px) saturate(170%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 4px 24px rgba(0, 0, 0, 0.22);
+}
+
+.fetch-brain-shell--light .fetch-brain-composer-pill {
+  border-color: rgba(255, 255, 255, 0.65);
+  background: rgba(255, 255, 255, 0.48);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 4px 20px rgba(15, 23, 42, 0.08);
+}
+
+.fetch-brain-composer-field {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-items: flex-end;
+  gap: 0.25rem;
+  border-radius: 1.125rem;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: #ffffff;
+  box-sizing: border-box;
+  padding: 0 0.35rem 0 0.3rem;
+}
+
+.fetch-brain-shell--dark .fetch-brain-composer-field {
+  border-color: rgba(0, 0, 0, 0.1);
+  background: #f4f4f5;
+}
+
+.fetch-brain-shell--light .fetch-brain-composer-field {
+  border-color: rgba(0, 0, 0, 0.07);
+  background: #fafafa;
+}
+
+.fetch-brain-composer-field textarea {
+  max-height: 7rem;
+}
+
+.fetch-brain-composer-attach {
+  display: flex;
+  height: 2.5rem;
+  width: 2.5rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.5rem;
+  color: rgba(63, 63, 70, 0.72);
+  line-height: 0;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.fetch-brain-composer-attach:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: rgba(39, 39, 42, 0.92);
+}
+
+.fetch-brain-composer-attach:active {
+  transform: scale(0.94);
+}
+
+.fetch-brain-composer-input {
+  min-width: 0;
+  flex: 1 1 auto;
+  resize: none;
+  border: none;
+  background: transparent;
+  padding: 0.625rem 0.2rem 0.625rem 0;
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.25rem;
+  outline: none;
+  display: block;
+  box-sizing: border-box;
+}
+
+.fetch-brain-composer-field .fetch-brain-composer-input {
+  color: rgba(24, 24, 27, 0.94);
+}
+
+.fetch-brain-composer-field .fetch-brain-composer-input::placeholder {
+  color: rgba(82, 82, 91, 0.55);
+}
+
+.fetch-brain-composer-mic {
+  flex-shrink: 0;
+  display: flex;
+  height: 2.5rem;
+  width: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  transition:
+    box-shadow 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.15s ease,
+    background 0.2s ease;
+}
+
+.fetch-brain-shell--light .fetch-brain-composer-mic {
+  border-color: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.38);
+  color: rgba(30, 41, 59, 0.9);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.fetch-brain-composer-mic:hover {
+  border-color: rgba(161, 161, 170, 0.45);
+}
+
+.fetch-brain-shell--light .fetch-brain-composer-mic:hover {
+  border-color: rgba(63, 63, 70, 0.35);
+}
+
+.fetch-brain-composer-mic:active {
+  transform: scale(0.94);
+}
+
+.fetch-brain-composer-mic:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.fetch-brain-composer-mic--listening {
+  border-color: rgba(161, 161, 170, 0.65) !important;
+  box-shadow:
+    0 0 0 1px rgba(82, 82, 91, 0.35) inset,
+    0 0 16px rgba(82, 82, 91, 0.28);
+  color: rgba(244, 244, 245, 0.98);
+}
+
+.fetch-brain-shell--light .fetch-brain-composer-mic--listening {
+  border-color: rgba(63, 63, 70, 0.45) !important;
+  color: rgba(39, 39, 42, 0.95);
+}
+
+.fetch-brain-composer-send {
+  flex-shrink: 0;
+  display: flex;
+  height: 2.5rem;
+  width: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: none;
+  color: #fff;
+  transition:
+    transform 0.15s ease,
+    opacity 0.2s ease;
+}
+
+.fetch-brain-composer-send:disabled {
+  opacity: 0.32;
+  transform: scale(0.92);
+}
+
+.fetch-brain-composer-send:not(:disabled):hover {
+  filter: brightness(1.08);
+}
+
+.fetch-brain-composer-send:not(:disabled):active {
+  transform: scale(0.94);
+}
+
 @keyframes fetch-brain-immersion-enter {
   from {
     opacity: 0;
@@ -5369,6 +6813,34 @@ html[data-fetch-theme='light'] .fetch-home-orb-tunnel-vignette {
   }
 }
 
+@keyframes fetch-splash-thinking-blink {
+  0%,
+  86% {
+    transform: scaleY(1);
+  }
+  90%,
+  94% {
+    transform: scaleY(0.08);
+  }
+  100% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes fetch-splash-blink-once {
+  0%,
+  18% {
+    transform: scaleY(1);
+  }
+  32%,
+  48% {
+    transform: scaleY(0.08);
+  }
+  100% {
+    transform: scaleY(1);
+  }
+}
+
 .fetch-splash-eye {
   position: relative;
   width: clamp(2.35rem, 10vw, 3.15rem);
@@ -5435,6 +6907,14 @@ html[data-fetch-theme='dark'] .fetch-splash-eye__ball {
 
 .fetch-splash-eyes--blinking .fetch-splash-eye__ball {
   animation: fetch-splash-blink 1.5s cubic-bezier(0.45, 0, 0.2, 1) forwards;
+}
+
+.fetch-splash-eyes--thinking .fetch-splash-eye__ball {
+  animation: fetch-splash-thinking-blink 2.2s ease-in-out infinite;
+}
+
+.fetch-splash-eyes--settle .fetch-splash-eye__ball {
+  animation: fetch-splash-blink-once 0.52s cubic-bezier(0.45, 0, 0.2, 1) forwards;
 }
 
 @keyframes fetch-splash-wake {
@@ -5507,6 +6987,11 @@ html[data-fetch-theme='dark'] .fetch-splash-logo__secondary {
 
 @media (prefers-reduced-motion: reduce) {
   .fetch-splash-eyes--blinking .fetch-splash-eye__ball {
+    animation: none;
+  }
+
+  .fetch-splash-eyes--thinking .fetch-splash-eye__ball,
+  .fetch-splash-eyes--settle .fetch-splash-eye__ball {
     animation: none;
   }
 

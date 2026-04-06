@@ -502,7 +502,12 @@ export function FetchHomeBookingSheet({
           </button>
         ) : null}
 
-        <div className="flex shrink-0 flex-col items-center pt-2 pb-0.5">
+        <div
+          className={[
+            'flex shrink-0 flex-col items-center pb-0.5',
+            navMapChrome ? 'pt-1' : 'pt-2',
+          ].join(' ')}
+        >
           <button
             type="button"
             className="fetch-home-booking-sheet__handle flex w-full flex-col items-center gap-1 rounded-t-[32px] pb-1 pt-0 outline-none ring-offset-2 ring-offset-transparent focus-visible:ring-2 focus-visible:ring-neutral-400/50 touch-pan-y"
@@ -525,7 +530,8 @@ export function FetchHomeBookingSheet({
         {!expanded ? (
           <div
             className={[
-              'fetch-home-booking-sheet__peek flex shrink-0 items-center gap-2.5 px-5 pb-2.5 pt-0 sm:gap-3 sm:px-7',
+              'fetch-home-booking-sheet__peek flex shrink-0 items-center gap-2.5 px-5 pt-0 sm:gap-3 sm:px-7',
+              navMapChrome ? 'pb-1.5' : 'pb-2.5',
               mapsCompactPeek ? 'fetch-home-booking-sheet__peek--maps-compact' : 'justify-between',
             ].join(' ')}
           >

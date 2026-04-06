@@ -15,6 +15,7 @@ import {
   type HomeBookingSheetSurface,
   type HomeShellTab,
 } from '../components/FetchHomeBookingSheet'
+import type { FetchBrainChoiceSheetModel } from '../components/FetchBrainChoiceSheet'
 import { FetchBrainMemoryOverlay } from '../components/FetchBrainMemoryOverlay'
 import { FetchHomeStepOne } from '../components/FetchHomeStepOne'
 import type { LiveTrackingMapFit } from '../components/FetchHomeStepOne/BookingMapReflection'
@@ -45,6 +46,7 @@ import {
   loadBrainChatLines,
   persistBrainChatExchange,
   removeLastBrainLineIfUser,
+  saveBrainChatLines,
   type BrainChatStoredLine,
 } from '../lib/fetchBrainChatStorage'
 import {
@@ -53,7 +55,6 @@ import {
   buildBrainAccountSnapshotAsync,
   type BrainAccountSnapshot,
 } from '../lib/fetchBrainAccountSnapshot'
-import { buildFetchBrainGraph, type BrainNode } from '../lib/fetchBrainGraph'
 import { resolveMemoryFocus } from '../lib/fetchBrainMemoryFocus'
 import { appendBrainLearningEvent, buildFetchBrainLearningContext } from '../lib/fetchBrainLearningStore'
 import { detectBrainRestaurantIntent } from '../lib/fetchBrainPlacesIntent'
@@ -185,6 +186,8 @@ export default function HomeView({
   const brainWelcomeRef = useRef(false)
   const brainConvRef = useRef<BrainChatStoredLine[]>(loadBrainChatLines())
   const brainAbortRef = useRef<AbortController | null>(null)
+  /** Blocks overlapping brain sends (Enter spam / double tap before `brainAiPending` paints). */
+  const brainUtteranceInFlightRef = useRef(false)
   const [composerListening, setComposerListening] = useState(false)
   const [brainSttListening, setBrainSttListening] = useState(false)
   const [brainLastReply, setBrainLastReply] = useState<string | null>(null)
@@ -201,6 +204,9 @@ export default function HomeView({
     introLine?: string
     items: BrainFieldPlaceCard[]
   } | null>(null)
+  const [brainInteractionSheet, setBrainInteractionSheet] = useState<FetchBrainChoiceSheetModel | null>(
+    null,
+  )
   const [brainPlacesLoading, setBrainPlacesLoading] = useState(false)
   const [brainMemoriesSheetOpen, setBrainMemoriesSheetOpen] = useState(false)
   const brainPlacesAbortRef = useRef<AbortController | null>(null)
@@ -579,14 +585,38 @@ export default function HomeView({
     setBrainSkipReveal(false)
     setBrainFocusedMemoryId(null)
     setBrainFieldPlaces(null)
+    setBrainInteractionSheet(null)
     setBrainPlacesLoading(false)
     setBrainMemoriesSheetOpen(false)
   }, [clearBrainVisual, stopAssistantPlayback])
+
+  const startNewBrainChat = useCallback(() => {
+    bumpInteraction()
+    brainAbortRef.current?.abort()
+    brainAbortRef.current = null
+    brainPlacesAbortRef.current?.abort()
+    brainPlacesAbortRef.current = null
+    setBrainAiPending(false)
+    setBrainPlacesLoading(false)
+    brainUtteranceInFlightRef.current = false
+    brainConvRef.current = []
+    saveBrainChatLines([])
+    setBrainConvRevision((n) => n + 1)
+    setBrainLastReply(null)
+    clearBrainVisual()
+    setBrainInteractionSheet(null)
+    setBrainFieldPlaces(null)
+    setBrainFocusedMemoryId(null)
+    setBrainMemoriesSheetOpen(false)
+    stopAssistantPlayback()
+    playUiEvent('orb_tap')
+  }, [bumpInteraction, clearBrainVisual, playUiEvent, stopAssistantPlayback])
 
   useEffect(() => {
     if (homeBrainFlow == null) {
       setBrainFocusedMemoryId(null)
       setBrainFieldPlaces(null)
+      setBrainInteractionSheet(null)
       setBrainPlacesLoading(false)
       setBrainMemoriesSheetOpen(false)
     }
@@ -609,49 +639,6 @@ export default function HomeView({
       cancelled = true
     }
   }, [homeBrainFlow, brainConvRevision, homeActivityTick, savedAddresses])
-
-  const brainGraphNodes = useMemo((): BrainNode[] => {
-    if (!brainAccountSnapshot) return []
-    const flowStep = deriveFlowStep(bookingState)
-    const chatTurns = brainConvRef.current.map((l) => ({
-      id: l.id,
-      role: l.role,
-      text: l.content,
-    }))
-    const nodes = buildFetchBrainGraph({
-      chatTurns,
-      jobType: bookingState.jobType,
-      flowStep,
-      navActive: Boolean(chatNavRoute),
-      pickupLine: bookingState.pickupAddressText || null,
-      dropoffLine: bookingState.dropoffAddressText || null,
-      snapshot: brainAccountSnapshot,
-      focusedCatalogId: brainFocusedMemoryId,
-    }).nodes
-    if (brainFieldPlaces && brainFieldPlaces.items.length > 0) {
-      return [
-        ...nodes,
-        {
-          id: 'web-field-places',
-          kind: 'web',
-          label: 'Live maps',
-          subtitle: `${brainFieldPlaces.items.length} nearby`,
-          body: brainFieldPlaces.title,
-          x: 648,
-          y: 300,
-          radius: 14,
-        },
-      ]
-    }
-    return nodes
-  }, [
-    brainAccountSnapshot,
-    brainConvRevision,
-    brainFocusedMemoryId,
-    bookingState,
-    chatNavRoute,
-    brainFieldPlaces,
-  ])
 
   const onComposerListeningChange = useCallback((v: boolean) => {
     setComposerListening(v)
@@ -1466,6 +1453,10 @@ export default function HomeView({
     async (text: string) => {
       const trimmed = text.trim()
       if (!trimmed) return
+      if (brainUtteranceInFlightRef.current) return
+      brainUtteranceInFlightRef.current = true
+      try {
+      setBrainInteractionSheet(null)
       brainAbortRef.current?.abort()
       brainPlacesAbortRef.current?.abort()
       brainPlacesAbortRef.current = null
@@ -1555,7 +1546,7 @@ export default function HomeView({
         const mem = buildFetchUserMemoryContext()
         const learn = buildFetchBrainLearningContext()
         setBrainAiPending(true)
-        const { reply, navigation, perfTiming } = await postFetchAiChat(messages, {
+        const { reply, navigation, interaction, perfTiming } = await postFetchAiChat(messages, {
           signal: ac.signal,
           locale: 'en-AU',
           context: {
@@ -1572,6 +1563,15 @@ export default function HomeView({
         if (ac.signal.aborted) return
         if (navigation?.active) applyChatNavigation(navigation)
         if (perfRunId && perfTiming) fetchPerfSetServerTiming(perfRunId, perfTiming)
+
+        if (interaction?.type === 'choices') {
+          setBrainFieldPlaces(null)
+          setBrainInteractionSheet({
+            choices: interaction.choices,
+            ...(interaction.prompt ? { prompt: interaction.prompt } : {}),
+            ...(interaction.freeformHint ? { freeformHint: interaction.freeformHint } : {}),
+          })
+        }
 
         brainConvRef.current = persistBrainChatExchange(prior, trimmed, reply)
         setBrainConvRevision((n) => n + 1)
@@ -1605,6 +1605,9 @@ export default function HomeView({
         }
       } finally {
         if (brainAbortRef.current === ac) brainAbortRef.current = null
+      }
+      } finally {
+        brainUtteranceInFlightRef.current = false
       }
     },
     [applyChatNavigation, mapsJsReady, playUiEvent, speakLine, userMapLocation],
@@ -1640,6 +1643,17 @@ export default function HomeView({
       rating: -1,
     })
   }, [])
+
+  const onBrainAssistantChatFeedback = useCallback(
+    (args: { turnId: string; rating: 1 | -1; text: string }) => {
+      appendBrainLearningEvent({
+        kind: 'chat_reply_feedback',
+        rating: args.rating,
+        note: args.text.slice(0, 400),
+      })
+    },
+    [],
+  )
 
   const exitChatNavigation = useCallback(() => {
     setChatNavRoute(null)
@@ -2315,6 +2329,13 @@ export default function HomeView({
   const homeSheetNavMapChrome =
     homeShellTab === 'maps' &&
     (chatNavRoute != null || (!homeMapExploreMode && navStripActive))
+  /** Dock orb top-left over map while route/nav strip chrome is active (not explore-only maps). */
+  const orbTopLeftOnNavMap = homeSheetNavMapChrome
+
+  useEffect(() => {
+    if (homeSheetNavMapChrome) setHomeOrbBottomPx(null)
+  }, [homeSheetNavMapChrome])
+
   useEffect(() => {
     if (!navStripActive && !homeMapExploreMode) setMapFollowUser(false)
   }, [navStripActive, homeMapExploreMode])
@@ -2421,7 +2442,7 @@ export default function HomeView({
   }, [orbGlowColor, homeBrainFlow])
 
   const inputClass =
-    'fetch-stage-text-input fetch-home-address-input mt-2 w-full rounded-full border px-4 py-3 text-[13px] font-medium text-fetch-charcoal/95 ring-0 placeholder:text-fetch-muted/38'
+    'fetch-stage-text-input fetch-home-address-input fetch-home-stage-field-input mt-2 w-full rounded-full border px-4 py-3.5 ring-0'
 
   const showConfirm = Boolean(pendingConfirm)
   const showIntent = !showConfirm && (!jobType || flowStep === 'intent')
@@ -2742,7 +2763,7 @@ export default function HomeView({
     () =>
       homeOrbBottomPx != null
         ? `calc(${homeOrbBottomPx}px + 6.5rem + 0.85rem)`
-        : 'calc(max(1.1rem, env(safe-area-inset-bottom)) + min(62dvh, 36rem) + 8px + 6.5rem * 0.5 + 0.85rem)',
+        : 'calc(max(1.1rem, env(safe-area-inset-bottom)) + min(58dvh, 34rem) + 8px + 6.5rem * 0.5 + 0.85rem)',
     [homeOrbBottomPx],
   )
 
@@ -2779,24 +2800,26 @@ export default function HomeView({
   ])
 
   const onPeekHomeClick = useCallback(() => {
-    bumpInteraction()
-    setHomeShellTab('services')
-    setSheetSnap('closed')
-    setHomeMapExploreMode(false)
     setIntentAddressEntryActive(false)
     exitChatNavigation()
-  }, [bumpInteraction, exitChatNavigation])
+    onHomeShellTabChange('services')
+    setSheetSnap('closed')
+  }, [onHomeShellTabChange, exitChatNavigation])
 
   const onAccountsClick = useCallback(() => {
     bumpInteraction()
     onAccountNavigate?.()
   }, [bumpInteraction, onAccountNavigate])
 
-  const onHomeOrbBottomPxChange = useCallback((px: number) => {
-    setHomeOrbBottomPx((prev) =>
-      prev != null && Math.abs(prev - px) < 0.75 ? prev : px,
-    )
-  }, [])
+  const onHomeOrbBottomPxChange = useCallback(
+    (px: number) => {
+      if (homeSheetNavMapChrome) return
+      setHomeOrbBottomPx((prev) =>
+        prev != null && Math.abs(prev - px) < 0.75 ? prev : px,
+      )
+    },
+    [homeSheetNavMapChrome],
+  )
 
   const serviceHint: 'junk' | 'moving' | 'pickup' | 'heavy' | undefined =
     jobType === 'junkRemoval' ? 'junk'
@@ -3272,16 +3295,6 @@ export default function HomeView({
           ) : showIntent ? (
             <div className="fetch-home-landing flex flex-col">
               <section className="fetch-home-landing-section fetch-home-landing-section--intent shrink-0">
-                <HomeIntentChatComposer
-                  appendOrbChatTurn={pushOrbChatTurn}
-                  onChatNavigation={applyChatNavigation}
-                  onListeningChange={onComposerListeningChange}
-                  onPlaceSuggestionsOpenChange={setIntentPlaceSuggestionsOpen}
-                  showGuestAccountHint={!loadSession()}
-                  mapsJsReady={mapsJsReady}
-                  onStartNavigationToPlace={startChatNavigationToPlace}
-                  onAddressEntryIntentChange={setIntentAddressEntryActive}
-                />
                 <div className="fetch-home-service-rail-row">
                   <div className="fetch-home-service-rail-headline-row">
                     <h3
@@ -3353,6 +3366,17 @@ export default function HomeView({
                     </div>
                   </div>
                 </div>
+                <HomeIntentChatComposer
+                  variant="intentLanding"
+                  appendOrbChatTurn={pushOrbChatTurn}
+                  onChatNavigation={applyChatNavigation}
+                  onListeningChange={onComposerListeningChange}
+                  onPlaceSuggestionsOpenChange={setIntentPlaceSuggestionsOpen}
+                  showGuestAccountHint={!loadSession()}
+                  mapsJsReady={mapsJsReady}
+                  onStartNavigationToPlace={startChatNavigationToPlace}
+                  onAddressEntryIntentChange={setIntentAddressEntryActive}
+                />
               </section>
             </div>
           ) : null}
@@ -4176,9 +4200,16 @@ export default function HomeView({
 
       {!brainImmersive && orbChatTurns.length > 0 ? (
         <div
-          className="fetch-home-orb-chat-stack pointer-events-none fixed left-1/2 z-[57] flex w-[min(21rem,calc(100vw-1.75rem))] max-w-[min(21rem,calc(100vw-1.75rem))] -translate-x-1/2 flex-col"
+          className={[
+            'fetch-home-orb-chat-stack pointer-events-none fixed z-[57] flex flex-col',
+            orbTopLeftOnNavMap
+              ? 'left-3 right-3 w-auto max-w-none translate-x-0'
+              : 'left-1/2 w-[min(21rem,calc(100vw-1.75rem))] max-w-[min(21rem,calc(100vw-1.75rem))] -translate-x-1/2',
+          ].join(' ')}
           style={{
-            top: 'max(0.5rem, env(safe-area-inset-top))',
+            top: orbTopLeftOnNavMap
+              ? 'calc(max(0.5rem, env(safe-area-inset-top)) + 6.5rem + 0.35rem)'
+              : 'max(0.5rem, env(safe-area-inset-top))',
             bottom: orbChatStackBottom,
           }}
           role="log"
@@ -4213,79 +4244,94 @@ export default function HomeView({
       ) : null}
 
       {!brainImmersive ? (
-      <div
-        className={[
-          'fetch-home-orb-sheet-follow pointer-events-none fixed z-[58] flex flex-col items-center will-change-[bottom]',
-          sheetGestureActive ? 'fetch-home-orb-sheet-follow--no-transition' : '',
-          homeBrainFlow === 'tunnel' ? 'fetch-home-orb-tunnel-drop' : '',
-        ].join(' ')}
-        style={{
-          bottom:
-            homeOrbBottomPx != null
-              ? `${homeOrbBottomPx}px`
-              : 'calc(max(1.1rem, env(safe-area-inset-bottom)) + min(62dvh, 36rem) + 8px - 6.5rem * 0.5)',
-        }}
-      >
-        <div className="relative flex flex-col items-center">
-          {orbEphemeralBubble ? (
-            <div
-              className={[
-                'fetch-home-orb-speech-bubble pointer-events-none absolute bottom-[calc(100%+0.65rem)] left-1/2 z-[1] w-[min(20rem,calc(100vw-2.5rem))] max-w-[min(20rem,calc(100vw-2.5rem))] -translate-x-1/2',
-                isSpeechPlaying ? 'fetch-home-orb-speech-bubble--speaking' : '',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-              role="status"
-              aria-live="polite"
-            >
-              <div className="flex items-start gap-3 px-3.5 py-3">
-                <p className="min-w-0 flex-1 whitespace-pre-line text-left text-[12px] font-medium leading-snug text-white/92 [text-wrap:pretty]">
-                  {orbEphemeralBubble}
-                </p>
-              </div>
-            </div>
-          ) : null}
-          <div
-            className="fetch-home-orb-vision-halo pointer-events-none flex h-[6.5rem] w-[6.5rem] items-center justify-center"
-            data-orb-idle={orbState === 'idle' && !isSpeechPlaying ? 'true' : undefined}
-          >
-            <FetchVoiceCommandFab
-              homeSheetDock
-              onboardingPulse={false}
-              expression={orbExpression}
-              orbState={orbState}
-              pulseNonce={0}
-              typingActive={false}
-              awakened={orbAwakened}
-              confirmationNonce={confirmNonce + voiceHoldPulseNonce}
-              mapAttention={orbMapAttention}
-              lookAtCard={Boolean(
-                (orbChatTurns.length > 0 ||
-                  voiceHoldCaption ||
-                  orbEphemeralBubble) &&
-                  !isSpeechPlaying,
-              )}
-              glowColor={orbGlowColor}
-              orbAppearance={themeResolved === 'light' ? 'day' : 'night'}
-              onOpen={() => {
-                bumpInteraction()
-                setOrbAwakened(true)
-                setSheetSnap('closed')
-                if (
-                  typeof window !== 'undefined' &&
-                  window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches
-                ) {
-                  setBrainSkipReveal(true)
-                  setHomeBrainFlow('brain')
-                  return
+        <div
+          className={[
+            'fetch-home-orb-sheet-follow pointer-events-none fixed z-[58] flex flex-col',
+            orbTopLeftOnNavMap
+              ? 'fetch-home-orb-sheet-follow--nav-map-top-left items-start will-change-[top,left]'
+              : 'items-center will-change-[bottom]',
+            sheetGestureActive ? 'fetch-home-orb-sheet-follow--no-transition' : '',
+            homeBrainFlow === 'tunnel' ? 'fetch-home-orb-tunnel-drop' : '',
+          ].join(' ')}
+          style={
+            orbTopLeftOnNavMap
+              ? undefined
+              : {
+                  bottom:
+                    homeOrbBottomPx != null
+                      ? `${homeOrbBottomPx}px`
+                      : 'calc(max(1.1rem, env(safe-area-inset-bottom)) + min(58dvh, 34rem) + 8px - 6.5rem * 0.5)',
                 }
-                setBrainSkipReveal(false)
-                setHomeBrainFlow('tunnel')
-              }}
-            />
+          }
+        >
+          <div
+            className={[
+              'relative flex flex-col',
+              orbTopLeftOnNavMap ? 'items-start' : 'items-center',
+            ].join(' ')}
+          >
+            {orbEphemeralBubble ? (
+              <div
+                className={[
+                  'fetch-home-orb-speech-bubble pointer-events-none absolute z-[1] w-[min(20rem,calc(100vw-2.5rem))] max-w-[min(20rem,calc(100vw-2.5rem))]',
+                  orbTopLeftOnNavMap
+                    ? 'left-0 top-full mt-2 translate-x-0'
+                    : 'bottom-[calc(100%+0.65rem)] left-1/2 -translate-x-1/2',
+                  isSpeechPlaying ? 'fetch-home-orb-speech-bubble--speaking' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')}
+                role="status"
+                aria-live="polite"
+              >
+                <div className="flex items-start gap-3 px-3.5 py-3">
+                  <p className="min-w-0 flex-1 whitespace-pre-line text-left text-[12px] font-medium leading-snug text-white/92 [text-wrap:pretty]">
+                    {orbEphemeralBubble}
+                  </p>
+                </div>
+              </div>
+            ) : null}
+            <div
+              className="fetch-home-orb-vision-halo pointer-events-none flex h-[6.5rem] w-[6.5rem] items-center justify-center"
+              data-orb-idle={orbState === 'idle' && !isSpeechPlaying ? 'true' : undefined}
+            >
+              <FetchVoiceCommandFab
+                homeSheetDock
+                onboardingPulse={false}
+                expression={orbExpression}
+                orbState={orbState}
+                pulseNonce={0}
+                typingActive={false}
+                awakened={orbAwakened}
+                confirmationNonce={confirmNonce + voiceHoldPulseNonce}
+                mapAttention={orbMapAttention}
+                lookAtCard={Boolean(
+                  (orbChatTurns.length > 0 ||
+                    voiceHoldCaption ||
+                    orbEphemeralBubble) &&
+                    !isSpeechPlaying,
+                )}
+                glowColor={orbGlowColor}
+                orbAppearance={themeResolved === 'light' ? 'day' : 'night'}
+                onOpen={() => {
+                  bumpInteraction()
+                  setOrbAwakened(true)
+                  setSheetSnap('closed')
+                  if (
+                    typeof window !== 'undefined' &&
+                    window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches
+                  ) {
+                    setBrainSkipReveal(true)
+                    setHomeBrainFlow('brain')
+                    return
+                  }
+                  setBrainSkipReveal(false)
+                  setHomeBrainFlow('tunnel')
+                }}
+              />
+            </div>
           </div>
         </div>
-      </div>
       ) : null}
 
       {homeBrainFlow === 'clarity' || homeBrainFlow === 'brain' ? (
@@ -4294,6 +4340,8 @@ export default function HomeView({
           onClose={closeFetchBrain}
           theme={themeResolved}
           mind={fetchBrainMind}
+          orbAppearance={themeResolved === 'light' ? 'day' : 'night'}
+          brainReplyPending={brainAiPending || brainPlacesLoading}
           glowRgb={orbGlowColor}
           instantReveal={brainSkipReveal}
           onBrainUtterance={runBrainAiUtterance}
@@ -4303,7 +4351,6 @@ export default function HomeView({
           onBrainPhotoSelected={onBrainPhotoSelected}
           onClearVisual={clearBrainVisual}
           snapshot={brainAccountSnapshot}
-          brainGraphNodes={brainGraphNodes}
           focusedMemoryId={brainFocusedMemoryId}
           onFocusedMemoryIdChange={setBrainFocusedMemoryId}
           fieldPlaces={brainFieldPlaces}
@@ -4313,24 +4360,17 @@ export default function HomeView({
           onFieldPlacePass={onBrainFieldPlacePass}
           memoriesSheetOpen={brainMemoriesSheetOpen}
           onMemoriesSheetClose={() => setBrainMemoriesSheetOpen(false)}
-          thinkingUi={
-            brainPlacesLoading
-              ? {
-                  show: true,
-                  title: 'Fetch is finding places…',
-                  subtitle: 'Live from Google Maps',
-                  feedback: 'Pulling restaurants near your location.',
-                }
-              : brainAiPending
-                ? {
-                    show: true,
-                    title: 'Fetch is thinking…',
-                    subtitle: 'Building the best plan for your move',
-                    feedback:
-                      "I'll find the best options, estimate your cost, and keep you moving.",
-                  }
-                : null
-          }
+          choiceSheet={brainInteractionSheet}
+          onChoiceSheetSubmit={(t) => {
+            setBrainInteractionSheet(null)
+            void runBrainAiUtterance(t)
+          }}
+          onChoiceSheetDismiss={() => setBrainInteractionSheet(null)}
+          onAssistantChatFeedback={onBrainAssistantChatFeedback}
+          onServiceIntakeComplete={(msg) => {
+            void runBrainAiUtterance(msg)
+          }}
+          onNewBrainChat={startNewBrainChat}
         />
       ) : null}
 

@@ -80,4 +80,4 @@ The app uses **lazy-loaded** views so the **booking / Google Maps** bundle is no
 
 ### Vercel / API
 
-The first `/api/*` request after a period of idle time may show a **high TTFB** (often on the order of seconds) because of **serverless cold starts** (more noticeable on Hobby). Repeat requests are usually faster. Chat and voice latency also include **OpenAI** and **ElevenLabs** round trips; ensure `maxDuration` in `vercel.json` is sufficient for your longest TTS or chat handler.
+The first `/api/*` request after a period of idle time may show a **high TTFB** (often on the order of seconds) because of **serverless cold starts** (more noticeable on Hobby). Repeat requests are usually faster. Chat and voice latency also include **OpenAI** and **Google Cloud Text-to-Speech** round trips; ensure `maxDuration` in `vercel.json` is sufficient for your longest TTS or chat handler.

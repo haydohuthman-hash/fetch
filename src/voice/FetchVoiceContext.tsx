@@ -28,7 +28,7 @@ export type FetchSpeakLineOptions = SpeakLineOptions & { withVoiceHold?: boolean
 
 type FetchVoiceContextValue = {
   muted: boolean
-  /** True while ElevenLabs speech audio is playing (not chimes). */
+  /** True while cloud TTS speech audio is playing (not chimes). */
   isSpeechPlaying: boolean
   /** Instant ack line + pulse while a `withVoiceHold` clip is fetching / starting. */
   voiceHoldCaption: string | null

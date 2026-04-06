@@ -28,8 +28,43 @@ import {
 } from '../lib/recentNavDestinations'
 import type { SavedAddress } from '../lib/savedAddresses'
 import { haversineMeters } from '../lib/homeDirections'
+import { useFetchVoice } from '../voice/FetchVoiceContext'
+import { primeVoicePlaybackFromUserGesture } from '../voice/fetchVoice'
+import { voiceFlowDebug, voiceFlowSttError } from '../voice/voiceFlowDebug'
 
 const GOOGLE_MAP_LIBRARIES: ('places' | 'geometry')[] = ['places', 'geometry']
+
+function MapsExploreSearchIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z"
+        stroke="currentColor"
+        strokeWidth="1.75"
+      />
+      <path d="M16.2 16.2 21 21" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function MapsExploreMicIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M12 14a3 3 0 0 0 3-3V7a3 3 0 0 0-6 0v4a3 3 0 0 0 3 3Z"
+        stroke="currentColor"
+        strokeWidth="1.65"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M17 11v1a5 5 0 0 1-10 0v-1M12 18v3M8 22h8"
+        stroke="currentColor"
+        strokeWidth="1.65"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
 
 type PlacePredictionRow = { description: string; placeId: string }
 
@@ -113,12 +148,112 @@ export function MapsExploreSheet({
   const suggestBlurCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef = useRef(true)
   const inputRef = useRef<HTMLInputElement>(null)
+  const mapsSttRef = useRef<{ abort: () => void } | null>(null)
+  const [mapsSttListening, setMapsSttListening] = useState(false)
+  const { speakLine, playUiEvent } = useFetchVoice()
 
   const loaderReady = mapsJsReady && mapsJsLoaded && mapsApiKey.length > 0
+
+  const stopMapsAddressStt = useCallback(() => {
+    if (mapsSttRef.current) {
+      try {
+        mapsSttRef.current.abort()
+      } catch {
+        /* ignore */
+      }
+      mapsSttRef.current = null
+    }
+    setMapsSttListening(false)
+  }, [])
+
+  const startMapsAddressStt = useCallback(() => {
+    primeVoicePlaybackFromUserGesture()
+    const w = window as unknown as Record<string, unknown>
+    const SpeechRec = (w.SpeechRecognition ?? w.webkitSpeechRecognition) as
+      | (new () => {
+          lang: string
+          interimResults: boolean
+          maxAlternatives: number
+          onstart: (() => void) | null
+          onresult: ((e: {
+            resultIndex: number
+            results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }>
+          }) => void) | null
+          onerror: ((e: Event) => void) | null
+          onend: (() => void) | null
+          start: () => void
+          abort: () => void
+        })
+      | undefined
+    if (!SpeechRec) {
+      voiceFlowSttError('SpeechRecognition API missing (maps explore)')
+      void speakLine("Voice search isn't available in this browser.", {
+        debounceKey: 'maps_explore_no_stt',
+        debounceMs: 3200,
+      })
+      return
+    }
+    stopMapsAddressStt()
+    const rec = new SpeechRec()
+    rec.lang = 'en-AU'
+    rec.interimResults = false
+    rec.maxAlternatives = 1
+    mapsSttRef.current = rec
+    rec.onstart = () => {
+      voiceFlowDebug('listening', { source: 'maps_explore_stt' })
+      setMapsSttListening(true)
+      playUiEvent('listening_start')
+    }
+    rec.onresult = (event) => {
+      let text = ''
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const row = event.results[i]
+        if (row?.isFinal) text += row[0]?.transcript ?? ''
+      }
+      if (!text.trim() && event.results.length > 0) {
+        const last = event.results[event.results.length - 1]
+        text = last?.[0]?.transcript ?? ''
+      }
+      const trimmed = text.trim()
+      playUiEvent('listening_end')
+      if (trimmed) {
+        setAddressInput(trimmed)
+        onMapsAddressFieldExpandedChange(true)
+        inputRef.current?.focus()
+      }
+    }
+    rec.onerror = (ev) => {
+      const e = ev as { error?: string }
+      voiceFlowSttError(`maps explore STT: ${e.error ?? 'unknown'}`, { error: e.error })
+      setMapsSttListening(false)
+      mapsSttRef.current = null
+      playUiEvent('error')
+    }
+    rec.onend = () => {
+      setMapsSttListening(false)
+      mapsSttRef.current = null
+    }
+    try {
+      rec.start()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      voiceFlowSttError(`maps explore rec.start: ${msg}`)
+      setMapsSttListening(false)
+      mapsSttRef.current = null
+    }
+  }, [onMapsAddressFieldExpandedChange, playUiEvent, speakLine, stopMapsAddressStt])
 
   useEffect(() => {
     return () => {
       mountedRef.current = false
+      if (mapsSttRef.current) {
+        try {
+          mapsSttRef.current.abort()
+        } catch {
+          /* ignore */
+        }
+        mapsSttRef.current = null
+      }
     }
   }, [])
 
@@ -500,7 +635,8 @@ export function MapsExploreSheet({
         Search address or place
       </label>
       <div className="fetch-maps-explore-search-row flex min-w-0 items-stretch gap-1.5">
-        <div className="relative min-w-0 flex-1">
+        <div className="fetch-maps-explore-search-inner relative min-w-0 flex-1">
+          <MapsExploreSearchIcon className="fetch-maps-explore-input-icon absolute left-3 top-1/2 z-[1] h-[18px] w-[18px] -translate-y-1/2" />
           <input
             ref={inputRef}
             id="fetch-maps-address-input"
@@ -522,15 +658,15 @@ export function MapsExploreSheet({
             autoComplete="off"
             className={
               usePeekPortal
-                ? 'fetch-home-address-input fetch-maps-explore-input fetch-stage-text-input w-full rounded-xl border px-3 py-3 pr-9 text-[14px] font-medium shadow-sm outline-none ring-0'
-                : 'fetch-home-address-input fetch-maps-explore-input fetch-stage-text-input w-full rounded-2xl border px-3.5 py-3 pr-10 text-[15px] font-medium shadow-sm outline-none ring-0'
+                ? 'fetch-home-address-input fetch-maps-explore-input fetch-home-stage-field-input fetch-stage-text-input w-full rounded-xl border py-2.5 pl-10 pr-11 text-[15px] font-semibold leading-snug tracking-[-0.01em] shadow-sm outline-none ring-0'
+                : 'fetch-home-address-input fetch-maps-explore-input fetch-home-stage-field-input fetch-stage-text-input w-full rounded-2xl border py-3 pl-10 pr-11 text-[16px] font-semibold leading-snug tracking-[-0.01em] shadow-sm outline-none ring-0'
             }
             data-sheet-no-drag
           />
           {addressInput.trim() ? (
             <button
               type="button"
-              className="fetch-maps-explore-input-clear absolute right-1.5 top-1/2 -translate-y-1/2 rounded-full p-1.5"
+              className="fetch-maps-explore-input-clear absolute right-1.5 top-1/2 z-[1] -translate-y-1/2 rounded-full p-1.5"
               aria-label="Clear"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
@@ -541,7 +677,24 @@ export function MapsExploreSheet({
             >
               ×
             </button>
-          ) : null}
+          ) : (
+            <button
+              type="button"
+              className={[
+                'fetch-maps-explore-input-mic absolute right-1.5 top-1/2 z-[1] -translate-y-1/2 rounded-full p-1.5 transition-colors',
+                mapsSttListening ? 'fetch-maps-explore-input-mic--listening' : '',
+              ].join(' ')}
+              aria-label="Voice search"
+              title="Voice search"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                if (mapsSttListening) stopMapsAddressStt()
+                else startMapsAddressStt()
+              }}
+            >
+              <MapsExploreMicIcon className="mx-auto block" />
+            </button>
+          )}
           {placeSuggestionsVisible ? (
             <ul
               className="fetch-maps-explore-suggestions absolute left-0 right-0 top-full z-[80] mt-1 max-h-52 overflow-y-auto rounded-2xl border py-1 shadow-lg"

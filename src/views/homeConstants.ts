@@ -20,6 +20,27 @@ export const INTENT_COMPOSER_PLACEHOLDER_HINTS: readonly string[] = [
   'Tap wave to talk',
 ]
 
+/** Step-1 inline field: short one-line hints (rotate; avoid wrap in pill). */
+export const INTENT_COMPOSER_INTENT_LANDING_HINTS: readonly string[] = [
+  'Tap + upload — say what to do…',
+  'From where → to where?',
+  'Job + pick-up + drop-off…',
+  'e.g. junk: carport → tip',
+  'Pics + task + both addresses…',
+  'Mic: what, from, to…',
+]
+
+/** @deprecated First line of INTENT_COMPOSER_INTENT_LANDING_HINTS; kept for older imports. */
+export const INTENT_COMPOSER_SERVICE_PLACEHOLDER_STATIC = INTENT_COMPOSER_INTENT_LANDING_HINTS[0]!
+
+/** Step-1 sheet: broader service prompts (e.g. analytics). */
+export const INTENT_COMPOSER_SERVICE_PLACEHOLDER_HINTS: readonly string[] = [
+  ...INTENT_COMPOSER_INTENT_LANDING_HINTS,
+  'Bond clean or regular tidy?',
+  "Extra hands — what's the job?",
+  'Which service do you need?',
+]
+
 /** First-step sheet: large cards (matches primary services in the hero layout). */
 export const LANDING_PRIMARY_SERVICES = [
   {

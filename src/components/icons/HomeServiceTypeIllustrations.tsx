@@ -1,30 +1,8 @@
-import { useId, type CSSProperties } from 'react'
+import { useId } from 'react'
 import type { BookingJobType } from '../../lib/assistant/types'
 import homeMovingTruck from '../../assets/icons/home-moving-truck.png'
 import junkRemovalScene from '../../assets/icons/junk-removal.png'
 import deliveryPickupScene from '../../assets/icons/delivery-pickup.png'
-import cleaningEssentials from '../../assets/icons/cleaning-essentials.jpg'
-
-/**
- * ChatGPT / JPEG exports have no alpha — “transparent” becomes black. Same-image
- * luminance mask on the wrapper knocks out that plate while keeping full color on the inner `<img>`.
- * Replace with a real PNG (RGBA) anytime; the mask remains safe for typical exports.
- */
-function cleaningIconLuminanceMaskStyle(src: string): CSSProperties {
-  const u = `url(${src})`
-  return {
-    maskImage: u,
-    WebkitMaskImage: u,
-    maskSize: 'contain',
-    WebkitMaskSize: 'contain',
-    maskRepeat: 'no-repeat',
-    WebkitMaskRepeat: 'no-repeat',
-    maskPosition: 'center',
-    WebkitMaskPosition: 'center',
-    maskMode: 'luminance',
-    WebkitMaskSourceType: 'luminance',
-  } as CSSProperties
-}
 
 export type HomeServiceIllustrationProps = {
   jobType: BookingJobType
@@ -36,7 +14,7 @@ function useSvgIds() {
   return (name: string) => `hsi-${raw}-${name}`
 }
 
-/** Service marks: vector illustrations where specified; PNGs for moving, junk, delivery; cleaning art is JPEG + luminance knockout (see `cleaningIconLuminanceMaskStyle`). */
+/** Service marks: vector illustrations where specified; PNGs for moving, junk, delivery. */
 export function HomeServiceTypeIllustration({
   jobType,
   className,
@@ -215,25 +193,78 @@ export function HomeServiceTypeIllustration({
 
     case 'cleaning':
       return (
-        <div
-          className={[
-            'fetch-home-service-illustration--cleaning relative block shrink-0 overflow-hidden bg-transparent',
-            className,
-          ]
-            .filter(Boolean)
-            .join(' ')}
-          style={cleaningIconLuminanceMaskStyle(cleaningEssentials)}
-          aria-hidden
-        >
-          <img
-            src={cleaningEssentials}
-            alt=""
-            width={104}
-            height={104}
-            draggable={false}
-            className="pointer-events-none absolute inset-0 h-full w-full object-contain object-center select-none"
-          />
-        </div>
+        <svg {...common}>
+          <defs>
+            {shadowFilter}
+            <linearGradient id={id('cl-bottle')} x1="20%" y1="0%" x2="82%" y2="100%">
+              <stop offset="0%" stopColor="#99f6e4" />
+              <stop offset="45%" stopColor="#2dd4bf" />
+              <stop offset="100%" stopColor="#0f766e" />
+            </linearGradient>
+            <linearGradient id={id('cl-liquid')} x1="50%" y1="100%" x2="50%" y2="0%">
+              <stop offset="0%" stopColor="#0d9488" stopOpacity="0.85" />
+              <stop offset="100%" stopColor="#5eead4" stopOpacity="0.35" />
+            </linearGradient>
+            <linearGradient id={id('cl-nozzle')} x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#e2e8f0" />
+              <stop offset="100%" stopColor="#64748b" />
+            </linearGradient>
+            <linearGradient id={id('cl-sponge')} x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#fde047" />
+              <stop offset="55%" stopColor="#eab308" />
+              <stop offset="100%" stopColor="#ca8a04" />
+            </linearGradient>
+          </defs>
+          <g filter={`url(#${id('shadow')})`}>
+            <path
+              d="M15.85 5.35h2.1c.38 0 .7.32.7.7v1.05c0 .38-.32.7-.7.7h-2.1V5.35Z"
+              fill={`url(#${id('cl-nozzle')})`}
+              stroke="#475569"
+              strokeWidth="0.22"
+            />
+            <path
+              d="M14.95 7.8h3.9c.32 0 .58.26.58.58v0.52h-5.06V8.38c0-.32.26-.58.58-.58Z"
+              fill="#94a3b8"
+              stroke="#64748b"
+              strokeWidth="0.2"
+            />
+            <path
+              d="M8.95 9.85h7.1c.55 0 1 .45 1 1v7.35c0 1.1-.9 2-2 2h-5.1c-1.1 0-2-.9-2-2v-7.35c0-.55.45-1 1-1Z"
+              fill={`url(#${id('cl-bottle')})`}
+              stroke="#0f766e"
+              strokeWidth="0.35"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M9.55 12.05h5.9c.28 0 .5.22.5.5v4.85c0 .66-.54 1.2-1.2 1.2h-4.5c-.66 0-1.2-.54-1.2-1.2v-4.85c0-.28.22-.5.5-.5Z"
+              fill={`url(#${id('cl-liquid')})`}
+            />
+            <path
+              d="M7.35 11.2c0-.42.34-.76.76-.76h.42v1.52h-.42c-.42 0-.76-.34-.76-.76Z"
+              fill="#cbd5e1"
+              stroke="#64748b"
+              strokeWidth="0.18"
+            />
+            <path d="M10.35 8.45h4.3" stroke="#ffffff" strokeWidth="0.35" strokeLinecap="round" opacity="0.35" />
+            <circle cx="17.35" cy="6.25" r="0.85" fill="#ccfbf1" stroke="#14b8a6" strokeWidth="0.18" />
+            <circle cx="18.65" cy="7.85" r="0.55" fill="#ecfeff" stroke="#2dd4bf" strokeWidth="0.15" opacity="0.95" />
+            <circle cx="17.05" cy="8.35" r="0.38" fill="#f0fdfa" stroke="#5eead4" strokeWidth="0.12" />
+            <path
+              d="M4.15 15.95l1.35-3.85c.12-.35.45-.58.82-.58h0c.5 0 .88.45.82.95l-.55 3.48h-2.44Z"
+              fill={`url(#${id('cl-sponge')})`}
+              stroke="#a16207"
+              strokeWidth="0.28"
+              strokeLinejoin="round"
+            />
+            <path d="M4.55 14.85h1.85M4.85 13.55h1.45" stroke="#854d0e" strokeWidth="0.18" opacity="0.45" />
+            <path
+              d="M5.05 16.45h.85v2.15c0 .32-.26.58-.58.58h0c-.32 0-.58-.26-.58-.58v-1.55c0-.32.26-.58.58-.58Z"
+              fill="#ca8a04"
+              stroke="#a16207"
+              strokeWidth="0.15"
+            />
+          </g>
+        </svg>
       )
 
     case 'heavyItem':

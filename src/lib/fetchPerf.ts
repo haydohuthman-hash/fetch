@@ -32,7 +32,7 @@ export type FetchPerfServerTiming = {
   route?: string
   context_build_ms?: number
   openai_ms?: number
-  elevenlabs_fetch_ms?: number
+  google_tts_fetch_ms?: number
   upload_parse_ms?: number
   server_total_ms?: number
 }
@@ -160,12 +160,13 @@ export function fetchPerfEmitSummary(runId: string, label: string): void {
   if (!a) return
 
   const chatS = pickServer(a.serverTimings, 'fetch_ai_chat')
-  const ttsS = pickServer(a.serverTimings, 'voice_tts')
+  const ttsS =
+    pickServer(a.serverTimings, 'voice_tts_google') ?? pickServer(a.serverTimings, 'voice_tts')
   const scanS = pickServer(a.serverTimings, 'scan')
 
   const openaiMs = chatS?.openai_ms ?? scanS?.openai_ms
   const contextMs = chatS?.context_build_ms
-  const elevenMs = ttsS?.elevenlabs_fetch_ms
+  const ttsUpstreamMs = ttsS?.google_tts_fetch_ms
   const serverTotal = chatS?.server_total_ms ?? scanS?.server_total_ms ?? ttsS?.server_total_ms
 
   const clientRoundTrip =
@@ -208,7 +209,7 @@ export function fetchPerfEmitSummary(runId: string, label: string): void {
   add('server_context_build_openmeteo', contextMs)
   add('server_openai', openaiMs)
   add('server_total_reported', serverTotal)
-  add('server_elevenlabs_proxy', elevenMs)
+  add('server_tts_proxy', ttsUpstreamMs)
   add('tts_total_client_to_playback', ttsPipeline)
   add('tts_fetch_to_blob', ttsFetchOnly)
   add('audio_decode_buffer_to_playing', audioDecodeWait)

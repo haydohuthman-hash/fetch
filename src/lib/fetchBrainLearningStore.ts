@@ -3,7 +3,7 @@
 const KEY = 'fetch.brainLearning.v1'
 const MAX = 40
 
-export type BrainLearningKind = 'place_mention' | 'place_opinion'
+export type BrainLearningKind = 'place_mention' | 'place_opinion' | 'chat_reply_feedback'
 
 export type BrainLearningEvent = {
   id: string
@@ -27,7 +27,8 @@ function safeParse(raw: string | null): BrainLearningEvent[] {
         typeof (row as BrainLearningEvent).id === 'string' &&
         typeof (row as BrainLearningEvent).at === 'number' &&
         ((row as BrainLearningEvent).kind === 'place_mention' ||
-          (row as BrainLearningEvent).kind === 'place_opinion'),
+          (row as BrainLearningEvent).kind === 'place_opinion' ||
+          (row as BrainLearningEvent).kind === 'chat_reply_feedback'),
     )
   } catch {
     return []
@@ -72,10 +73,18 @@ export function buildFetchBrainLearningContext(): string {
   const lines = rows.map((r) => {
     const when = new Date(r.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
     const nm = r.name?.trim() || r.placeId || 'place'
+    if (r.kind === 'chat_reply_feedback' && r.rating === 1) {
+      const snip = r.note?.trim() || 'a reply'
+      return `• ${when}: user thumbs-up on Fetch reply: "${snip.slice(0, 120)}${snip.length > 120 ? '…' : ''}"`
+    }
+    if (r.kind === 'chat_reply_feedback' && r.rating === -1) {
+      const snip = r.note?.trim() || 'a reply'
+      return `• ${when}: user thumbs-down on Fetch reply: "${snip.slice(0, 120)}${snip.length > 120 ? '…' : ''}"`
+    }
     if (r.kind === 'place_opinion' && r.rating === 1) return `• ${when}: user liked "${nm}"${r.note ? ` — ${r.note}` : ''}`
     if (r.kind === 'place_opinion' && r.rating === -1) return `• ${when}: user did not prefer "${nm}"${r.note ? ` — ${r.note}` : ''}`
     return `• ${when}: mentioned "${nm}"`
   })
-  const block = `Recent place preferences (trust dates; use for follow-ups like "last week"):\n${lines.join('\n')}`
+  const block = `Recent preferences and chat feedback (trust dates):\n${lines.join('\n')}`
   return block.length > MAX_CTX ? `${block.slice(0, MAX_CTX)}…` : block
 }

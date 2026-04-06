@@ -52,15 +52,6 @@ export type SpeakLineOptions = {
   perfRunId?: string
 }
 
-/**
- * Daniel — ElevenLabs premade: calm, articulate male (assistant / “butler” read).
- * Jarvis-like when paired with measured `voice_settings` below. Override via VITE_ELEVENLABS_VOICE_ID.
- */
-const DEFAULT_VOICE_ID = 'onwK4e9ZLuTAKqWW03F9'
-
-function resolvedVoiceId(): string {
-  return import.meta.env.VITE_ELEVENLABS_VOICE_ID?.trim() ?? DEFAULT_VOICE_ID
-}
 const VOICE_FETCH_TIMEOUT_MS = 9000
 
 /** `playVoice` system events — short window to block accidental double-fires only */
@@ -271,7 +262,7 @@ function attachTtsAnalyser(audio: HTMLAudioElement) {
   }
 }
 
-/** Lip-sync envelope while ElevenLabs (or shim) is driving the mouth. */
+/** Lip-sync envelope while cloud TTS (or browser shim) is driving the mouth. */
 export function getSpeechAmplitude(): number {
   return speechAmpSmoothed
 }
@@ -334,7 +325,7 @@ function debounceKey(type: VoiceEventType, options?: VoiceEventOptions): string 
   return type
 }
 
-/** Short pleasant chime — works without ElevenLabs. */
+/** Short pleasant chime — independent of cloud TTS. */
 function playLocationConfirmChime() {
   try {
     const AC =
@@ -430,7 +421,7 @@ function setSpeechPlaying(playing: boolean) {
   })
 }
 
-/** Fires when ElevenLabs TTS clip starts / ends (not chimes). */
+/** Fires when assistant TTS clip starts / ends (not chimes). */
 export function subscribeVoiceSpeechPlaying(
   listener: SpeechPlayingListener,
 ): () => void {
@@ -463,15 +454,15 @@ function stopCurrentPlayback() {
   setSpeechPlaying(false)
 }
 
-/** Stops ElevenLabs / browser TTS immediately (e.g. leaving brain — do not leak speech to home). */
+/** Stops cloud / browser TTS immediately (e.g. leaving brain — do not leak speech to home). */
 export function stopFetchAssistantPlayback(): void {
   stopCurrentPlayback()
 }
 
 /**
- * When ElevenLabs is unavailable or `HTMLAudioElement.play()` is blocked, use the OS voice.
+ * When cloud TTS is unavailable or `HTMLAudioElement.play()` is blocked, use the OS voice.
  * Prefers en-GB with a measured rate/pitch as a rough Jarvis-style fallback.
- * Only call after ElevenLabs fetch or HTML audio playback has definitively failed.
+ * Only call after proxy TTS fetch or HTML audio playback has definitively failed.
  */
 function speakWithBrowserTTS(
   text: string,
@@ -573,15 +564,13 @@ function speakWithBrowserTTS(
 }
 
 /**
- * Tries your server TTS proxy first (keeps the ElevenLabs key off the client), then optional
- * direct ElevenLabs when `VITE_ELEVENLABS_API_KEY` is set in the build.
- * Proxy URL matches chat/booking: `VITE_VOICE_API_BASE` → else `fetchApiAbsoluteUrl('/api/voice/tts')`.
+ * Fetches MP3 from `/api/voice/tts` (Google Cloud TTS on the Node server).
+ * URL: `VITE_VOICE_API_BASE` → else `fetchApiAbsoluteUrl('/api/voice/tts')`.
  */
-async function fetchElevenLabsSpeechDetailed(
+async function fetchGoogleProxyTtsDetailed(
   text: string,
   perfRunId?: string,
 ): Promise<{ blob: Blob | null; failureSummary: string }> {
-  const voiceId = resolvedVoiceId()
   if (!text.trim()) {
     return { blob: null, failureSummary: 'empty text' }
   }
@@ -593,16 +582,13 @@ async function fetchElevenLabsSpeechDetailed(
   const proxyRouteLabel = voiceBaseOverride
     ? 'proxy (VITE_VOICE_API_BASE)'
     : import.meta.env.DEV
-      ? 'proxy (dev → 127.0.0.1:8787 via fetchApiBase)'
+      ? 'proxy (dev → Vite /api → 127.0.0.1:8787)'
       : 'proxy (same-origin /api/voice/tts or VITE_FETCH_API_BASE_URL)'
 
-  let proxyError: string | null = null
-
-  voiceDevLog('[FetchVoice] attempting ElevenLabs', {
+  voiceDevLog('[FetchVoice] attempting Google TTS proxy', {
     route: 'proxy',
     url: ttsUrl,
     proxyRouteLabel,
-    voiceId,
   })
   try {
     if (perfRunId) {
@@ -618,10 +604,7 @@ async function fetchElevenLabsSpeechDetailed(
         ...fetchPerfHeaders(perfRunId),
       },
       signal: controller.signal,
-      body: JSON.stringify({
-        text,
-        voiceId,
-      }),
+      body: JSON.stringify({ text }),
     }).finally(() => {
       window.clearTimeout(timeout)
     })
@@ -631,112 +614,45 @@ async function fetchElevenLabsSpeechDetailed(
         fetchPerfMark(perfRunId, '7b_tts_blob_ready', { route: 'proxy' })
         fetchPerfSetServerTiming(perfRunId, parseFetchPerfTimingHeader(res))
       }
-      voiceDevLog('[FetchVoice] ElevenLabs request success', { route: 'proxy' })
+      voiceDevLog('[FetchVoice] Google TTS proxy success', { route: 'proxy' })
       return { blob, failureSummary: '' }
     }
     const errBody = await res.text().catch(() => '')
-    proxyError = `proxy HTTP ${res.status} ${res.statusText}${errBody ? `: ${errBody.slice(0, 240)}` : ''}`
-    voiceDevWarn('[FetchVoice] ElevenLabs request failed', { route: 'proxy', detail: proxyError })
+    const proxyError = `proxy HTTP ${res.status} ${res.statusText}${errBody ? `: ${errBody.slice(0, 240)}` : ''}`
+    voiceDevWarn('[FetchVoice] Google TTS proxy failed', { route: 'proxy', detail: proxyError })
+    return { blob: null, failureSummary: proxyError }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    proxyError = `proxy network/abort: ${msg}`
-    voiceDevWarn('[FetchVoice] ElevenLabs request failed', { route: 'proxy', detail: proxyError })
-  }
-
-  const apiKey = import.meta.env.VITE_ELEVENLABS_API_KEY?.trim()
-  if (!apiKey) {
-    const directSkip =
-      'direct route skipped: VITE_ELEVENLABS_API_KEY is missing or empty in this build (Vercel: add to env and redeploy)'
-    voiceDevWarn('[FetchVoice] ElevenLabs request failed', { route: 'direct', detail: directSkip })
-    return {
-      blob: null,
-      failureSummary: [proxyError, directSkip].filter(Boolean).join(' | '),
-    }
-  }
-
-  voiceDevLog('[FetchVoice] attempting ElevenLabs', { route: 'direct', voiceId })
-  try {
-    if (perfRunId) {
-      fetchPerfMark(perfRunId, '7_tts_fetch_start', { route: 'direct' })
-    }
-    const controller = new AbortController()
-    const timeout = window.setTimeout(() => controller.abort(), VOICE_FETCH_TIMEOUT_MS)
-    const directUrl = new URL(
-      `https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(voiceId)}`,
-    )
-    directUrl.searchParams.set('optimize_streaming_latency', '4')
-    const res = await fetch(directUrl, {
-      method: 'POST',
-      headers: {
-        'xi-api-key': apiKey,
-        'Content-Type': 'application/json',
-        Accept: 'audio/mpeg',
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        text,
-        model_id: 'eleven_turbo_v2_5',
-        voice_settings: {
-          stability: 0.72,
-          similarity_boost: 0.78,
-          style: 0.16,
-          use_speaker_boost: true,
-          speed: 1,
-        },
-      }),
-    }).finally(() => {
-      window.clearTimeout(timeout)
-    })
-    if (res.ok) {
-      const blob = await res.blob()
-      if (perfRunId) {
-        fetchPerfMark(perfRunId, '7b_tts_blob_ready', { route: 'direct' })
-      }
-      voiceDevLog('[FetchVoice] ElevenLabs request success', { route: 'direct' })
-      return { blob, failureSummary: '' }
-    }
-    const errBody = await res.text().catch(() => '')
-    const directErr = `direct HTTP ${res.status} ${res.statusText}${errBody ? `: ${errBody.slice(0, 240)}` : ''}`
-    voiceDevWarn('[FetchVoice] ElevenLabs request failed', { route: 'direct', detail: directErr })
-    return {
-      blob: null,
-      failureSummary: [proxyError, directErr].filter(Boolean).join(' | '),
-    }
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    const directErr = `direct network/abort: ${msg}`
-    voiceDevWarn('[FetchVoice] ElevenLabs request failed', { route: 'direct', detail: directErr })
-    return {
-      blob: null,
-      failureSummary: [proxyError, directErr].filter(Boolean).join(' | '),
-    }
+    const proxyError = `proxy network/abort: ${msg}`
+    voiceDevWarn('[FetchVoice] Google TTS proxy failed', { route: 'proxy', detail: proxyError })
+    return { blob: null, failureSummary: proxyError }
   }
 }
 
 async function audioUrlForPhrase(
   phrase: string,
   perfRunId?: string,
-): Promise<{ url: string | null; elevenLabsFailure: string | null }> {
-  const cacheKey = `${resolvedVoiceId()}::${phrase}`
+): Promise<{ url: string | null; ttsFailure: string | null }> {
+  const cacheKey = `fetch-tts::${phrase}`
   const hit = phraseBlobUrlCache.get(cacheKey)
   if (hit) {
     if (perfRunId && fetchPerfIsEnabled()) {
       fetchPerfMark(perfRunId, '7_tts_fetch_start', { route: 'cache' })
       fetchPerfMark(perfRunId, '7b_tts_blob_ready', { route: 'cache' })
     }
-    voiceDevLog('[FetchVoice] ElevenLabs request success', { route: 'cache' })
-    return { url: hit, elevenLabsFailure: null }
+    voiceDevLog('[FetchVoice] TTS cache hit', { route: 'cache' })
+    return { url: hit, ttsFailure: null }
   }
-  const { blob, failureSummary } = await fetchElevenLabsSpeechDetailed(phrase, perfRunId)
+  const { blob, failureSummary } = await fetchGoogleProxyTtsDetailed(phrase, perfRunId)
   if (!blob) {
     return {
       url: null,
-      elevenLabsFailure: failureSummary || 'ElevenLabs returned no audio',
+      ttsFailure: failureSummary || 'Google TTS proxy returned no audio',
     }
   }
   const url = URL.createObjectURL(blob)
   phraseBlobUrlCache.set(cacheKey, url)
-  return { url, elevenLabsFailure: null }
+  return { url, ttsFailure: null }
 }
 
 async function playPhrase(
@@ -779,19 +695,19 @@ async function playPhrase(
   voiceFlowDebug('sending_request', { key, textLen: text.length })
 
   let url: string | null = null
-  let elevenLabsFailure: string | null = null
+  let ttsFailure: string | null = null
   try {
     const out = await audioUrlForPhrase(text, perfRunId)
     url = out.url
-    elevenLabsFailure = out.elevenLabsFailure
+    ttsFailure = out.ttsFailure
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     // eslint-disable-next-line no-console
-    console.error('[FetchVoice] ElevenLabs request failed', {
+    console.error('[FetchVoice] TTS request failed', {
       detail: `audioUrlForPhrase threw: ${msg}`,
     })
     patchVoiceSourceDebug({
-      lastElevenLabsError: `audioUrlForPhrase threw: ${msg}`,
+      lastTtsError: `audioUrlForPhrase threw: ${msg}`,
       active: { kind: 'idle' },
     })
     voiceFlowDebug('playback_failed', { reason: 'audioUrlForPhrase', error: msg })
@@ -799,15 +715,15 @@ async function playPhrase(
     return
   }
 
-  if (elevenLabsFailure) {
+  if (ttsFailure) {
     patchVoiceSourceDebug({
-      lastElevenLabsError: elevenLabsFailure,
+      lastTtsError: ttsFailure,
       active: { kind: 'idle' },
     })
   } else if (url) {
     patchVoiceSourceDebug({
-      lastElevenLabsError: null,
-      active: { kind: 'elevenlabs' },
+      lastTtsError: null,
+      active: { kind: 'cloud_tts' },
     })
   }
 
@@ -817,7 +733,7 @@ async function playPhrase(
       voiceFlowDebug('playback_failed', { reason: 'skipSpeechFallback_no_url' })
       voiceFlowFallbackText(
         text,
-        elevenLabsFailure ?? 'TTS unavailable (no URL, fallback disabled)',
+        ttsFailure ?? 'TTS unavailable (no URL, fallback disabled)',
       )
       return
     }
@@ -825,7 +741,7 @@ async function playPhrase(
     try {
       await speakWithBrowserTTS(
         text,
-        elevenLabsFailure ?? 'ElevenLabs did not return audio (see console for proxy/direct errors)',
+        ttsFailure ?? 'Google TTS proxy did not return audio (check server /api/voice/tts)',
         perfRunId,
       )
     } catch {
@@ -851,7 +767,7 @@ async function playPhrase(
       'playing',
       () => {
         fetchPerfMark(perfRunId, '9_first_playback_start', { path: 'html_audio' })
-        fetchPerfEmitSummary(perfRunId, 'voice_elevenlabs')
+        fetchPerfEmitSummary(perfRunId, 'voice_cloud_tts')
       },
       { once: true },
     )
@@ -862,7 +778,7 @@ async function playPhrase(
 
   const onEnded = () => {
     if (currentAudio === audio) {
-      voiceDevLog('[FetchVoice] ElevenLabs audio playback success')
+      voiceDevLog('[FetchVoice] TTS audio playback success')
       disconnectTtsAnalyser(true)
       currentAudio = null
       setSpeechPlaying(false)
@@ -881,7 +797,7 @@ async function playPhrase(
         const code = mediaErr?.code
         const msg = mediaErr?.message ?? `audio error code ${code ?? '?'}`
         // eslint-disable-next-line no-console
-        console.error('[FetchVoice] ElevenLabs audio playback failed', {
+        console.error('[FetchVoice] TTS audio playback failed', {
           detail: msg,
           mediaErrorCode: code,
         })
@@ -894,7 +810,7 @@ async function playPhrase(
         try {
           await speakWithBrowserTTS(
             text,
-            `ElevenLabs MP3 decode/playback error (HTMLMediaElement): ${msg}`,
+            `TTS MP3 decode/playback error (HTMLMediaElement): ${msg}`,
             perfRunId,
           )
         } catch {
@@ -906,14 +822,14 @@ async function playPhrase(
   )
 
   voiceFlowDebug('attempting_playback', { path: 'html_audio' })
-  voiceDevLog('[FetchVoice] attempting ElevenLabs audio playback', { key })
+  voiceDevLog('[FetchVoice] attempting TTS audio playback', { key })
   try {
     await audio.play()
     setSpeechPlaying(true)
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     // eslint-disable-next-line no-console
-    console.error('[FetchVoice] ElevenLabs audio playback failed', {
+    console.error('[FetchVoice] TTS audio playback failed', {
       detail: `audio.play() rejected: ${msg}`,
     })
     voiceFlowDebug('playback_failed', { path: 'audio_play_throw', error: msg })
@@ -926,7 +842,7 @@ async function playPhrase(
     try {
       await speakWithBrowserTTS(
         text,
-        `ElevenLabs audio.play() blocked or rejected: ${msg}`,
+        `TTS audio.play() blocked or rejected: ${msg}`,
         perfRunId,
       )
     } catch {
@@ -958,7 +874,7 @@ export async function speakLine(text: string, options?: SpeakLineOptions): Promi
 
 /**
  * Plays a short system confirmation line. No overlap: stops any current clip.
- * Debounces repeated identical events. Uses ElevenLabs when API key is set.
+ * Debounces repeated identical events. Uses server Google Cloud TTS when configured.
  */
 export async function playVoice(
   type: VoiceEventType,

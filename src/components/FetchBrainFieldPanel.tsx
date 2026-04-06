@@ -28,15 +28,15 @@ export function FetchBrainFieldPanel({
   onPlaceDisliked,
 }: FetchBrainFieldPanelProps) {
   const isLight = theme === 'light'
-  const glass = isLight
-    ? 'border-black/[0.08] bg-white/[0.92] shadow-[0_-6px_24px_rgba(0,0,0,0.06)]'
-    : 'border-white/[0.1] bg-[rgba(8,10,16,0.94)] shadow-[0_-8px_28px_rgba(0,0,0,0.35)]'
+  const glassTint = isLight
+    ? 'border-white/[0.22] bg-white/[0.48]'
+    : 'border-white/[0.12] bg-[rgba(10,12,20,0.38)]'
 
   return (
     <div
       className={[
-        'fetch-brain-field-panel pointer-events-auto absolute inset-x-0 bottom-0 z-[8] flex max-h-[min(58vh,420px)] flex-col rounded-t-[22px] border backdrop-blur-sm',
-        glass,
+        'fetch-brain-field-panel fetch-brain-glass-sheet pointer-events-auto absolute inset-x-0 bottom-0 z-[19] flex max-h-[min(58vh,420px)] flex-col rounded-t-[22px]',
+        glassTint,
       ].join(' ')}
       style={{ '--brain-glow': `${glowRgb.r}, ${glowRgb.g}, ${glowRgb.b}` } as CSSProperties}
       role="region"

@@ -1,5 +1,10 @@
 /// <reference types="vite/client" />
 
+/**
+ * TTS: the Node server route `POST /api/voice/tts` uses Google Cloud Text-to-Speech when
+ * `GOOGLE_TEXT_TO_SPEECH_API_KEY`, `GOOGLE_CLOUD_API_KEY`, or `GOOGLE_TTS_API_KEY` is set in server `.env`.
+ * Optional server env: `GOOGLE_TTS_VOICE` (default `en-AU-Neural2-B`).
+ */
 interface ImportMetaEnv {
   readonly VITE_GOOGLE_MAPS_API_KEY?: string
   /** Vector Map ID from Google Cloud Console — enables 3D tilt + buildings. */
@@ -13,10 +18,6 @@ interface ImportMetaEnv {
    * Optional TTS-only API origin; defaults to same resolution as `VITE_FETCH_API_BASE_URL` / same-origin.
    */
   readonly VITE_VOICE_API_BASE?: string
-  /** ElevenLabs API key for browser-direct TTS fallback only — prefer server proxy + ELEVENLABS_API_KEY. */
-  readonly VITE_ELEVENLABS_API_KEY?: string
-  /** Optional override; default premade is Daniel (measured assistant-style). */
-  readonly VITE_ELEVENLABS_VOICE_ID?: string
   /** Set to `1` to log `[FetchPerf]` timings (see `fetchPerf.ts`). Or use localStorage `fetchPerfLogs=1`. */
   readonly VITE_FETCH_PERF_LOGS?: string
 }

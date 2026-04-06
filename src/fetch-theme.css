@@ -464,18 +464,21 @@ html[data-fetch-theme='light'] .fetch-mystery-panel__cta-secondary:hover {
 /* Address + inputs */
 html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-address-input {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 252, 255, 0.96) 100%);
-  border-color: rgba(15, 20, 30, 0.12);
-  color: rgba(18, 24, 38, 0.94);
+  border: 1px solid rgba(15, 23, 42, 0.22);
+  color: rgba(15, 23, 42, 0.98);
+  font-weight: 650;
+  letter-spacing: -0.015em;
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset;
 }
 
 html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-address-input::placeholder {
-  color: rgba(90, 101, 120, 0.45);
+  color: rgba(51, 65, 85, 0.62);
+  font-weight: 550;
 }
 
 html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-address-input:focus,
 html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-address-input:focus-visible {
-  border-color: rgba(15, 20, 30, 0.2);
+  border-color: rgba(15, 23, 42, 0.36);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.85) inset,
     0 2px 12px rgba(0, 0, 0, 0.06);
@@ -737,9 +740,11 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-orb-chat-bubble--s
     0 0 24px rgba(52, 211, 153, 0.12);
 }
 
-/* Intent composer */
-html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-intent-composer.fetch-ai-composer-shell {
-  border: 1px solid rgba(15, 20, 30, 0.1);
+/* Intent composer (default glass — not step-1 inline field on sheet) */
+html[data-fetch-theme='light']
+  .fetch-home-vision
+  .fetch-home-intent-composer.fetch-ai-composer-shell:not(.fetch-home-intent-composer--intent-landing) {
+  border: 1px solid rgba(15, 23, 42, 0.16);
   background-color: rgba(255, 255, 255, 0.82);
   background-image: linear-gradient(
     165deg,
@@ -752,17 +757,26 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-intent-composer.fe
     0 4px 18px rgba(0, 0, 0, 0.06);
 }
 
-html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-intent-composer .fetch-ai-composer-input {
-  color: rgba(18, 24, 38, 0.94);
-}
-
-html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-intent-composer .fetch-ai-composer-input::placeholder {
-  color: rgba(90, 101, 120, 0.45);
+html[data-fetch-theme='light']
+  .fetch-home-vision
+  .fetch-home-intent-composer:not(.fetch-home-intent-composer--intent-landing)
+  .fetch-ai-composer-input {
+  color: rgba(15, 23, 42, 0.98);
+  font-weight: 650;
+  letter-spacing: -0.015em;
 }
 
 html[data-fetch-theme='light']
   .fetch-home-vision
-  .fetch-home-intent-composer
+  .fetch-home-intent-composer:not(.fetch-home-intent-composer--intent-landing)
+  .fetch-ai-composer-input::placeholder {
+  color: rgba(51, 65, 85, 0.58);
+  font-weight: 550;
+}
+
+html[data-fetch-theme='light']
+  .fetch-home-vision
+  .fetch-home-intent-composer:not(.fetch-home-intent-composer--intent-landing)
   .fetch-ai-composer-input:not(:placeholder-shown)::placeholder {
   color: transparent;
   opacity: 0;
@@ -811,6 +825,78 @@ html[data-fetch-theme='light']
   .fetch-ai-voice-btn--plain-mic:focus-visible
   .fetch-ai-voice-btn__core.fetch-ai-voice-btn__core--plain-mic {
   outline-color: rgba(14, 116, 144, 0.45);
+}
+
+/* Step-1 intent on sheet: light inline field (index.css); keep shell clear of glass gradient */
+html[data-fetch-theme='light']
+  .fetch-home-booking-sheet
+  .fetch-home-intent-composer.fetch-home-intent-composer--intent-landing.fetch-ai-composer-shell {
+  border: none;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+}
+
+html[data-fetch-theme='light']
+  .fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-intent-composer-inline-shell {
+  border-color: rgba(15, 23, 42, 0.4);
+  background: #ffffff;
+}
+
+html[data-fetch-theme='light']
+  .fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-intent-composer-inline-shell:focus-within {
+  border-color: rgba(15, 23, 42, 0.55);
+}
+
+html[data-fetch-theme='light']
+  .fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-ai-composer-input--intent-landing-light {
+  color: #0a0f1a;
+  font-weight: 750;
+}
+
+html[data-fetch-theme='light']
+  .fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-ai-composer-input--intent-landing-light::placeholder {
+  color: rgba(30, 41, 59, 0.7);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1.375rem;
+  letter-spacing: -0.015em;
+  opacity: 1;
+  transition: none;
+  white-space: nowrap;
+}
+
+html[data-fetch-theme='light']
+  .fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-ai-composer-input--intent-landing-light:not(:placeholder-shown)::placeholder {
+  color: transparent;
+  opacity: 0;
+}
+
+html[data-fetch-theme='light']
+  .fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-intent-composer-inline-shell
+  .fetch-ai-voice-btn__core.fetch-ai-voice-btn__core--plain-mic {
+  color: rgba(15, 23, 42, 0.55) !important;
+}
+
+html[data-fetch-theme='light']
+  .fetch-home-booking-sheet
+  .fetch-home-intent-composer--intent-landing
+  .fetch-intent-composer-inline-shell
+  .fetch-ai-voice-btn--plain-mic:hover:not(:disabled)
+  .fetch-ai-voice-btn__core.fetch-ai-voice-btn__core--plain-mic {
+  color: rgba(15, 23, 42, 0.82) !important;
 }
 
 html[data-fetch-theme='light'] .fetch-home-orb-speech-bubble .fetch-sound-wave-bars__bar,
@@ -863,8 +949,10 @@ html[data-fetch-theme='light'] .fetch-home-booking-sheet__drag-hint-up {
 /* Stage text inputs inside sheet (non-address) */
 html[data-fetch-theme='light'] .fetch-home-booking-sheet .fetch-stage-text-input:not(.fetch-home-address-input) {
   background: rgba(255, 255, 255, 0.95);
-  border-color: rgba(15, 20, 30, 0.12);
-  color: rgba(18, 24, 38, 0.92);
+  border: 1px solid rgba(15, 23, 42, 0.2);
+  color: rgba(15, 23, 42, 0.96);
+  font-weight: 650;
+  letter-spacing: -0.015em;
 }
 
 html[data-fetch-theme='light']
@@ -873,7 +961,7 @@ html[data-fetch-theme='light']
 html[data-fetch-theme='light']
   .fetch-home-booking-sheet
   .fetch-stage-text-input:not(.fetch-home-address-input):focus-visible {
-  border-color: rgba(15, 20, 30, 0.22);
+  border-color: rgba(15, 23, 42, 0.34);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
   outline: none;
 }
@@ -1076,14 +1164,35 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-sheet-chrome-btn:h
 
 html[data-fetch-theme='light'] .fetch-home-vision .fetch-maps-explore-input {
   background: rgba(255, 255, 255, 0.96);
-  border-color: rgba(15, 20, 30, 0.12);
-  color: rgba(18, 24, 38, 0.94);
+  border: 1px solid rgba(15, 23, 42, 0.22);
+  color: rgba(15, 23, 42, 0.98);
+  font-weight: 650;
+  letter-spacing: -0.015em;
 }
 
 html[data-fetch-theme='light'] .fetch-home-vision .fetch-maps-explore-input:focus,
 html[data-fetch-theme='light'] .fetch-home-vision .fetch-maps-explore-input:focus-visible {
-  border-color: rgba(14, 116, 144, 0.28);
+  border-color: rgba(15, 23, 42, 0.36);
   box-shadow: 0 2px 12px rgba(15, 80, 100, 0.1);
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-maps-explore-input::placeholder {
+  color: rgba(51, 65, 85, 0.58);
+  opacity: 1;
+  font-weight: 550;
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-maps-explore-search-inner .fetch-maps-explore-input-icon {
+  color: rgba(15, 23, 42, 0.4);
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-maps-explore-input-mic {
+  color: rgba(15, 23, 42, 0.45);
+}
+
+html[data-fetch-theme='light'] .fetch-home-vision .fetch-maps-explore-input-mic:hover {
+  background: rgba(15, 23, 42, 0.05);
+  color: rgba(15, 23, 42, 0.78);
 }
 
 html[data-fetch-theme='light'] .fetch-home-vision .fetch-maps-explore-suggestions {

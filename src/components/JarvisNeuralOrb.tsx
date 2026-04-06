@@ -86,6 +86,8 @@ export type JarvisNeuralOrbProps = {
   lookAtCard?: boolean
   /** Shift gaze downward (e.g. toward content below the face). */
   lookDown?: boolean
+  /** Multiplier for `lookDown` gaze offset (1 = default). */
+  lookDownDepth?: number
   /** RGB glow color for inner warm + CSS --orb-glow. Defaults to soft white. */
   glowColor?: GlowRGB
   size?: keyof typeof SIZE_CLASS
@@ -675,6 +677,7 @@ export function JarvisNeuralOrb({
   mapAttention = 'none',
   lookAtCard = false,
   lookDown = false,
+  lookDownDepth = 1,
   glowColor = DEFAULT_GLOW,
   size = 'md',
   surface = 'sphere',
@@ -721,6 +724,8 @@ export function JarvisNeuralOrb({
   lookAtCardRef.current = lookAtCard
   const lookDownRef = useRef(lookDown)
   lookDownRef.current = lookDown
+  const lookDownDepthRef = useRef(lookDownDepth)
+  lookDownDepthRef.current = lookDownDepth
   const glowRef = useRef(glowColor)
   glowRef.current = glowColor
   const orbAppearanceRef = useRef(orbAppearance)
@@ -1174,15 +1179,16 @@ export function JarvisNeuralOrb({
         Math.sin(t * 0.55 + 1.2) * R * 0.008 + Math.sin(t * 0.22) * R * 0.005
       const autoSwayX = autoOn ? Math.sin(t * 1.08) * R * 0.045 : 0
       const faceCx = cx + swayX + autoSwayX
+      const ldMul = lookDownRef.current ? Math.max(0.5, lookDownDepthRef.current) : 0
       const lookUpY = lookAtCardRef.current
         ? -R * 0.026
         : lookDownRef.current
-          ? R * 0.024
+          ? R * 0.024 * ldMul
           : 0
       const gazeCardY = lookAtCardRef.current
         ? -R * 0.052
         : lookDownRef.current
-          ? R * 0.072
+          ? R * 0.072 * ldMul
           : 0
 
       const listenBoost = expr === 'listening' ? 1 + vMic * 0.08 + act * 0.03 : 1

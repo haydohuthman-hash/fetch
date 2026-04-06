@@ -211,10 +211,10 @@ export const ORB_EXPRESSION_PRESETS: Record<FetchOrbExpression, Partial<OrbFaceT
     mouthEnergy: 0.96,
     shimmer: 0.22,
     innerWarm: 1,
-    liftPx: -11,
+    liftPx: 0,
     glowOpacity: 1.02,
     glowBlurAdd: 6,
-    glowLiftPx: -6,
+    glowLiftPx: 0,
     redAccent: 1.08,
   },
   happy: {
