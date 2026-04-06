@@ -40,7 +40,7 @@ function CarouselCardArt({
     return (
       <HomeServiceTypeIllustration
         jobType={job}
-        className="fetch-brain-service-carousel__illu mx-auto mb-1.5 h-10 w-10"
+        className="fetch-brain-service-carousel__illu mx-auto mb-1.5 h-12 w-12"
       />
     )
   }
@@ -48,7 +48,7 @@ function CarouselCardArt({
   return (
     <div
       className={[
-        'fetch-brain-service-carousel__letter-badge mx-auto mb-1.5 flex h-10 w-10 items-center justify-center rounded-xl text-[15px] font-bold tracking-tight',
+        'fetch-brain-service-carousel__letter-badge mx-auto mb-1.5 flex h-12 w-12 items-center justify-center rounded-xl text-[16px] font-bold tracking-tight',
         isLight ? 'bg-black/[0.06] text-neutral-800' : 'bg-white/[0.1] text-white/90',
       ].join(' ')}
       aria-hidden

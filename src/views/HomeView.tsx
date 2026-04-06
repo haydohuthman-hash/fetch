@@ -36,6 +36,13 @@ import { BookingCompletionSummary } from '../components/booking/BookingCompletio
 import { TripSheetCard } from '../components/booking/TripSheetCard'
 import { TripDriverStatusStrip } from '../components/booking/TripDriverStatusStrip'
 import { TripPriceEstimateStrip } from '../components/booking/TripPriceEstimateStrip'
+import {
+  AccountNavIconFilled,
+  ActivityNavIconFilled,
+  FetchEyesHomeIcon,
+  MapsNavIconFilled,
+} from '../components/icons/HomeShellNavIcons'
+import { HomeShellActivityPanel } from '../components/HomeShellActivityPanel'
 import { HomeServiceTypeIllustration } from '../components/icons/HomeServiceTypeIllustrations'
 import {
   postFetchAiChat,
@@ -48,17 +55,24 @@ import {
   type FetchAiChatMessage,
   type FetchAiChatNavigation,
 } from '../lib/fetchAiChat'
-import type { FetchAiBookingPatch } from '../lib/fetchAiBookingPatch'
+import { mergeSpecialtyItemSlugs, type FetchAiBookingPatch } from '../lib/fetchAiBookingPatch'
 import { geocodeAddressTextAu } from '../lib/mapsGeocodeAu'
 import {
+  appendBrainAssistantLinePersisted,
   appendBrainUserLineEphemeral,
+  appendBrainUserPhotoMessage,
   brainLinesToApiMessages,
+  brainStoredToCatalogLine,
   loadBrainChatLines,
   persistBrainChatExchange,
+  removeBrainScanningBubbles,
   removeLastBrainLineIfUser,
+  revokeBrainChatLineBlobs,
   saveBrainChatLines,
   type BrainChatStoredLine,
 } from '../lib/fetchBrainChatStorage'
+import { buildBrainBookingScanSummaryFromPhoto } from '../lib/brainBookingScanContext'
+import { FIELD_VOICE_PRICE_CHOICES } from '../lib/brainFieldVoiceConstants'
 import {
   buildBrainAccountIntelForAi,
   buildBrainAccountSnapshot,
@@ -89,6 +103,7 @@ import {
   selectHomeJobType,
   type BookingJobType,
   type BookingState,
+  type PhotoScanResult,
 } from '../lib/assistant'
 import {
   bookingRecordToStatePatch,
@@ -128,7 +143,7 @@ import { suburbCommentaryLine } from '../lib/suburbCommentary'
 import { useFetchVoice } from '../voice/FetchVoiceContext'
 import {
   ADVANCED_SERVICE_MENU_OPTIONS,
-  HOME_INTENT_ORB_LINE,
+  HOME_INTENT_ORB_BUBBLE_HINT,
   IDLE_TO_SLEEPY_MS,
   junkLiveJobCopy,
   LANDING_PRIMARY_SERVICES,
@@ -244,6 +259,34 @@ function isPostDepositDriverSearchPhase(state: BookingState): boolean {
   return true
 }
 
+function brainFieldJobLabel(jt: BookingJobType | null): string {
+  if (!jt) return 'Job'
+  const m: Record<BookingJobType, string> = {
+    junkRemoval: 'Junk removal',
+    homeMoving: 'Home move',
+    deliveryPickup: 'Pick & drop',
+    heavyItem: 'Heavy item',
+    helper: 'Helper / labour',
+    cleaning: 'Cleaning',
+  }
+  return m[jt] ?? jt
+}
+
+function buildNeuralFieldStaticMapUrl(
+  center: { lat: number; lng: number } | null,
+  apiKey: string,
+): string | null {
+  if (!center || !apiKey.trim()) return null
+  const c = `${center.lat.toFixed(5)},${center.lng.toFixed(5)}`
+  return `https://maps.googleapis.com/maps/api/staticmap?center=${encodeURIComponent(c)}&zoom=14&size=480x240&scale=2&maptype=roadmap&markers=color:0x2563eb%7C${encodeURIComponent(c)}&key=${encodeURIComponent(apiKey.trim())}`
+}
+
+function mockAsapEtaMinutes(center: { lat: number; lng: number } | null): number {
+  if (!center) return 12
+  const s = Math.abs(Math.sin(center.lat * 12 + center.lng * 9))
+  return Math.round(8 + s * 7)
+}
+
 export type HomeViewProps = {
   /** Sheet account control — open auth or account in parent shell. */
   onAccountNavigate?: () => void
@@ -278,6 +321,10 @@ export default function HomeView({
   /** After each assistant TTS turn in booking-voice mode, overlay opens mic again (unless a sheet is up). */
   const [brainVoiceRelistenEpoch, setBrainVoiceRelistenEpoch] = useState(0)
   const brainBookingVoiceActiveRef = useRef(false)
+  /** One-time photo nudge per field session (booking voice). */
+  const brainFieldPhotoPromptedRef = useRef(false)
+  const lastBrainFieldPriceKeyRef = useRef('')
+  const lastBrainAddressEchoKeyRef = useRef('')
   const homeMapRef = useRef<google.maps.Map | null>(null)
   const brainWelcomeRef = useRef(false)
   const brainConvRef = useRef<BrainChatStoredLine[]>(loadBrainChatLines())
@@ -288,8 +335,6 @@ export default function HomeView({
   const brainSearchSurfaceGateSyncedRef = useRef(false)
   const [brainSttListening, setBrainSttListening] = useState(false)
   const [brainLastReply, setBrainLastReply] = useState<string | null>(null)
-  const brainVisualObjectUrlRef = useRef<string | null>(null)
-  const [brainVisualUrl, setBrainVisualUrl] = useState<string | null>(null)
   /** Brain-only: waiting on Fetch AI (not home composer / voice hold). */
   const [brainAiPending, setBrainAiPending] = useState(false)
   /** Brain-only TTS session — drives particle mind, isolated from home speech. */
@@ -320,6 +365,7 @@ export default function HomeView({
   /** Map-forward mode from the sheet maps control (traffic + optional follow) without chat directions. */
   const [homeMapExploreMode, setHomeMapExploreMode] = useState(false)
   const [homeShellTab, setHomeShellTab] = useState<HomeShellTab>('services')
+  const [homeActivityRefresh, setHomeActivityRefresh] = useState(0)
   const [chatBookingHintSource, setChatBookingHintSource] =
     useState<ChatBookingHintSource | null>(null)
   const [mapsExploreAddressExpanded, setMapsExploreAddressExpanded] = useState(false)
@@ -359,6 +405,8 @@ export default function HomeView({
   const [orbChatTurns, setOrbChatTurns] = useState<OrbChatTurn[]>([])
   /** Fetch “system” line above orb (intent prompt / booking questions); auto-hides after 5s. */
   const [orbEphemeralBubble, setOrbEphemeralBubble] = useState<string | null>(null)
+  /** Short hint above orb on intent step; auto-hides ~10s. */
+  const [intentOrbHintBubble, setIntentOrbHintBubble] = useState(false)
   /** Set on service tap; prepended to pickup orb bubble until that step ends. */
   const [servicePersonalityLine, setServicePersonalityLine] = useState<string | null>(null)
   const pendingServicePersonalityRef = useRef<string | null>(null)
@@ -391,6 +439,84 @@ export default function HomeView({
   const driverFlowTimersRef = useRef<number[]>([])
   const bookingStateRef = useRef(bookingState)
   bookingStateRef.current = bookingState
+
+  const pushBrainFieldPriceUi = useCallback(
+    (state: BookingState) => {
+      if (!brainBookingVoiceActiveRef.current) return
+      const qr = computePriceForState(state, { allowRouteFallback: true })
+      if (!qr.ok) return
+      const total =
+        qr.totalPrice ??
+        qr.pricing.totalPrice ??
+        Math.round((qr.pricing.minPrice + qr.pricing.maxPrice) / 2)
+      const deposit =
+        qr.depositDueNow ??
+        qr.pricing.depositDueNow ??
+        Math.min(total, qr.pricing.maxPrice)
+      const key = `${state.jobType}|${total}|${deposit}|d${state.fieldVoiceDiscountPercent}|t${state.fieldVoiceSchedulePreference ?? 'x'}|i${(state.fieldVoiceItineraryNote ?? '').slice(0, 48)}`
+      if (key === lastBrainFieldPriceKeyRef.current) return
+      lastBrainFieldPriceKeyRef.current = key
+
+      const pu = state.pickupPlace?.formattedAddress || state.pickupAddressText?.trim() || '—'
+      const du = state.dropoffPlace?.formattedAddress || state.dropoffAddressText?.trim() || '—'
+      const jt = state.jobType
+      const summaryLines: string[] = [`Service: ${brainFieldJobLabel(jt)}`, `Pickup: ${pu}`]
+      if (jt && requiresDropoff(jt)) summaryLines.push(`Drop-off: ${du}`)
+      if (state.fieldVoiceItineraryNote?.trim()) {
+        summaryLines.push(`Stops / plan: ${state.fieldVoiceItineraryNote.trim()}`)
+      }
+      if (state.fieldVoiceSchedulePreference === 'asap') {
+        summaryLines.push('Timing: ASAP — next available crew')
+      } else if (state.fieldVoiceSchedulePreference === 'scheduled') {
+        const w = state.fieldVoiceScheduledWindow?.trim()
+        summaryLines.push(w ? `Timing: ${w}` : 'Timing: scheduled window (confirm in chat)')
+      } else {
+        summaryLines.push('Timing: confirm ASAP or a date/window in chat')
+      }
+
+      const line = `Here’s your locked quote from the Fetch engine — totals below. Pay the deposit to secure the job.`
+      const center = state.pickupCoords ?? state.dropoffCoords ?? null
+      const mapPreviewUrl = buildNeuralFieldStaticMapUrl(
+        center,
+        import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ?? '',
+      )
+      const showAsap = state.fieldVoiceSchedulePreference === 'asap'
+      const asapEta = mockAsapEtaMinutes(center)
+
+      brainConvRef.current = appendBrainAssistantLinePersisted(brainConvRef.current, line, {
+        kind: 'price_preview',
+        headline: 'Quoted total (engine)',
+        totalAud: total,
+        depositAud: deposit,
+        summaryLines,
+        payCtaLabel: 'Pay deposit & secure booking',
+        ...(state.fieldVoiceDiscountPercent === 0
+          ? { courtesyLabel: 'Apply 5% courtesy to this quote' }
+          : {}),
+        showAsapPreview: showAsap,
+        asapEtaMinutes: asapEta,
+        asapDriverLabel: 'Crew en route (preview)',
+        mapPreviewUrl,
+      })
+      setBrainConvRevision((n) => n + 1)
+      appendBrainLearningEvent({
+        kind: 'field_voice_step',
+        note: `exact quote total ${total} AUD deposit ${deposit}${state.fieldVoiceDiscountPercent ? ` (${state.fieldVoiceDiscountPercent}% courtesy)` : ''}`,
+      })
+    },
+    [],
+  )
+
+  const onBrainFieldPriceCourtesy = useCallback(() => {
+    lastBrainFieldPriceKeyRef.current = ''
+    setBookingState((prev) => {
+      const next = { ...prev, fieldVoiceDiscountPercent: 5 }
+      queueMicrotask(() => {
+        pushBrainFieldPriceUi(next)
+      })
+      return next
+    })
+  }, [pushBrainFieldPriceUi])
 
   useEffect(() => {
     const st = bookingState.bookingStatus
@@ -677,20 +803,9 @@ export default function HomeView({
     setIdleLong(false)
   }, [])
 
-  const clearBrainVisual = useCallback(() => {
-    if (brainVisualObjectUrlRef.current) {
-      URL.revokeObjectURL(brainVisualObjectUrlRef.current)
-      brainVisualObjectUrlRef.current = null
-    }
-    setBrainVisualUrl(null)
-  }, [])
-
   useEffect(() => {
     return () => {
-      if (brainVisualObjectUrlRef.current) {
-        URL.revokeObjectURL(brainVisualObjectUrlRef.current)
-        brainVisualObjectUrlRef.current = null
-      }
+      revokeBrainChatLineBlobs(brainConvRef.current)
     }
   }, [])
 
@@ -705,7 +820,6 @@ export default function HomeView({
     setBrainLastReply(null)
     setBrainAiPending(false)
     setBrainSurfaceSpeaking(false)
-    clearBrainVisual()
     setHomeBrainFlow(null)
     setBrainSkipReveal(false)
     setBrainFocusedMemoryId(null)
@@ -713,7 +827,7 @@ export default function HomeView({
     setBrainInteractionSheet(null)
     setBrainPlacesLoading(false)
     setBrainMemoriesSheetOpen(false)
-  }, [clearBrainVisual, stopAssistantPlayback])
+  }, [stopAssistantPlayback])
 
   useEffect(() => {
     const gate = isPostDepositDriverSearchPhase(bookingState)
@@ -760,18 +874,28 @@ export default function HomeView({
     setBrainAiPending(false)
     setBrainPlacesLoading(false)
     brainUtteranceInFlightRef.current = false
+    revokeBrainChatLineBlobs(brainConvRef.current)
     brainConvRef.current = []
     saveBrainChatLines([])
+    lastBrainFieldPriceKeyRef.current = ''
+    lastBrainAddressEchoKeyRef.current = ''
+    brainFieldPhotoPromptedRef.current = false
+    setBookingState((s) => ({
+      ...s,
+      fieldVoiceDiscountPercent: 0,
+      fieldVoiceSchedulePreference: null,
+      fieldVoiceScheduledWindow: null,
+      fieldVoiceItineraryNote: null,
+    }))
     setBrainConvRevision((n) => n + 1)
     setBrainLastReply(null)
-    clearBrainVisual()
     setBrainInteractionSheet(null)
     setBrainFieldPlaces(null)
     setBrainFocusedMemoryId(null)
     setBrainMemoriesSheetOpen(false)
     stopAssistantPlayback()
     playUiEvent('orb_tap')
-  }, [bumpInteraction, clearBrainVisual, playUiEvent, stopAssistantPlayback])
+  }, [bumpInteraction, playUiEvent, stopAssistantPlayback])
 
   useEffect(() => {
     if (homeBrainFlow == null) {
@@ -785,12 +909,7 @@ export default function HomeView({
 
   useEffect(() => {
     if (homeBrainFlow !== 'brain' && homeBrainFlow !== 'clarity') return
-    const catalogLines = brainConvRef.current.map((l) => ({
-      id: l.id,
-      role: l.role,
-      text: l.content,
-      sortAt: l.at,
-    }))
+    const catalogLines = brainConvRef.current.map(brainStoredToCatalogLine)
     setBrainAccountSnapshot(buildBrainAccountSnapshot({ brainChatLines: catalogLines }))
     let cancelled = false
     void buildBrainAccountSnapshotAsync(catalogLines).then((s) => {
@@ -1279,6 +1398,86 @@ export default function HomeView({
       startPostPaymentDriverFlow,
     ],
   )
+
+  const beginBrainFieldSecurePayment = useCallback(() => {
+    closeFetchBrain()
+    setHomeShellTab('services')
+    setSheetSnap('full')
+    const bs = bookingStateRef.current
+    const needsDrop = bs.jobType != null && requiresDropoff(bs.jobType)
+    setMapAttention(
+      bs.pickupCoords && (!needsDrop || bs.dropoffCoords) ? 'route' : 'pickup',
+    )
+    bumpInteraction()
+    if (fetchPerfIsEnabled()) {
+      fetchPerfMark(undefined, '1_user_action', { action: 'brain_field_pay_deposit' })
+    }
+    const live = computePriceForState(bs, { allowRouteFallback: true })
+    const pricing = live.ok ? live.pricing : bs.pricing
+    if (!pricing) return
+    const payAmount = pricing.depositDueNow ?? pricing.totalPrice ?? pricing.maxPrice
+    void (async () => {
+      setBookNowBusy(true)
+      setBookNowError(null)
+      setBookNowSyncError(null)
+      bookNowSyncRetryRef.current = null
+      try {
+        const pi0 = await createPaymentIntent({
+          amount: payAmount,
+          bookingId: bookingStateRef.current.bookingId,
+        })
+        if (pi0.provider === 'stripe') {
+          if (!isStripePublishableConfigured()) {
+            throw new Error(
+              'Stripe is enabled on the server. Set VITE_STRIPE_PUBLISHABLE_KEY for the app.',
+            )
+          }
+          if (!pi0.clientSecret) {
+            throw new Error('Stripe payment intent is missing clientSecret.')
+          }
+          setStripeBookCheckout({
+            clientSecret: pi0.clientSecret,
+            paymentIntent: pi0,
+            payAmount,
+          })
+          return
+        }
+        const pi = await confirmDemoPaymentIntent(pi0)
+        if (pi.status !== 'succeeded') {
+          throw new Error(
+            `Payment did not complete (status: ${pi.status}).${pi.lastError ? ` ${pi.lastError}` : ''}`,
+          )
+        }
+        await finalizePaidBookingAfterCharge(pi, payAmount)
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Payment could not be completed.'
+        setBookNowError(msg)
+        appendHomeActivity({
+          title: 'Payment failed',
+          subtitle: msg,
+          jobType: bookingStateRef.current.jobType ?? undefined,
+          priceMin: pricing.minPrice,
+          priceMax: pricing.maxPrice,
+        })
+        appendHomeAlert({ title: 'Payment failed', body: msg })
+        refreshLocalFeeds()
+        void speakLine(
+          'Payment did not go through. Check your card details or try again from the booking sheet.',
+          { debounceKey: 'brain_field_pay_err', debounceMs: 0, withVoiceHold: true },
+        )
+      } finally {
+        setBookNowBusy(false)
+      }
+    })()
+  }, [
+    appendHomeActivity,
+    appendHomeAlert,
+    bumpInteraction,
+    closeFetchBrain,
+    finalizePaidBookingAfterCharge,
+    refreshLocalFeeds,
+    speakLine,
+  ])
 
   useEffect(() => () => clearDriverFlowTimers(), [clearDriverFlowTimers])
 
@@ -1775,6 +1974,25 @@ export default function HomeView({
             s.flowStep = deriveFlowStep(s)
           }
         }
+        if (patch.schedulePreference) {
+          s = {
+            ...s,
+            fieldVoiceSchedulePreference: patch.schedulePreference,
+            ...(patch.schedulePreference === 'asap' ? { fieldVoiceScheduledWindow: null } : {}),
+          }
+        }
+        if (patch.scheduledWindowText) {
+          s = { ...s, fieldVoiceScheduledWindow: patch.scheduledWindowText }
+        }
+        if (patch.extraStopsNote) {
+          s = { ...s, fieldVoiceItineraryNote: patch.extraStopsNote }
+        }
+        if (patch.specialtyItems?.length) {
+          s = {
+            ...s,
+            specialtyItemSlugs: mergeSpecialtyItemSlugs(s.specialtyItemSlugs, patch.specialtyItems),
+          }
+        }
         return s
       })()
 
@@ -1795,8 +2013,34 @@ export default function HomeView({
         )
       }
       bumpInteraction()
+
+      if (source === 'brain' && brainBookingVoiceActiveRef.current) {
+        const pu = merged.pickupPlace?.formattedAddress || merged.pickupAddressText?.trim()
+        const du = merged.dropoffPlace?.formattedAddress || merged.dropoffAddressText?.trim()
+        if (patch.pickupAddressText || patch.dropoffAddressText) {
+          const key = `${pu}|${du}`
+          if (key && key !== lastBrainAddressEchoKeyRef.current) {
+            lastBrainAddressEchoKeyRef.current = key
+            brainConvRef.current = appendBrainAssistantLinePersisted(
+              brainConvRef.current,
+              'I’ve dropped these addresses into your draft — please confirm they match what you said.',
+              {
+                kind: 'address_confirm',
+                ...(pu ? { pickup: pu } : {}),
+                ...(du ? { dropoff: du } : {}),
+              },
+            )
+            setBrainConvRevision((n) => n + 1)
+            appendBrainLearningEvent({
+              kind: 'field_voice_step',
+              note: `address card: ${[pu, du].filter(Boolean).join(' → ')}`.slice(0, 120),
+            })
+          }
+        }
+        pushBrainFieldPriceUi(merged)
+      }
     },
-    [mapsJsReady, bumpInteraction],
+    [mapsJsReady, bumpInteraction, pushBrainFieldPriceUi],
   )
 
   const runBrainAiUtterance = useCallback(
@@ -1815,11 +2059,8 @@ export default function HomeView({
 
       playUiEvent('processing_start')
 
-      const toCatalogLines = (lines: BrainChatStoredLine[]) =>
-        lines.map((l) => ({ id: l.id, role: l.role, text: l.content, sortAt: l.at }))
-
       const preSnap = buildBrainAccountSnapshot({
-        brainChatLines: toCatalogLines(brainConvRef.current),
+        brainChatLines: brainConvRef.current.map(brainStoredToCatalogLine),
       })
       const memFocus = resolveMemoryFocus(trimmed, preSnap.catalog)
       if (memFocus) {
@@ -1838,7 +2079,7 @@ export default function HomeView({
       const messages: FetchAiChatMessage[] = brainLinesToApiMessages(brainConvRef.current).slice(-10)
 
       const intelSnap = buildBrainAccountSnapshot({
-        brainChatLines: toCatalogLines(brainConvRef.current),
+        brainChatLines: brainConvRef.current.map(brainStoredToCatalogLine),
       })
 
       const wantRestaurants = detectBrainRestaurantIntent(trimmed)
@@ -1912,6 +2153,13 @@ export default function HomeView({
               ...(brainBookingVoiceActiveRef.current
                 ? { brainSessionGoal: 'booking_voice' as const }
                 : {}),
+              ...(brainBookingVoiceActiveRef.current && bookingStateRef.current.scan?.result
+                ? {
+                    brainBookingScanSummary: buildBrainBookingScanSummaryFromPhoto(
+                      bookingStateRef.current.scan.result as unknown as PhotoScanResult,
+                    ).slice(0, 1200),
+                  }
+                : {}),
             },
             perfRunId,
             onToken: (t) => {
@@ -1938,10 +2186,17 @@ export default function HomeView({
         setBrainLastReply(reply)
         if (bookingPatch) {
           await applyFetchAiBookingPatch(bookingPatch, 'brain')
+        } else if (brainBookingVoiceActiveRef.current) {
+          pushBrainFieldPriceUi(bookingStateRef.current)
         }
         setBrainSurfaceSpeaking(true)
         try {
-          await speakLine(reply, { debounceKey: 'fetch_ai_brain', debounceMs: 0, perfRunId })
+          await speakLine(reply, {
+            debounceKey: 'fetch_ai_brain',
+            debounceMs: 0,
+            perfRunId,
+            withVoiceHold: true,
+          })
         } finally {
           setBrainSurfaceSpeaking(false)
         }
@@ -1977,7 +2232,11 @@ export default function HomeView({
         setBrainLastReply(errLine)
         setBrainSurfaceSpeaking(true)
         try {
-          await speakLine(errLine, { debounceKey: 'fetch_ai_brain_err', debounceMs: 0 })
+          await speakLine(errLine, {
+            debounceKey: 'fetch_ai_brain_err',
+            debounceMs: 0,
+            allowBrowserFallback: true,
+          })
         } finally {
           setBrainSurfaceSpeaking(false)
         }
@@ -1993,10 +2252,199 @@ export default function HomeView({
       applyFetchAiBookingPatch,
       mapsJsReady,
       playUiEvent,
+      pushBrainFieldPriceUi,
       speakLine,
       userMapLocation,
     ],
   )
+
+  const runBrainFieldScanFollowUp = useCallback(
+    async (photoResult: PhotoScanResult, ac: AbortController) => {
+      if (!brainBookingVoiceActiveRef.current) return
+      const scanForPrompt = buildBrainBookingScanSummaryFromPhoto(photoResult)
+      if (!scanForPrompt.trim()) return
+
+      const synthetic =
+        'Fetch internal turn: the client just finished a photo scan; structured facts are in server context. You already spoke a user-facing description in the thread. Now ask what they want next (scope, timing, stairs or access if relevant). You MUST include a four-choice sheet aligned with your question. Do not re-list every item.'
+
+      const messages: FetchAiChatMessage[] = [
+        ...brainLinesToApiMessages(brainConvRef.current).slice(-12),
+        { role: 'user', content: synthetic },
+      ]
+
+      const intelSnap = buildBrainAccountSnapshot({
+        brainChatLines: brainConvRef.current.map(brainStoredToCatalogLine),
+      })
+
+      const geo =
+        userMapLocation != null
+          ? { latitude: userMapLocation.lat, longitude: userMapLocation.lng }
+          : undefined
+      const mem = buildFetchUserMemoryContext()
+      const learn = buildFetchBrainLearningContext()
+      const perfRunId = fetchPerfIsEnabled() ? createPerfRunId('brain_scan_follow') : undefined
+
+      setBrainLastReply(null)
+      try {
+        const { reply, interaction, bookingPatch, perfTiming } = await postFetchAiChatStream(
+          messages,
+          {
+            signal: ac.signal,
+            locale: 'en-AU',
+            context: {
+              timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+              ...(geo ? geo : {}),
+              ...(mem ? { userMemory: mem } : {}),
+              brainAccountIntel: buildBrainAccountIntelForAi(intelSnap),
+              ...(learn ? { brainLearningMemory: learn } : {}),
+              brainSessionGoal: 'booking_voice' as const,
+              brainBookingScanSummary: scanForPrompt.slice(0, 1200),
+            },
+            perfRunId,
+            onToken: (t) => {
+              setBrainLastReply((prev) => (prev == null ? '' : prev) + t)
+            },
+          },
+        )
+        if (ac.signal.aborted) return
+        if (perfRunId && perfTiming) fetchPerfSetServerTiming(perfRunId, perfTiming)
+
+        if (interaction?.type === 'choices') {
+          setBrainFieldPlaces(null)
+          setBrainInteractionSheet({
+            choices: interaction.choices,
+            ...(interaction.prompt ? { prompt: interaction.prompt } : {}),
+            ...(interaction.freeformHint ? { freeformHint: interaction.freeformHint } : {}),
+          })
+        }
+
+        brainConvRef.current = appendBrainAssistantLinePersisted(brainConvRef.current, reply)
+        setBrainConvRevision((n) => n + 1)
+        setBrainLastReply(reply)
+
+        if (bookingPatch) {
+          await applyFetchAiBookingPatch(bookingPatch, 'brain')
+        }
+
+        setBrainSurfaceSpeaking(true)
+        try {
+          await speakLine(reply, {
+            debounceKey: 'brain_scan_followup',
+            debounceMs: 0,
+            ...(perfRunId ? { perfRunId } : {}),
+            withVoiceHold: true,
+          })
+        } finally {
+          setBrainSurfaceSpeaking(false)
+        }
+        if (brainBookingVoiceActiveRef.current && interaction?.type !== 'choices') {
+          setBrainVoiceRelistenEpoch((n) => n + 1)
+        }
+      } catch (e) {
+        if (ac.signal.aborted) return
+        const code = e instanceof Error ? e.message : ''
+        let errLine: string
+        if (
+          code === CHAT_ERROR_OPENAI_NOT_CONFIGURED ||
+          code === CHAT_ERROR_ANTHROPIC_NOT_CONFIGURED
+        ) {
+          errLine = 'The assistant needs server configuration before I can continue after the scan.'
+        } else if (
+          code === CHAT_ERROR_OPENAI_REQUEST_FAILED ||
+          code === CHAT_ERROR_LLM_REQUEST_FAILED
+        ) {
+          errLine = 'The chat service had a problem right after your scan. Try a quick message.'
+        } else if (code === CHAT_ERROR_NETWORK) {
+          errLine = "I can't reach the Fetch server to continue after the scan."
+        } else {
+          errLine = 'Tell me in your own words what you want done — I had trouble with the follow-up prompt.'
+        }
+        brainConvRef.current = appendBrainAssistantLinePersisted(brainConvRef.current, errLine)
+        setBrainConvRevision((n) => n + 1)
+        setBrainLastReply(errLine)
+        setBrainSurfaceSpeaking(true)
+        try {
+          await speakLine(errLine, {
+            debounceKey: 'brain_scan_followup_err',
+            debounceMs: 0,
+            allowBrowserFallback: true,
+            withVoiceHold: true,
+          })
+        } finally {
+          setBrainSurfaceSpeaking(false)
+        }
+      }
+    },
+    [applyFetchAiBookingPatch, speakLine, userMapLocation],
+  )
+
+  const handleBrainChoiceSheetSubmit = useCallback(
+    (t: string) => {
+      setBrainInteractionSheet(null)
+      const trimmed = t.trim()
+      const fieldPriceChoice = (FIELD_VOICE_PRICE_CHOICES as readonly string[]).includes(trimmed)
+      if (brainBookingVoiceActiveRef.current && fieldPriceChoice) {
+        if (trimmed === 'Yes — happy with that') {
+          appendBrainLearningEvent({
+            kind: 'field_voice_step',
+            note: 'user accepted field estimate',
+          })
+          void speakLine(
+            'Love it. Open the booking sheet when you’re ready to lock the job in.',
+            {
+              debounceKey: 'field_price_ok',
+              debounceMs: 0,
+              withVoiceHold: true,
+            },
+          )
+          return
+        }
+        if (trimmed === 'Add 5% courtesy off') {
+          lastBrainFieldPriceKeyRef.current = ''
+          appendBrainLearningEvent({ kind: 'field_voice_step', note: 'user requested 5% courtesy' })
+          setBookingState((prev) => {
+            const next = { ...prev, fieldVoiceDiscountPercent: 5 }
+            queueMicrotask(() => {
+              pushBrainFieldPriceUi(next)
+            })
+            return next
+          })
+          void speakLine('Done — I’ve applied five percent courtesy to that estimate.', {
+            debounceKey: 'field_price_5',
+            debounceMs: 0,
+            withVoiceHold: true,
+          })
+          return
+        }
+        if (trimmed === 'I have another question') {
+          void runBrainAiUtterance('I have a follow-up question about the price or the job details.')
+          return
+        }
+        if (trimmed === 'Change the addresses') {
+          void runBrainAiUtterance('I need to update the pickup or drop-off address.')
+          return
+        }
+      }
+      void runBrainAiUtterance(trimmed)
+    },
+    [runBrainAiUtterance, speakLine, pushBrainFieldPriceUi],
+  )
+
+  useEffect(() => {
+    if (homeBrainFlow !== 'brain') return
+    if (!brainBookingVoiceActiveRef.current || brainFieldPhotoPromptedRef.current) return
+    if (brainConvRef.current.length > 0) return
+    brainFieldPhotoPromptedRef.current = true
+    brainConvRef.current = appendBrainAssistantLinePersisted(
+      brainConvRef.current,
+      'Snap a clear photo of what we’re moving — tap the + clip. I’ll scan it, tally items, and tighten your quote.',
+    )
+    setBrainConvRevision((n) => n + 1)
+    appendBrainLearningEvent({
+      kind: 'field_voice_step',
+      note: 'photo prompt (empty field thread)',
+    })
+  }, [homeBrainFlow, brainConvRevision])
 
   const dismissBrainFieldPlaces = useCallback(() => {
     setBrainFieldPlaces(null)
@@ -2225,6 +2673,9 @@ export default function HomeView({
     (tab: HomeShellTab) => {
       bumpInteraction()
       setHomeShellTab(tab)
+      if (tab === 'activity') {
+        setHomeActivityRefresh((n) => n + 1)
+      }
       if (tab === 'maps') {
         if (!chatNavRoute) {
           setHomeMapExploreMode(true)
@@ -2243,6 +2694,9 @@ export default function HomeView({
   const openBrainFromHome = useCallback(() => {
     bumpInteraction()
     brainBookingVoiceActiveRef.current = true
+    brainFieldPhotoPromptedRef.current = false
+    lastBrainFieldPriceKeyRef.current = ''
+    lastBrainAddressEchoKeyRef.current = ''
     setBrainAutoVoiceEpoch((n) => n + 1)
     setOrbAwakened(true)
     setSheetSnap('closed')
@@ -2995,6 +3449,16 @@ export default function HomeView({
     [uberTripCard, tripSheetPhase, homeShellTab],
   )
 
+  useEffect(() => {
+    if (!showIntent || orbTopLeftOnNavMap || suppressHomeOrbForTrip) {
+      setIntentOrbHintBubble(false)
+      return
+    }
+    setIntentOrbHintBubble(true)
+    const t = window.setTimeout(() => setIntentOrbHintBubble(false), 10_000)
+    return () => window.clearTimeout(t)
+  }, [showIntent, orbTopLeftOnNavMap, suppressHomeOrbForTrip])
+
   const showTripRouteEstimateStrip =
     uberTripCard &&
     sheetDisplayPricing != null &&
@@ -3252,6 +3716,7 @@ export default function HomeView({
     if (showBuildingRoute) return 'route'
     if (showPickup || showDropoff) return 'addresses'
     if (homeShellTab === 'maps') return 'maps'
+    if (homeShellTab === 'activity') return 'idle'
     if ((chatNavRoute || homeMapExploreMode) && showIntent) return 'route'
     if (showIntent) return 'intent'
     if (showPostScan) return 'working'
@@ -3362,7 +3827,7 @@ export default function HomeView({
     () => (
       <nav
         className="fetch-home-intent-bottom-nav"
-        aria-label="Home, maps, and account"
+        aria-label="Home, maps, activity, and account"
       >
         <button
           type="button"
@@ -3379,24 +3844,8 @@ export default function HomeView({
             onPeekHomeClick()
           }}
         >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <path
-              d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
-              stroke="currentColor"
-              strokeWidth="1.75"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-            <path
-              d="M9 22V12h6v10"
-              stroke="currentColor"
-              strokeWidth="1.75"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+          <FetchEyesHomeIcon className="h-7 w-7" />
         </button>
-        <span className="fetch-home-intent-bottom-nav__divider" aria-hidden />
         <button
           type="button"
           className={[
@@ -3411,11 +3860,25 @@ export default function HomeView({
             onHomeShellTabChange('maps')
           }}
         >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-            <path d="M12 3.5 20 21 12 17 4 21 12 3.5z" />
-          </svg>
+          <MapsNavIconFilled className="h-7 w-7" />
         </button>
-        <span className="fetch-home-intent-bottom-nav__divider" aria-hidden />
+        <button
+          type="button"
+          className={[
+            'fetch-home-intent-bottom-nav__icon',
+            homeShellTab === 'activity' ? 'fetch-home-intent-bottom-nav__icon--active' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          aria-label="Activity"
+          aria-current={homeShellTab === 'activity' ? 'page' : undefined}
+          onClick={() => {
+            bumpInteraction()
+            onHomeShellTabChange('activity')
+          }}
+        >
+          <ActivityNavIconFilled className="h-7 w-7" />
+        </button>
         <button
           type="button"
           className="fetch-home-intent-bottom-nav__icon"
@@ -3425,15 +3888,7 @@ export default function HomeView({
             onAccountsClick()
           }}
         >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden>
-            <circle cx="12" cy="9" r="3.5" stroke="currentColor" strokeWidth="1.65" />
-            <path
-              d="M5 20v-1a5 5 0 015-5h4a5 5 0 015 5v1"
-              stroke="currentColor"
-              strokeWidth="1.65"
-              strokeLinecap="round"
-            />
-          </svg>
+          <AccountNavIconFilled className="h-7 w-7" />
         </button>
       </nav>
     ),
@@ -3549,44 +4004,85 @@ export default function HomeView({
 
   const runBrainPhotoScan = useCallback(
     async (file: File) => {
+      brainAbortRef.current?.abort()
+      const ac = new AbortController()
+      brainAbortRef.current = ac
+
       setBrainAiPending(true)
-      setBrainLastReply('Taking a look…')
+      setBrainLastReply(null)
+      brainConvRef.current = appendBrainAssistantLinePersisted(
+        brainConvRef.current,
+        'Scanning your photo for items and volume…',
+        { kind: 'scanning' },
+      )
+      setBrainConvRevision((n) => n + 1)
+
       const perfRunId = fetchPerfIsEnabled() ? createPerfRunId('brain_scan') : undefined
       try {
         const result = await scanBookingPhotos([file], serviceHint, { perfRunId })
+        if (ac.signal.aborted) return
         const summaryText = scannerSummaryLine(result.detectedItems)
         const voiceLine = result.detailedDescription?.trim() || summaryText
-        setBrainLastReply(summaryText)
+
+        brainConvRef.current = removeBrainScanningBubbles(brainConvRef.current)
+        const resultLine =
+          voiceLine.trim() ||
+          (summaryText.trim() ? `Scan: ${summaryText}` : 'Photo scanned — I’ve logged what I could see.')
+        brainConvRef.current = appendBrainAssistantLinePersisted(brainConvRef.current, resultLine)
+        setBrainConvRevision((n) => n + 1)
+
+        setBookingState((prev) => {
+          const withScan: BookingState = {
+            ...prev,
+            scan: { ...prev.scan, result, confidence: result.confidence },
+          }
+          return handleUserInput({ text: summaryText, source: 'scan' }, withScan).bookingState
+        })
+
+        appendBrainLearningEvent({
+          kind: 'field_voice_step',
+          note: `photo scan: ${summaryText.slice(0, 100)}`,
+        })
+
+        setBrainLastReply(resultLine)
         playUiEvent('success')
-        void speakLine(voiceLine, {
+        await speakLine(voiceLine || resultLine, {
           debounceKey: 'brain_scan_result',
           debounceMs: 0,
+          withVoiceHold: true,
           ...(perfRunId ? { perfRunId } : {}),
         })
+        if (ac.signal.aborted) return
+
+        await runBrainFieldScanFollowUp(result, ac)
       } catch {
+        brainConvRef.current = removeBrainScanningBubbles(brainConvRef.current)
         const line = "Couldn't read that photo. Try another."
+        brainConvRef.current = appendBrainAssistantLinePersisted(brainConvRef.current, line)
+        setBrainConvRevision((n) => n + 1)
         setBrainLastReply(line)
         void speakLine(line, {
           debounceKey: 'brain_scan_error',
           debounceMs: 0,
+          withVoiceHold: true,
           ...(perfRunId ? { perfRunId } : {}),
         })
       } finally {
         setBrainAiPending(false)
+        if (brainAbortRef.current === ac) brainAbortRef.current = null
       }
     },
-    [playUiEvent, serviceHint, speakLine],
+    [playUiEvent, runBrainFieldScanFollowUp, serviceHint, speakLine],
   )
 
   const onBrainPhotoSelected = useCallback(
     (file: File) => {
-      clearBrainVisual()
       const url = URL.createObjectURL(file)
-      brainVisualObjectUrlRef.current = url
-      setBrainVisualUrl(url)
+      brainConvRef.current = appendBrainUserPhotoMessage(brainConvRef.current, '📷 Photo', url)
+      setBrainConvRevision((n) => n + 1)
       void runBrainPhotoScan(file)
     },
-    [clearBrainVisual, runBrainPhotoScan],
+    [runBrainPhotoScan],
   )
 
   const handleConfirmItems = useCallback(() => {
@@ -3908,6 +4404,8 @@ export default function HomeView({
               mapsPeekHost={mapsPeekHost}
             />
           )
+        ) : homeShellTab === 'activity' ? (
+          <HomeShellActivityPanel refreshVersion={homeActivityRefresh} />
         ) : (
           <>
           {showConfirm && pendingConfirm ? (
@@ -4002,7 +4500,7 @@ export default function HomeView({
                               key={opt.id}
                               type="button"
                               data-tone={opt.tone}
-                              aria-label={opt.label}
+                              aria-label={opt.cardHeading}
                               onClick={() => {
                                 pendingServicePersonalityRef.current =
                                   opt.fetchPersonalityExample
@@ -4017,8 +4515,8 @@ export default function HomeView({
                                 jobType={opt.jobType}
                                 className="fetch-home-service-segment-icon"
                               />
-                              <span className="fetch-home-service-segment-label font-semibold leading-tight tracking-[-0.02em]">
-                                {opt.label}
+                              <span className="fetch-home-service-segment-heading">
+                                {opt.cardHeading}
                               </span>
                             </button>
                           ))}
@@ -5073,6 +5571,19 @@ export default function HomeView({
                   </p>
                 </div>
               </div>
+            ) : showIntent &&
+              !orbTopLeftOnNavMap &&
+              !suppressHomeOrbForTrip &&
+              intentOrbHintBubble ? (
+              <div
+                className="fetch-home-orb-intent-hint-bubble pointer-events-none absolute bottom-[calc(100%+0.65rem)] left-1/2 z-[1] w-[min(18.5rem,calc(100vw-2.25rem))] max-w-[min(18.5rem,calc(100vw-2.25rem))] -translate-x-1/2"
+                role="status"
+                aria-live="polite"
+              >
+                <p className="px-3.5 py-2.5 text-center text-[12px] font-medium leading-snug tracking-[-0.01em] text-fetch-charcoal/88 [text-wrap:pretty]">
+                  {HOME_INTENT_ORB_BUBBLE_HINT}
+                </p>
+              </div>
             ) : null}
             {suppressHomeOrbForTrip ? (
               <div
@@ -5101,7 +5612,8 @@ export default function HomeView({
                     lookAtCard={Boolean(
                       (orbChatTurns.length > 0 ||
                         voiceHoldCaption ||
-                        orbEphemeralBubble) &&
+                        orbEphemeralBubble ||
+                        intentOrbHintBubble) &&
                         !isSpeechPlaying,
                     )}
                     glowColor={orbGlowColor}
@@ -5111,9 +5623,6 @@ export default function HomeView({
                     onOpen={openBrainFromHome}
                   />
                 </div>
-                <p className="fetch-home-orb-prompt-line pointer-events-none mt-3.5 max-w-[16rem] text-center text-[12px] font-medium leading-snug tracking-[-0.01em] text-fetch-charcoal/68">
-                  {HOME_INTENT_ORB_LINE}
-                </p>
               </div>
             ) : (
               <div
@@ -5165,9 +5674,7 @@ export default function HomeView({
           onBrainUtterance={runBrainAiUtterance}
           onBrainListeningChange={onBrainListeningChange}
           lastAssistantLine={brainLastReply}
-          visualSrc={brainVisualUrl}
           onBrainPhotoSelected={onBrainPhotoSelected}
-          onClearVisual={clearBrainVisual}
           snapshot={brainAccountSnapshot}
           focusedMemoryId={brainFocusedMemoryId}
           onFocusedMemoryIdChange={setBrainFocusedMemoryId}
@@ -5179,10 +5686,7 @@ export default function HomeView({
           memoriesSheetOpen={brainMemoriesSheetOpen}
           onMemoriesSheetClose={() => setBrainMemoriesSheetOpen(false)}
           choiceSheet={brainInteractionSheet}
-          onChoiceSheetSubmit={(t) => {
-            setBrainInteractionSheet(null)
-            void runBrainAiUtterance(t)
-          }}
+          onChoiceSheetSubmit={handleBrainChoiceSheetSubmit}
           onChoiceSheetDismiss={() => setBrainInteractionSheet(null)}
           onAssistantChatFeedback={onBrainAssistantChatFeedback}
           onServiceIntakeComplete={(msg) => {
@@ -5191,6 +5695,8 @@ export default function HomeView({
           onNewBrainChat={startNewBrainChat}
           autoVoiceEpoch={brainAutoVoiceEpoch}
           voiceRelistenEpoch={brainVoiceRelistenEpoch}
+          onBrainPricePay={beginBrainFieldSecurePayment}
+          onBrainPriceCourtesy={onBrainFieldPriceCourtesy}
         />
       ) : null}
 

@@ -8,7 +8,10 @@ export const INTRO_COPY = 'Fetch activated. What can I do for you today?'
 export const INTENT_ORB_PROMPT =
   'Tap Fetch to chat, a service to book a driver, or Nav for directions.'
 
-/** Subtle line under the home dock orb. */
+/** Shown in a short speech bubble above the orb on the intent step (~10s). */
+export const HOME_INTENT_ORB_BUBBLE_HINT = "Tap me or speak — I'm listening."
+
+/** @deprecated Prefer `HOME_INTENT_ORB_BUBBLE_HINT` (bubble above orb). */
 export const HOME_INTENT_ORB_LINE = 'Tap or speak for help'
 
 /**
@@ -28,7 +31,7 @@ export const INTENT_COMPOSER_DISCOVERY_PLACEHOLDER_HINTS: readonly string[] = [
  * Default (non–intent-landing) composer: first line = full service / booking surface; rest = local asks.
  */
 export const INTENT_COMPOSER_PLACEHOLDER_HINTS: readonly string[] = [
-  'Book moving, junk, delivery, heavy item, helpers, or cleaning — pick-up & drop-off, photos, mic, or drive + traffic…',
+  'Book moving, junk, pick & drop, heavy item, helpers, or cleaning — addresses, photos, mic, or drive + traffic…',
   ...INTENT_COMPOSER_DISCOVERY_PLACEHOLDER_HINTS,
 ]
 
@@ -36,7 +39,7 @@ export const INTENT_COMPOSER_PLACEHOLDER_HINTS: readonly string[] = [
  * Intent step (below service cards): first line ties to cards + full capabilities; rest = discovery-style asks.
  */
 export const INTENT_COMPOSER_INTENT_LANDING_HINTS: readonly string[] = [
-  'Tap a service card or type a job: move, junk, deliver, heavy item, help, clean — addresses, photos, mic, pricing…',
+  'Tap a service card or type a job: move, junk, pick & drop, heavy item, help, clean — addresses, photos, mic, pricing…',
   ...INTENT_COMPOSER_DISCOVERY_PLACEHOLDER_HINTS,
 ]
 
@@ -58,6 +61,7 @@ export const LANDING_PRIMARY_SERVICES = [
     label: 'Moving',
     jobType: 'homeMoving' as const,
     tone: 'green' as const,
+    cardHeading: 'Home move',
     /** Sample line Fetch might say after you pick this service (warm, AU tone). */
     fetchPersonalityExample:
       'Hayden, what are we moving today — and where are we taking it?',
@@ -67,22 +71,25 @@ export const LANDING_PRIMARY_SERVICES = [
     label: 'Cleaning',
     jobType: 'cleaning' as const,
     tone: 'teal' as const,
+    cardHeading: 'House clean',
     fetchPersonalityExample:
       'Hayden, which place are we cleaning — regular tidy or a bond clean?',
   },
   {
     id: 'delivery-pickup',
-    label: 'Delivery',
+    label: 'Pick & drop',
     jobType: 'deliveryPickup' as const,
     tone: 'blue' as const,
+    cardHeading: 'Pick & drop',
     fetchPersonalityExample:
-      'Hayden, what needs picking up, and where should we deliver it?',
+      'Hayden, what are we picking up, and where should we drop it?',
   },
   {
     id: 'junk-removal',
     label: 'Junk removal',
     jobType: 'junkRemoval' as const,
     tone: 'orange' as const,
+    cardHeading: 'Junk removal',
     fetchPersonalityExample: 'Where is the junk located, Hayden?',
   },
   {
@@ -90,13 +97,14 @@ export const LANDING_PRIMARY_SERVICES = [
     label: 'Helper',
     jobType: 'helper' as const,
     tone: 'slate' as const,
+    cardHeading: 'Help & labour',
     fetchPersonalityExample: 'Hayden, what do you need an extra pair of hands for?',
   },
 ] as const
 
 export const SERVICE_OPTIONS = [
   { id: 'junk-removal', label: 'Junk removal', jobType: 'junkRemoval' as const },
-  { id: 'delivery-pickup', label: 'Delivery / pickup', jobType: 'deliveryPickup' as const },
+  { id: 'delivery-pickup', label: 'Pick & drop', jobType: 'deliveryPickup' as const },
   { id: 'home-moving', label: 'Home moving', jobType: 'homeMoving' as const },
   { id: 'helper', label: 'Helper', jobType: 'helper' as const },
   { id: 'cleaning', label: 'Cleaning', jobType: 'cleaning' as const },
@@ -112,10 +120,10 @@ export const ADVANCED_SERVICE_MENU_OPTIONS = [
   },
   {
     id: 'delivery-pickup',
-    label: 'Delivery / pickup',
+    label: 'Pick & drop',
     jobType: 'deliveryPickup' as const,
     personalityLine:
-      'Hayden, what needs picking up, and where should we deliver it?',
+      'Hayden, what are we picking up, and where should we drop it?',
   },
   {
     id: 'home-moving',

@@ -93,7 +93,7 @@ export const BRAIN_SERVICE_INTAKE_FLOWS: BrainServiceIntakeFlow[] = [
   },
   {
     id: 'delivery-pickup',
-    carouselLabel: 'Delivery',
+    carouselLabel: 'Pick & drop',
     carouselHint: 'Pickup → drop-off',
     tone: 'blue',
     startStepId: 'what',

@@ -18,11 +18,36 @@ export type BrainMemoryCatalogEntry = {
   alertUnread?: boolean
 }
 
+/** Optional rich rendering in neural field bubbles (see FetchBrainMemoryOverlay). */
+export type BrainChatBubbleUi =
+  | { kind: 'scanning' }
+  | { kind: 'address_confirm'; pickup?: string; dropoff?: string }
+  | {
+      kind: 'price_preview'
+      /** Legacy ballpark line (older saved threads). */
+      rangeLabel?: string
+      note?: string
+      /** Exact-quote card (neural field). */
+      headline?: string
+      totalAud?: number
+      depositAud?: number
+      summaryLines?: string[]
+      payCtaLabel?: string
+      courtesyLabel?: string
+      showAsapPreview?: boolean
+      asapEtaMinutes?: number
+      asapDriverLabel?: string
+      mapPreviewUrl?: string | null
+    }
+
 export type BrainChatCatalogLine = {
   id: string
   role: 'user' | 'assistant'
   text: string
   sortAt: number
+  ui?: BrainChatBubbleUi
+  /** Session-only blob: or remote URL; omitted when reloaded from disk. */
+  attachmentUrl?: string
 }
 
 export type BrainAccountSnapshot = {

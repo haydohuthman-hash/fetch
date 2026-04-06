@@ -8,7 +8,7 @@ function jobTypeLabel(jobType: BookingJobType | null): string | null {
   if (!jobType) return null
   const map: Record<BookingJobType, string> = {
     junkRemoval: 'Junk removal',
-    deliveryPickup: 'Delivery / pickup',
+    deliveryPickup: 'Pick & drop',
     heavyItem: 'Heavy item',
     homeMoving: 'Home moving',
     helper: 'Helper',

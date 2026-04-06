@@ -18,6 +18,11 @@ interface ImportMetaEnv {
    * Optional TTS-only API origin; defaults to same resolution as `VITE_FETCH_API_BASE_URL` / same-origin.
    */
   readonly VITE_VOICE_API_BASE?: string
+  /**
+   * `1` = allow OS `speechSynthesis` when Google Cloud TTS proxy fails (e.g. iOS Safari dev).
+   * Omit on touch devices to keep assistant voice on Google Cloud TTS only.
+   */
+  readonly VITE_VOICE_BROWSER_FALLBACK?: string
   /** Set to `1` to log `[FetchPerf]` timings (see `fetchPerf.ts`). Or use localStorage `fetchPerfLogs=1`. */
   readonly VITE_FETCH_PERF_LOGS?: string
   /**

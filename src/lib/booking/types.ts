@@ -50,6 +50,7 @@ export type FetchAiBookingDraft = {
   cleaningType: string | null
   cleaningNotes: string | null
   specialItemType: string | null
+  specialtyItemSlugs?: string[]
   isHeavyItem: boolean
   isBulky: boolean
   needsTwoMovers: boolean
@@ -111,6 +112,7 @@ export type BookingRecord = {
   cleaningType: string | null
   cleaningNotes: string | null
   specialItemType: string | null
+  specialtyItemSlugs?: string[]
   isHeavyItem: boolean
   isBulky: boolean
   needsTwoMovers: boolean
@@ -205,6 +207,7 @@ export function bookingStateToDraft(state: BookingState): FetchAiBookingDraft {
     cleaningType: state.cleaningType,
     cleaningNotes: state.cleaningNotes,
     specialItemType: state.specialItemType,
+    specialtyItemSlugs: [...state.specialtyItemSlugs],
     isHeavyItem: state.isHeavyItem,
     isBulky: state.isBulky,
     needsTwoMovers: state.needsTwoMovers,
@@ -259,6 +262,7 @@ export function bookingRecordToStatePatch(record: BookingRecord): Partial<Bookin
     cleaningType: record.cleaningType,
     cleaningNotes: record.cleaningNotes,
     specialItemType: record.specialItemType,
+    specialtyItemSlugs: [...(record.specialtyItemSlugs ?? [])],
     isHeavyItem: record.isHeavyItem,
     isBulky: record.isBulky,
     needsTwoMovers: record.needsTwoMovers,
@@ -316,6 +320,7 @@ export function bookingStateToConfirmedUpsertPayload(
     cleaningType: state.cleaningType,
     cleaningNotes: state.cleaningNotes,
     specialItemType: state.specialItemType,
+    specialtyItemSlugs: [...state.specialtyItemSlugs],
     isHeavyItem: state.isHeavyItem,
     isBulky: state.isBulky,
     needsTwoMovers: state.needsTwoMovers,

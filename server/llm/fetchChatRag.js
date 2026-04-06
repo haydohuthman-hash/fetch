@@ -16,7 +16,7 @@ const CHUNKS = [
   {
     id: 'quotes-pricing',
     keywords: ['price', 'cost', 'quote', 'how much', 'cheap', 'expensive', 'pay', 'aud', 'dollar'],
-    text: 'Give ballpark guidance only when the app has computed pricing; otherwise explain that Fetch builds quotes from job details (items, distance, access, timing) and offer to walk them through the booking sheet.',
+    text: 'Pricing is computed by the Fetch quote engine in-app (exact total + deposit in AUD). Do not invent dollar amounts or ranges. If pricing is not ready yet, ask for missing job details (addresses, items, timing) and explain the app will show the locked totals with Pay when ready.',
   },
   {
     id: 'safety-refusal',

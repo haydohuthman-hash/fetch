@@ -11,7 +11,7 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import type { FetchBrainMindState } from '../lib/fetchBrainParticles'
-import type { BrainAccountSnapshot } from '../lib/fetchBrainAccountSnapshot'
+import type { BrainAccountSnapshot, BrainChatCatalogLine } from '../lib/fetchBrainAccountSnapshot'
 import type { BrainFieldPlaceCard } from '../lib/mapsExplorePlaces'
 import { FetchBrainCortexDirectory } from './FetchBrainCortexDirectory'
 import { FetchBrainChoiceSheet, type FetchBrainChoiceSheetModel } from './FetchBrainChoiceSheet'
@@ -78,6 +78,10 @@ export type FetchBrainMemoryOverlayProps = {
   autoVoiceEpoch?: number
   /** Booking voice: after assistant TTS, open mic again (no bump when a choice sheet is shown). */
   voiceRelistenEpoch?: number
+  /** Neural-field exact quote: opens Stripe / demo checkout from the booking sheet. */
+  onBrainPricePay?: () => void
+  /** Apply courtesy discount and refresh the quote bubble. */
+  onBrainPriceCourtesy?: () => void
 }
 
 const BRAIN_LISTEN_MS = 8000
@@ -119,6 +123,8 @@ export function FetchBrainMemoryOverlay({
   onNewBrainChat,
   autoVoiceEpoch = 0,
   voiceRelistenEpoch = 0,
+  onBrainPricePay,
+  onBrainPriceCourtesy,
 }: FetchBrainMemoryOverlayProps) {
   const [brainDraft, setBrainDraft] = useState('')
   const [intakeFlowId, setIntakeFlowId] = useState<string | null>(null)
@@ -142,6 +148,126 @@ export function FetchBrainMemoryOverlay({
   const recognitionRef = useRef<{ abort: () => void } | null>(null)
   const listenTimerRef = useRef<number | null>(null)
   const { speakLine, playUiEvent, muted, toggleMute, isSpeechPlaying } = useFetchVoice()
+
+  const renderAssistantBubbleBody = useCallback(
+    (turn: Pick<BrainChatCatalogLine, 'text' | 'ui'>) => {
+      const ui = turn.ui
+      if (!ui) {
+        return <p className="fetch-brain-msg__text">{turn.text}</p>
+      }
+      if (ui.kind === 'scanning') {
+        return (
+          <div className="fetch-brain-msg__scanning">
+            <p className="fetch-brain-msg__text">{turn.text}</p>
+            <div className="fetch-brain-scan-dots" aria-hidden>
+              <span />
+              <span />
+              <span />
+            </div>
+          </div>
+        )
+      }
+      if (ui.kind === 'address_confirm') {
+        return (
+          <div className="fetch-brain-msg__structured">
+            <p className="fetch-brain-msg__text fetch-brain-msg__kicker">{turn.text}</p>
+            {ui.pickup ? (
+              <div className="fetch-brain-msg__addr">
+                <span className="fetch-brain-msg__addr-label">Pickup</span>
+                <span className="fetch-brain-msg__addr-line">{ui.pickup}</span>
+              </div>
+            ) : null}
+            {ui.dropoff ? (
+              <div className="fetch-brain-msg__addr">
+                <span className="fetch-brain-msg__addr-label">Drop-off</span>
+                <span className="fetch-brain-msg__addr-line">{ui.dropoff}</span>
+              </div>
+            ) : null}
+          </div>
+        )
+      }
+      if (ui.kind === 'price_preview') {
+        const legacy = typeof ui.rangeLabel === 'string' && ui.rangeLabel.length > 0
+        if (!legacy && ui.totalAud != null && ui.depositAud != null && ui.summaryLines && ui.payCtaLabel) {
+          return (
+            <div className="fetch-brain-msg__structured fetch-brain-msg__price-card">
+              {ui.headline ? (
+                <p className="fetch-brain-msg__text fetch-brain-msg__kicker">{ui.headline}</p>
+              ) : (
+                <p className="fetch-brain-msg__text">{turn.text}</p>
+              )}
+              <ul className="fetch-brain-msg__summary-list">
+                {ui.summaryLines.map((line, i) => (
+                  <li key={`${i}-${line.slice(0, 24)}`} className="fetch-brain-msg__summary-line">
+                    {line}
+                  </li>
+                ))}
+              </ul>
+              <div className="fetch-brain-msg__price-amounts">
+                <p className="fetch-brain-msg__price-total">
+                  Total <span className="fetch-brain-msg__price-num">${ui.totalAud} AUD</span>
+                </p>
+                <p className="fetch-brain-msg__price-deposit">
+                  Due now (deposit){' '}
+                  <span className="fetch-brain-msg__price-num">${ui.depositAud} AUD</span>
+                </p>
+              </div>
+              {ui.showAsapPreview ? (
+                <div className="fetch-brain-msg__asap-preview">
+                  {ui.mapPreviewUrl ? (
+                    <img
+                      src={ui.mapPreviewUrl}
+                      alt=""
+                      className="fetch-brain-msg__asap-map"
+                    />
+                  ) : (
+                    <div className="fetch-brain-msg__asap-map fetch-brain-msg__asap-map--placeholder" />
+                  )}
+                  <div className="fetch-brain-msg__asap-meta">
+                    <span className="fetch-brain-msg__asap-driver">
+                      {ui.asapDriverLabel ?? 'Nearest crew'}
+                    </span>
+                    <span className="fetch-brain-msg__asap-eta">
+                      Est. arrival ~{ui.asapEtaMinutes ?? 12} min
+                    </span>
+                  </div>
+                </div>
+              ) : null}
+              <div className="fetch-brain-msg__price-actions">
+                {onBrainPricePay ? (
+                  <button
+                    type="button"
+                    className="fetch-brain-msg__price-pay-btn"
+                    onClick={() => onBrainPricePay()}
+                  >
+                    {ui.payCtaLabel}
+                  </button>
+                ) : null}
+                {ui.courtesyLabel && onBrainPriceCourtesy ? (
+                  <button
+                    type="button"
+                    className="fetch-brain-msg__price-secondary-btn"
+                    onClick={() => onBrainPriceCourtesy()}
+                  >
+                    {ui.courtesyLabel}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          )
+        }
+        return (
+          <div className="fetch-brain-msg__structured">
+            <p className="fetch-brain-msg__text">{turn.text}</p>
+            {ui.rangeLabel ? <p className="fetch-brain-msg__price-range">{ui.rangeLabel}</p> : null}
+            {ui.note ? <p className="fetch-brain-msg__price-note">{ui.note}</p> : null}
+          </div>
+        )
+      }
+      return <p className="fetch-brain-msg__text">{turn.text}</p>
+    },
+    [onBrainPriceCourtesy, onBrainPricePay],
+  )
 
   const copyAssistantLine = useCallback(
     async (text: string) => {
@@ -775,10 +901,24 @@ export function FetchBrainMemoryOverlay({
                   <button
                     type="button"
                     onClick={handleNewBrainChat}
-                    className="fetch-brain-chat-header__clear"
+                    className="fetch-brain-chat-header__bubble-icon"
                     aria-label="Start new chat"
                   >
-                    New chat
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+                      <path
+                        d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"
+                        stroke="currentColor"
+                        strokeWidth="1.75"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                      <path
+                        d="M12 8v5M9.5 10.5h5"
+                        stroke="currentColor"
+                        strokeWidth="1.75"
+                        strokeLinecap="round"
+                      />
+                    </svg>
                   </button>
                 ) : null}
                 <button
@@ -879,7 +1019,7 @@ export function FetchBrainMemoryOverlay({
                               .filter(Boolean)
                               .join(' ')}
                           >
-                            <p className="fetch-brain-msg__text">{lastAssistantLine}</p>
+                            {renderAssistantBubbleBody({ text: lastAssistantLine, ui: undefined })}
                           </div>
                         </div>
                         {renderAssistantTurnChrome(
@@ -904,6 +1044,7 @@ export function FetchBrainMemoryOverlay({
                           <div
                             className={[
                               'fetch-brain-msg fetch-brain-msg--assistant',
+                              turn.ui?.kind === 'scanning' ? 'fetch-brain-msg--scanning' : '',
                               isSpeechPlaying && index === lastAssistantTurnIndex
                                 ? 'fetch-brain-msg--speaking'
                                 : '',
@@ -911,7 +1052,7 @@ export function FetchBrainMemoryOverlay({
                               .filter(Boolean)
                               .join(' ')}
                           >
-                            <p className="fetch-brain-msg__text">{turn.text}</p>
+                            {renderAssistantBubbleBody(turn)}
                           </div>
                         </div>
                       ) : (
@@ -921,6 +1062,13 @@ export function FetchBrainMemoryOverlay({
                           ].join(' ')}
                         >
                           <p className="fetch-brain-msg__text">{turn.text}</p>
+                          {turn.attachmentUrl ? (
+                            <img
+                              src={turn.attachmentUrl}
+                              alt=""
+                              className="fetch-brain-msg__attach"
+                            />
+                          ) : null}
                         </div>
                       )}
                       {turn.role === 'assistant'

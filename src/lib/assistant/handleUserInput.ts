@@ -13,6 +13,7 @@ import {
 import { deriveNextQuestion } from './deriveNextQuestion'
 import { beginDriverSearchDemo, canBeginDriverSearchDemo } from './junkDriverDemo'
 import { computeBookingPricing, computeBookingQuoteBreakdown } from './pricing'
+import { normalizeSpecialtySlug } from '../booking/specialtyItemCatalog'
 import { classifyJobLane, parseFromText } from './parseFromText'
 import type {
   BookingJobType,
@@ -44,6 +45,9 @@ function parseJobTypeSelection(text: string): BookingJobType | null {
   if (
     t === 'delivery / pickup' ||
     t === 'delivery/pickup' ||
+    t === 'pick up & drop' ||
+    t === 'pick & drop' ||
+    t === 'pickup & drop' ||
     t === 'delivery' ||
     t === 'pickup' ||
     t === 'pick up'
@@ -116,6 +120,7 @@ export function selectHomeJobType(
     suggestions: [],
     detectedItems: bookingState.detectedItems,
     itemCounts: bookingState.itemCounts,
+    specialtyItemSlugs: [...bookingState.specialtyItemSlugs],
     isHeavyItem: jobType === 'heavyItem' ? true : bookingState.isHeavyItem,
   })
   const plan = deriveNextQuestion(next)
@@ -637,6 +642,10 @@ export function handleUserInput(input: UserInput, bookingState: BookingState): H
     }
     if (r.specialItemType && r.specialItemType !== 'none') {
       next.specialItemType = r.specialItemType
+      const slug = normalizeSpecialtySlug(r.specialItemType)
+      if (slug) {
+        next.specialtyItemSlugs = [...next.specialtyItemSlugs, slug]
+      }
     }
     if (r.isHeavyItem) {
       next.isHeavyItem = true
@@ -662,7 +671,7 @@ export function handleUserInput(input: UserInput, bookingState: BookingState): H
     next.currentQuestion = 'What type of job is this?'
     next.suggestions = [
       'Junk removal',
-      'Delivery / pickup',
+      'Pick & drop',
       'Heavy item',
       'Home moving',
       'Helper',

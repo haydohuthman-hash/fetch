@@ -43,6 +43,42 @@ function wmoCodeToPhrase(code: number): string {
 
 type GeoCoords = { lat: number; lng: number }
 
+/** Rough metro box — enough for personality lines, not geofencing. */
+function isProbablyBrisbane(coords: GeoCoords): boolean {
+  return (
+    coords.lat >= -27.72 &&
+    coords.lat <= -27.32 &&
+    coords.lng >= 152.62 &&
+    coords.lng <= 153.38
+  )
+}
+
+/** Time- and place-aware aside woven into the welcome (TTS). */
+function buildLocationTimePersonality(now: Date, coords: GeoCoords): string {
+  const h = now.getHours()
+  const bris = isProbablyBrisbane(coords)
+  const chunks: string[] = []
+
+  if (h >= 22 || h < 5) {
+    chunks.push(
+      "Late one, huh? If tonight's a stretch I can line something up for tomorrow instead.",
+    )
+  } else if (h >= 17 && h < 22) {
+    chunks.push("Evening stretch — say what you need and we'll get it moving.")
+  }
+
+  if (bris) {
+    const nightish = h >= 18 || h < 6
+    chunks.push(
+      nightish
+        ? "Brisbane's humming tonight — plenty of drivers on the road."
+        : "Solid driver coverage around Brisbane today — matching shouldn't take long.",
+    )
+  }
+
+  return chunks.join(' ')
+}
+
 function getCoordsWithFallback(timeoutMs = 2000): Promise<GeoCoords> {
   return new Promise((resolve) => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
@@ -90,9 +126,8 @@ async function fetchWeatherSpeechPhrase(coords: GeoCoords): Promise<string> {
   return `Around your area it's about ${rounded} degrees with ${sky}.`
 }
 
-async function weatherPhraseWithFallback(): Promise<string> {
+async function weatherPhraseWithFallback(coords: GeoCoords): Promise<string> {
   try {
-    const coords = await getCoordsWithFallback()
     return await fetchWeatherSpeechPhrase(coords)
   } catch {
     return "I couldn't quite reach the weather service, but I'm ready whenever you are."
@@ -115,8 +150,10 @@ export async function buildHomeWelcomeLine(options: HomeWelcomeOptions): Promise
   const greeting = timeOfDayGreeting(now)
   const when = formatCurrentDateTimeForSpeech(now)
 
+  const coords = await getCoordsWithFallback()
+
   const weatherLine = await Promise.race([
-    weatherPhraseWithFallback(),
+    weatherPhraseWithFallback(coords),
     new Promise<string>((resolve) =>
       window.setTimeout(
         () => resolve("Weather's taking a moment — I'll keep it quick."),
@@ -125,21 +162,29 @@ export async function buildHomeWelcomeLine(options: HomeWelcomeOptions): Promise
     ),
   ])
 
+  const personality = buildLocationTimePersonality(now, coords)
+
   if (firstName) {
     return [
       `Hi ${firstName}! ${greeting}.`,
       when,
       weatherLine,
+      personality,
       `Great to see you again — I'm Fetch, here to make today easier.`,
       `Tap me to chat, choose a service to book and get a driver, or tap Nav for maps and directions.`,
-    ].join(' ')
+    ]
+      .filter((s) => s.trim().length > 0)
+      .join(' ')
   }
 
   return [
     `${greeting}!`,
     when,
     weatherLine,
+    personality,
     `I'm Fetch — thanks for stopping by.`,
     `Tap me to chat, pick a service to book and match a driver, or open Nav for turn-by-turn directions.`,
-  ].join(' ')
+  ]
+    .filter((s) => s.trim().length > 0)
+    .join(' ')
 }

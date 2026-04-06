@@ -248,6 +248,9 @@ export async function reviewBookingDraft(draft, { openAiApiKey } = {}) {
     cleaningType: typeof draft?.cleaningType === 'string' ? draft.cleaningType : null,
     cleaningNotes: typeof draft?.cleaningNotes === 'string' ? draft.cleaningNotes : null,
     specialItemType: typeof draft?.specialItemType === 'string' ? draft.specialItemType : null,
+    specialtyItemSlugs: Array.isArray(draft?.specialtyItemSlugs)
+      ? draft.specialtyItemSlugs.filter((s) => typeof s === 'string').slice(0, 24)
+      : [],
     isHeavyItem: Boolean(draft?.isHeavyItem),
     isBulky: Boolean(draft?.isBulky),
     needsTwoMovers: Boolean(draft?.needsTwoMovers),

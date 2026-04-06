@@ -9,7 +9,7 @@
     "dev:e2e-stack": "concurrently -n server,vite -c blue,magenta \"cross-env PORT=8792 npm run server\" \"cross-env FETCH_DEV_PORT=5179 FETCH_DEV_API_PORT=8792 vite\"",
     "server": "tsx server/index.js",
     "build": "tsc -b && vite build",
-    "test": "tsx --test server/lib/booking-flow.test.js server/llm/fetchChatParse.test.js src/lib/booking/bookingLifecycle.test.ts src/lib/booking/bookingSessionPhase.test.ts src/lib/booking/tripSheetPhase.test.ts",
+    "test": "tsx --test server/lib/booking-flow.test.js server/llm/fetchChatParse.test.js src/lib/booking/bookingLifecycle.test.ts src/lib/booking/bookingSessionPhase.test.ts src/lib/booking/specialtyItemCatalog.test.ts src/lib/booking/tripSheetPhase.test.ts",
     "test:e2e": "playwright test",
     "lint": "eslint .",
     "preview": "vite preview"

@@ -1,5 +1,20 @@
 /** @typedef {{ name: string, arguments: string, id: string }} NormalizedToolCall */
 
+/** Must match `src/lib/booking/specialtyItemCatalog.ts` SPECIALTY_SLUGS. */
+export const BOOKING_PATCH_SPECIALTY_SLUGS = [
+  'pool_table',
+  'snooker_table',
+  'spa',
+  'piano',
+  'safe',
+  'marble_table',
+  'wardrobe',
+  'fridge',
+  'gym_equipment',
+  'sofa',
+  'mattress',
+]
+
 export const TOOL_SUBMIT_FETCH_TURN = 'submit_fetch_turn'
 export const TOOL_GEOCODE_AU_ADDRESS = 'geocode_au_address'
 export const TOOL_FETCH_BOOKING_FLOW_REFERENCE = 'fetch_booking_flow_reference'
@@ -47,6 +62,34 @@ const submitTurnParametersSchema = {
             pickupAddressText: { type: 'string' },
             dropoffAddressText: { type: 'string' },
             openBookingOnMap: { type: 'boolean' },
+            schedulePreference: {
+              type: 'string',
+              enum: ['asap', 'scheduled'],
+              description: 'Whether they want the earliest crew or a planned window.',
+            },
+            scheduledWindowText: {
+              type: 'string',
+              description: 'Short text when scheduled, e.g. “Friday 2–4pm”.',
+            },
+            extraStopsNote: {
+              type: 'string',
+              description:
+                'Multi-stop or multi-job narrative: list extra pickups/dropoffs or separate jobs the primary pickup/dropoff pair does not capture.',
+            },
+            specialtyItems: {
+              type: 'array',
+              maxItems: 12,
+              description:
+                'Only when the user clearly mentioned bulky/specialty goods (pool table, spa, piano, etc.). Use whitelist slugs only; never invent items. Omit if unsure.',
+              items: {
+                type: 'object',
+                properties: {
+                  slug: { type: 'string', enum: BOOKING_PATCH_SPECIALTY_SLUGS },
+                  quantity: { type: 'integer', minimum: 1, maximum: 5 },
+                },
+                required: ['slug'],
+              },
+            },
           },
         },
       ],
@@ -129,5 +172,7 @@ export const BOOKING_FLOW_REFERENCE_TEXT = `Fetch booking job types (use exact j
 - heavyItem: single large item move.
 - helper: labour / muscle / task help (hours-based flow in app).
 - cleaning: cleaning service (hours-based flow in app).
+
+Multi-stop / multi-job: put the main routed pickup + drop-off in address fields; describe extra stops or a second job in extraStopsNote. Ask timing: bookingPatch.schedulePreference asap vs scheduled, plus scheduledWindowText when they pick a window.
 
 Rules: Never invent addresses. Confirm suburbs. Use submit_fetch_turn for every user-visible reply.`

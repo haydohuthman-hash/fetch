@@ -11,6 +11,7 @@ import {
 } from '../assistant/types'
 import { estimateRouteKmDuration } from '../assistant/parseFromText'
 import type { FetchAiBookingDraft } from './types'
+import { computeSpecialtySurcharge } from './specialtyItemCatalog'
 
 export type ScannerEstimatedSize = 'small' | 'medium' | 'large' | 'whole_home'
 
@@ -39,11 +40,15 @@ export type PricingJobInput = {
   isBulky: boolean
   needsTwoMovers: boolean
   needsSpecialEquipment: boolean
+  /** Normalized specialty slugs; duplicates imply quantity. */
+  specialtyItemSlugs?: string[]
 }
 
 export type ComputePriceOptions = {
   /** When true, estimate distance/duration from addresses if route missing. Default true. */
   allowRouteFallback?: boolean
+  /** 0–50: courtesy discount applied to quoted dollars (neural field booking). */
+  customerDiscountPercent?: number
 }
 
 export type ComputePriceOk = {
@@ -204,7 +209,8 @@ function computeBreakdownCore(
       : /\bloading|lifting\b/i.test(input.helperType ?? '')
         ? 8
         : 0
-    const subtotal = baseHelpersFee + hours * hourlyRate + supportFee
+    const spec = computeSpecialtySurcharge('helpers', input.specialtyItemSlugs)
+    const subtotal = baseHelpersFee + hours * hourlyRate + supportFee + spec.aud
     const spread = Math.max(12, subtotal * 0.12)
 
     return {
@@ -215,6 +221,8 @@ function computeBreakdownCore(
       accessFee: 0,
       disposalFee: 0,
       helperFee: Math.round(hours * hourlyRate + supportFee),
+      specialtyFee: Math.round(spec.aud),
+      specialtyLines: spec.lines,
       moveSizeMultiplier: 1,
       subtotal: Math.round(subtotal),
       spread: Math.round(spread),
@@ -232,7 +240,8 @@ function computeBreakdownCore(
       : /\b(end of lease|bond)\b/i.test(input.cleaningType ?? '')
         ? 22
         : 0
-    const subtotal = baseCleaningFee + hours * hourlyRate + supportFee
+    const spec = computeSpecialtySurcharge('cleaning', input.specialtyItemSlugs)
+    const subtotal = baseCleaningFee + hours * hourlyRate + supportFee + spec.aud
     const spread = Math.max(12, subtotal * 0.12)
 
     return {
@@ -243,6 +252,8 @@ function computeBreakdownCore(
       accessFee: 0,
       disposalFee: 0,
       helperFee: Math.round(hours * hourlyRate + supportFee),
+      specialtyFee: Math.round(spec.aud),
+      specialtyLines: spec.lines,
       moveSizeMultiplier: 1,
       subtotal: Math.round(subtotal),
       spread: Math.round(spread),
@@ -251,9 +262,11 @@ function computeBreakdownCore(
     }
   }
 
-  const subtotal =
+  const spec = computeSpecialtySurcharge(input.serviceType, input.specialtyItemSlugs)
+  const lineSubtotal =
     (baseFee + routeFee + routeTimeFee + inventoryFee + accessFee + disposalFee + helperFee + heavyItemFee) *
     moveSizeFactor
+  const subtotal = lineSubtotal + spec.aud
   const spread = Math.max(14, subtotal * 0.16)
 
   return {
@@ -264,6 +277,8 @@ function computeBreakdownCore(
     accessFee: Math.round(accessFee),
     disposalFee: Math.round(disposalFee),
     helperFee: Math.round(helperFee),
+    specialtyFee: Math.round(spec.aud),
+    specialtyLines: spec.lines,
     moveSizeMultiplier: Number(moveSizeFactor.toFixed(2)),
     subtotal: Math.round(subtotal),
     spread: Math.round(spread),
@@ -336,6 +351,11 @@ function buildPricing(
     )
     if (input.needsTwoMovers) explanationParts.push('two movers')
     if (input.needsSpecialEquipment) explanationParts.push('special equipment')
+  }
+  if (breakdown.specialtyFee > 0 && breakdown.specialtyLines.length > 0) {
+    explanationParts.push(
+      `specialty: ${breakdown.specialtyLines.map((l) => `${l.label} (+$${l.aud})`).join(', ')}`,
+    )
   }
   if (input.accessDetails.stairs) explanationParts.push('stairs')
   if (input.accessDetails.disassembly) explanationParts.push('disassembly')
@@ -433,7 +453,7 @@ export function computePrice(
   if (!route.ok) return route
 
   const breakdown = computeBreakdownCore(input, route.distanceMeters, route.durationSeconds)
-  const pricing = buildPricing(
+  let pricing = buildPricing(
     input,
     breakdown,
     route.distanceMeters,
@@ -441,12 +461,31 @@ export function computePrice(
     route.usedRouteFallback,
   )
 
+  const pctRaw = options?.customerDiscountPercent ?? 0
+  const pct = Math.min(50, Math.max(0, Math.round(pctRaw)))
+  let totalPrice = pricing.totalPrice ?? Math.round(breakdown.subtotal)
+  let depositDueNow = pricing.depositDueNow ?? pricing.totalPrice ?? Math.round(breakdown.subtotal)
+  if (pct > 0) {
+    const factor = 1 - pct / 100
+    const scale = (n: number) => Math.max(0, Math.round(n * factor))
+    pricing = {
+      ...pricing,
+      minPrice: scale(pricing.minPrice),
+      maxPrice: scale(pricing.maxPrice),
+      totalPrice: scale(pricing.totalPrice ?? totalPrice),
+      depositDueNow: scale(pricing.depositDueNow ?? depositDueNow),
+      explanation: `${pricing.explanation} · ${pct}% courtesy discount`,
+    }
+    totalPrice = scale(totalPrice)
+    depositDueNow = scale(depositDueNow)
+  }
+
   return {
     ok: true,
     breakdown,
     pricing,
-    totalPrice: pricing.totalPrice ?? Math.round(breakdown.subtotal),
-    depositDueNow: pricing.depositDueNow ?? pricing.totalPrice ?? Math.round(breakdown.subtotal),
+    totalPrice,
+    depositDueNow,
     balanceRemaining: pricing.balanceRemaining ?? 0,
     usedRouteFallback: route.usedRouteFallback,
   }
@@ -480,6 +519,7 @@ export function draftToPricingInput(draft: FetchAiBookingDraft): PricingJobInput
     isBulky: draft.isBulky,
     needsTwoMovers: draft.needsTwoMovers,
     needsSpecialEquipment: draft.needsSpecialEquipment,
+    specialtyItemSlugs: draft.specialtyItemSlugs ?? [],
   }
 }
 
@@ -512,6 +552,7 @@ export function stateToPricingInput(state: BookingState): PricingJobInput | null
     isBulky: state.isBulky,
     needsTwoMovers: state.needsTwoMovers,
     needsSpecialEquipment: state.needsSpecialEquipment,
+    specialtyItemSlugs: state.specialtyItemSlugs ?? [],
   }
 }
 
@@ -544,5 +585,12 @@ export function computePriceForState(
       missingFields: ['jobType', 'serviceType'],
     }
   }
-  return computePrice(input, options)
+  const discountFromState =
+    options?.customerDiscountPercent !== undefined
+      ? options.customerDiscountPercent
+      : (state.fieldVoiceDiscountPercent ?? 0)
+  return computePrice(input, {
+    ...options,
+    customerDiscountPercent: discountFromState,
+  })
 }

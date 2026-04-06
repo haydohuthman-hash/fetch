@@ -3,7 +3,11 @@
 const KEY = 'fetch.brainLearning.v1'
 const MAX = 40
 
-export type BrainLearningKind = 'place_mention' | 'place_opinion' | 'chat_reply_feedback'
+export type BrainLearningKind =
+  | 'place_mention'
+  | 'place_opinion'
+  | 'chat_reply_feedback'
+  | 'field_voice_step'
 
 export type BrainLearningEvent = {
   id: string
@@ -28,7 +32,8 @@ function safeParse(raw: string | null): BrainLearningEvent[] {
         typeof (row as BrainLearningEvent).at === 'number' &&
         ((row as BrainLearningEvent).kind === 'place_mention' ||
           (row as BrainLearningEvent).kind === 'place_opinion' ||
-          (row as BrainLearningEvent).kind === 'chat_reply_feedback'),
+          (row as BrainLearningEvent).kind === 'chat_reply_feedback' ||
+          (row as BrainLearningEvent).kind === 'field_voice_step'),
     )
   } catch {
     return []
@@ -76,6 +81,10 @@ export function buildFetchBrainLearningContext(): string {
     if (r.kind === 'chat_reply_feedback' && r.rating === 1) {
       const snip = r.note?.trim() || 'a reply'
       return `• ${when}: user thumbs-up on Fetch reply: "${snip.slice(0, 120)}${snip.length > 120 ? '…' : ''}"`
+    }
+    if (r.kind === 'field_voice_step') {
+      const snip = r.note?.trim() || 'step'
+      return `• ${when}: field booking: ${snip.slice(0, 140)}${snip.length > 140 ? '…' : ''}`
     }
     if (r.kind === 'chat_reply_feedback' && r.rating === -1) {
       const snip = r.note?.trim() || 'a reply'

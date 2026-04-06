@@ -9,6 +9,7 @@ import {
 } from '../lib/fetchPerf'
 import { voiceFlowDebug, voiceFlowFallbackText } from './voiceFlowDebug'
 import { patchVoiceSourceDebug } from './voiceSourceDebug'
+import { shouldSkipBrowserTtsFallback } from './voiceMobilePolicy'
 
 function voiceDevLog(...args: unknown[]) {
   if (import.meta.env.DEV) console.log(...args)
@@ -50,6 +51,11 @@ export type SpeakLineOptions = {
   debounceMs?: number
   /** When perf logging is on, ties TTS + playback to `[FetchPerf]` run. */
   perfRunId?: string
+  /**
+   * When `true`, use OS `speechSynthesis` if Google proxy TTS fails (overrides touch “Google only”).
+   * When `false`, never use browser TTS for this line.
+   */
+  allowBrowserFallback?: boolean
 }
 
 const VOICE_FETCH_TIMEOUT_MS = 9000
@@ -434,6 +440,39 @@ export function subscribeVoiceSpeechPlaying(
   return () => speechPlayingListeners.delete(listener)
 }
 
+function resolveSkipAssistantBrowserTts(opts: {
+  skipSpeechFallback: boolean
+  allowBrowserFallback?: boolean
+}): boolean {
+  if (opts.skipSpeechFallback) return true
+  if (opts.allowBrowserFallback === true) return false
+  if (opts.allowBrowserFallback === false) return true
+  return shouldSkipBrowserTtsFallback()
+}
+
+function pickPreferredAssistantBrowserVoice(
+  voices: SpeechSynthesisVoice[],
+): SpeechSynthesisVoice | undefined {
+  const en = (v: SpeechSynthesisVoice) => /^en-(au|gb|us)/i.test(v.lang)
+  const googleEn = voices.filter((v) => en(v) && /google/i.test(v.name))
+  if (googleEn.length) {
+    const au = googleEn.find((v) => /^en-au/i.test(v.lang))
+    if (au) return au
+    const gb = googleEn.find((v) => /^en-gb/i.test(v.lang))
+    if (gb) return gb
+    return googleEn[0]
+  }
+  const gb =
+    voices.find(
+      (v) =>
+        /^en-gb/i.test(v.lang) &&
+        /male|daniel|arthur|oliver|fred|george|thomas|malcolm|gordon/i.test(
+          v.name.toLowerCase(),
+        ),
+    ) || voices.find((v) => /^en-gb/i.test(v.lang))
+  return gb
+}
+
 function stopBrowserSpeech() {
   try {
     window.speechSynthesis?.cancel()
@@ -519,15 +558,8 @@ function speakWithBrowserTTS(
       u.rate = 0.92
       u.pitch = 0.94
       const voices = synth.getVoices()
-      const gb =
-        voices.find(
-          (v) =>
-            /^en-gb/i.test(v.lang) &&
-            /male|daniel|arthur|oliver|fred|george|thomas|malcolm|gordon/i.test(
-              v.name.toLowerCase(),
-            ),
-        ) || voices.find((v) => /^en-gb/i.test(v.lang))
-      if (gb) u.voice = gb
+      const preferred = pickPreferredAssistantBrowserVoice(voices)
+      if (preferred) u.voice = preferred
       u.onstart = () => {
         if (perfRunId && fetchPerfIsEnabled()) {
           fetchPerfMark(perfRunId, '8_audio_element_ready', { path: 'browser_tts' })
@@ -662,14 +694,20 @@ async function playPhrase(
     debounceMs = EVENT_DEBOUNCE_MS,
     prelude,
     skipSpeechFallback = false,
+    allowBrowserFallback,
     perfRunId,
   }: {
     debounceMs?: number
     prelude?: () => Promise<void> | void
     skipSpeechFallback?: boolean
+    allowBrowserFallback?: boolean
     perfRunId?: string
   } = {},
 ): Promise<void> {
+  const skipBrowserTts = resolveSkipAssistantBrowserTts({
+    skipSpeechFallback,
+    allowBrowserFallback,
+  })
   const text = phrase.trim()
   if (!text) {
     voiceDevWarn('[Fetch voice flow] playPhrase skipped (empty text)')
@@ -729,11 +767,18 @@ async function playPhrase(
 
   if (!url) {
     voiceFlowDebug('response_received', { path: 'browser_tts_only', key })
-    if (skipSpeechFallback) {
-      voiceFlowDebug('playback_failed', { reason: 'skipSpeechFallback_no_url' })
+    if (skipBrowserTts) {
+      voiceFlowDebug('playback_failed', {
+        reason: skipSpeechFallback
+          ? 'skipSpeechFallback_no_url'
+          : 'google_tts_only_no_browser_fallback',
+      })
       voiceFlowFallbackText(
         text,
-        ttsFailure ?? 'TTS unavailable (no URL, fallback disabled)',
+        ttsFailure ??
+          (skipSpeechFallback
+            ? 'TTS unavailable (no URL, fallback disabled)'
+            : 'Google voice unavailable — check network and server TTS key.'),
       )
       return
     }
@@ -802,7 +847,7 @@ async function playPhrase(
           mediaErrorCode: code,
         })
         voiceFlowDebug('playback_failed', { path: 'html_audio_error', error: msg })
-        if (skipSpeechFallback) {
+        if (skipBrowserTts) {
           voiceFlowFallbackText(text, msg)
           return
         }
@@ -834,7 +879,7 @@ async function playPhrase(
     })
     voiceFlowDebug('playback_failed', { path: 'audio_play_throw', error: msg })
     stopCurrentPlayback()
-    if (skipSpeechFallback) {
+    if (skipBrowserTts) {
       voiceFlowFallbackText(text, msg)
       return
     }
@@ -862,6 +907,7 @@ export async function speakLine(text: string, options?: SpeakLineOptions): Promi
     await playPhrase(phrase, key, {
       debounceMs: options?.debounceMs ?? LINE_DEBOUNCE_MS,
       perfRunId: options?.perfRunId,
+      allowBrowserFallback: options?.allowBrowserFallback,
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)

@@ -36,6 +36,8 @@ export type FetchAiChatClientContext = {
   nearbyExploreSummary?: string
   /** Home mic/orb brain entry: voice-led booking; server biases prompts + choice sheets. */
   brainSessionGoal?: 'booking_voice'
+  /** Structured facts from the latest booking photo scan (server appendix). */
+  brainBookingScanSummary?: string
 }
 
 /** Populated when the server resolves a driving route (Google Directions + traffic). */

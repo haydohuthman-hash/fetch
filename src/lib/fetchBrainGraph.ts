@@ -27,7 +27,7 @@ function jobLabel(jt: BookingJobType | null) {
   if (!jt) return 'No active job'
   const labels: Record<BookingJobType, string> = {
     junkRemoval: 'Junk removal',
-    deliveryPickup: 'Delivery pickup',
+    deliveryPickup: 'Pick & drop',
     heavyItem: 'Heavy item',
     homeMoving: 'Home moving',
     helper: 'Helper / labour',

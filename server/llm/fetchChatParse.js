@@ -1,5 +1,7 @@
 /** @typedef {{ reply: string, interaction: object | null, bookingPatch: object | null }} FetchChatTurnParsed */
 
+import { BOOKING_PATCH_SPECIALTY_SLUGS } from './fetchChatTools.js'
+
 export const FETCH_AI_CHAT_REPLY_MAX = 1200
 export const FETCH_AI_CHAT_CHOICE_MAX = 200
 export const FETCH_AI_CHAT_SHEET_PROMPT_MAX = 200
@@ -14,6 +16,27 @@ const BOOKING_PATCH_JOB_TYPES = new Set([
   'cleaning',
 ])
 const BOOKING_PATCH_ADDR_MAX = 220
+const SPECIALTY_SLUG_SET = new Set(BOOKING_PATCH_SPECIALTY_SLUGS)
+
+/**
+ * @param {unknown} raw
+ * @returns {Array<{ slug: string, quantity: number }>|undefined}
+ */
+function sanitizeSpecialtyItems(raw) {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined
+  const out = []
+  for (const row of raw.slice(0, 12)) {
+    if (row == null || typeof row !== 'object') continue
+    const slugRaw = typeof row.slug === 'string' ? row.slug.trim().toLowerCase().replace(/-/g, '_') : ''
+    if (!SPECIALTY_SLUG_SET.has(slugRaw)) continue
+    let qty = 1
+    if (typeof row.quantity === 'number' && Number.isFinite(row.quantity)) {
+      qty = Math.max(1, Math.min(5, Math.floor(row.quantity)))
+    }
+    out.push({ slug: slugRaw, quantity: qty })
+  }
+  return out.length > 0 ? out : undefined
+}
 
 export function sanitizeBookingPatch(raw) {
   if (raw == null || typeof raw !== 'object') return null
@@ -31,7 +54,30 @@ export function sanitizeBookingPatch(raw) {
     if (t.length > 0) out.dropoffAddressText = t
   }
   if (o.openBookingOnMap === true) out.openBookingOnMap = true
-  if (!out.jobType && !out.pickupAddressText && !out.dropoffAddressText) return null
+  if (o.schedulePreference === 'asap' || o.schedulePreference === 'scheduled') {
+    out.schedulePreference = o.schedulePreference
+  }
+  if (typeof o.scheduledWindowText === 'string') {
+    const t = o.scheduledWindowText.trim().slice(0, 200)
+    if (t.length > 0) out.scheduledWindowText = t
+  }
+  if (typeof o.extraStopsNote === 'string') {
+    const t = o.extraStopsNote.trim().slice(0, 500)
+    if (t.length > 0) out.extraStopsNote = t
+  }
+  const spec = sanitizeSpecialtyItems(o.specialtyItems)
+  if (spec) out.specialtyItems = spec
+  if (
+    !out.jobType &&
+    !out.pickupAddressText &&
+    !out.dropoffAddressText &&
+    !out.schedulePreference &&
+    !out.scheduledWindowText &&
+    !out.extraStopsNote &&
+    !out.specialtyItems
+  ) {
+    return null
+  }
   if (out.openBookingOnMap === true && !out.jobType && !out.pickupAddressText) return null
   return out
 }

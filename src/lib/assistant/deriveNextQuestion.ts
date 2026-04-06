@@ -34,7 +34,7 @@ export function deriveNextQuestion(state: BookingState): QuestionPlan {
       question: 'What type of job is this?',
       suggestions: [
         'Junk removal',
-        'Delivery / pickup',
+        'Pick & drop',
         'Heavy item',
         'Home moving',
         'Helper',

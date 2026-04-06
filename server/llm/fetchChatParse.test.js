@@ -65,6 +65,55 @@ test('sanitizeBookingPatch rejects openBookingOnMap without job or pickup', () =
   assert.equal(p, null)
 })
 
+test('sanitizeBookingPatch keeps schedule-only patch', () => {
+  const p = sanitizeBookingPatch({ schedulePreference: 'asap' })
+  assert.ok(p)
+  assert.equal(p.schedulePreference, 'asap')
+})
+
+test('sanitizeBookingPatch keeps extraStopsNote without addresses', () => {
+  const p = sanitizeBookingPatch({ extraStopsNote: 'Also collect fridge from mum’s in Ashgrove after pickup.' })
+  assert.ok(p)
+  assert.ok((p.extraStopsNote || '').includes('Ashgrove'))
+})
+
+test('sanitizeBookingPatch keeps specialtyItems-only patch', () => {
+  const p = sanitizeBookingPatch({
+    specialtyItems: [{ slug: 'piano', quantity: 1 }],
+  })
+  assert.ok(p)
+  assert.equal(p.specialtyItems?.length, 1)
+  assert.equal(p.specialtyItems?.[0].slug, 'piano')
+  assert.equal(p.specialtyItems?.[0].quantity, 1)
+})
+
+test('sanitizeBookingPatch strips unknown specialty slugs', () => {
+  const p = sanitizeBookingPatch({
+    specialtyItems: [{ slug: 'grand_piano', quantity: 1 }, { slug: 'spa', quantity: 2 }],
+  })
+  assert.ok(p)
+  assert.equal(p.specialtyItems?.length, 1)
+  assert.equal(p.specialtyItems?.[0].slug, 'spa')
+  assert.equal(p.specialtyItems?.[0].quantity, 2)
+})
+
+test('sanitizeBookingPatch returns null when only unknown specialty slugs', () => {
+  const p = sanitizeBookingPatch({ specialtyItems: [{ slug: 'unknown_item' }] })
+  assert.equal(p, null)
+})
+
+test('sanitizeBookingPatch clamps specialty quantity', () => {
+  const low = sanitizeBookingPatch({ specialtyItems: [{ slug: 'safe', quantity: 0 }] })
+  assert.equal(low?.specialtyItems?.[0].quantity, 1)
+  const high = sanitizeBookingPatch({ specialtyItems: [{ slug: 'safe', quantity: 99 }] })
+  assert.equal(high?.specialtyItems?.[0].quantity, 5)
+})
+
+test('sanitizeBookingPatch normalizes slug casing and hyphens', () => {
+  const p = sanitizeBookingPatch({ specialtyItems: [{ slug: 'Pool-Table', quantity: 1 }] })
+  assert.equal(p?.specialtyItems?.[0].slug, 'pool_table')
+})
+
 test('submit_fetch_turn tool arguments match JSON mode shape', () => {
   const arg = JSON.stringify({
     say: 'Delivery from South Bank to West End.',

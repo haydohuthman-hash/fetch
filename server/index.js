@@ -1033,6 +1033,13 @@ function parseBrainSessionGoal(body) {
   return raw === 'booking_voice' ? 'booking_voice' : null
 }
 
+function parseBrainBookingScanSummary(body) {
+  const raw = body?.context?.brainBookingScanSummary
+  if (typeof raw !== 'string') return ''
+  const t = raw.trim()
+  return t.length > 0 ? t.slice(0, 1200) : ''
+}
+
 async function buildChatContextAppendix(body) {
   const { timeZone, lat, lon } = parseChatContext(body)
   const timeLine = `Current local time (user device timezone ${timeZone}): ${formatLocalContextTime(timeZone)}.`
@@ -1057,13 +1064,17 @@ async function buildChatContextAppendix(body) {
   const learnBlock = learnRaw
     ? `\n\nUser place memory (local device; trust recency; use for follow-ups like “you liked X last week”):\n${learnRaw}`
     : ''
+  const scanRaw = parseBrainBookingScanSummary(body)
+  const scanBlock = scanRaw
+    ? `\n\nLatest booking photo scan (structured facts — trust for items, size, access flags; the thread may also contain a spoken description):\n${scanRaw}`
+    : ''
   const trusted =
     'Trust the following lines as facts for questions about time or weather; do not contradict them. If no weather line is present, you do not have live weather—say so briefly and suggest they allow location if they want it.'
   const bookingVoiceBlock =
     parseBrainSessionGoal(body) === 'booking_voice'
-      ? `\n\nSession mode: BOOKING VOICE. The user opened Fetch by voice from the home screen to complete a job booking in a back-and-forth voice conversation. Prioritize the booking flow (service type, pick-up and drop-off, timing, access, extras). Whenever you need a yes/no, one detail from a small set, or any discrete decision, you MUST provide a non-null sheet (JSON mode: "sheet" object; tool mode: submit_fetch_turn.sheet) with exactly four short tap labels (use "Something else" or "Tell you in my words" as one option when needed). Your spoken reply must match the sheet prompt. Use a null sheet only for brief open-ended prompts where tap choices would not help.`
+      ? `\n\nSession mode: BOOKING VOICE (neural-field booking). The user books via voice + chat + photos over the map. Rules: (1) Multi-stop / multi-job: keep one primary pickup + drop-off in bookingPatch for routing; describe extra stops, second jobs, or sequencing in bookingPatch.extraStopsNote. If unclear, ask which leg is first. (2) Timing: before final quote language, ask ASAP vs a scheduled date/window; set bookingPatch.schedulePreference to "asap" or "scheduled", and scheduledWindowText when they give a concrete window. (3) Photos: still request images when volume/items matter; scan facts may appear in server context. (4) Pricing: the app shows exact engine totals (total + deposit in AUD) and a Pay button — never say “ballpark”, never invent dollar amounts or ranges from the model. At quote/payment confirmation use sheet null (no four-choice sheet for accepting price). Four-choice sheets are fine earlier (service, access, stairs, timing mode). (5) Courtesy discount is a secondary tap in UI — do not promise amounts you cannot see. (6) Follow existing openBookingOnMap rules. Be concise; never contradict user-confirmed addresses.`
       : ''
-  const block = `${trusted}\n${timeLine}${extra}${memBlock}${brainBlock}${learnBlock}${exploreBlock}${bookingVoiceBlock}`
+  const block = `${trusted}\n${timeLine}${extra}${memBlock}${brainBlock}${learnBlock}${exploreBlock}${scanBlock}${bookingVoiceBlock}`
   return block.length > CHAT_CONTEXT_MAX_LEN ? block.slice(0, CHAT_CONTEXT_MAX_LEN) : block
 }
 

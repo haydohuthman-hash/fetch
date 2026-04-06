@@ -46,7 +46,7 @@ export type BookingRoute = {
 }
 
 /** Bump when quote math or inputs change materially (audit / support). */
-export const BOOKING_QUOTE_VERSION = 1 as const
+export const BOOKING_QUOTE_VERSION = 2 as const
 
 export type BookingPricing = {
   minPrice: number
@@ -75,6 +75,9 @@ export type BookingQuoteBreakdown = {
   accessFee: number
   disposalFee: number
   helperFee: number
+  /** Specialty / bulky item surcharges (pool table, spa, etc.) — not multiplied by move size. */
+  specialtyFee: number
+  specialtyLines: { label: string; aud: number }[]
   moveSizeMultiplier: number
   subtotal: number
   spread: number
@@ -256,6 +259,8 @@ export type BookingState = {
   detectedItems: string[]
   itemCounts: Record<string, number>
   inventorySummary: string | null
+  /** Whitelist specialty slugs from chat / scan; duplicates count as quantity (capped per slug). */
+  specialtyItemSlugs: string[]
   pickupAddressText: string
   pickupPlace: BookingPlace | null
   pickupCoords: BookingCoords | null
@@ -336,6 +341,17 @@ export type BookingState = {
   junkConfirmStepComplete: boolean
   /** Set when server returns a persisted customer rating for this booking. */
   customerRating: BookingCustomerRating | null
+  /**
+   * Neural-field voice booking: courtesy % subtracted from quoted totals (e.g. user tapped “Add 5% off”).
+   * Applied automatically in `computePriceForState` unless overridden in options.
+   */
+  fieldVoiceDiscountPercent: number
+  /** Neural field: user wants ASAP dispatch vs a later window (from chat / bookingPatch). */
+  fieldVoiceSchedulePreference: null | 'asap' | 'scheduled'
+  /** Human-readable schedule e.g. “Saturday morning”. */
+  fieldVoiceScheduledWindow: string | null
+  /** Extra stops, multi-leg jobs, or second job — free text for quote summary UI. */
+  fieldVoiceItineraryNote: string | null
 }
 
 export type UserInput = {
@@ -374,6 +390,7 @@ export function createInitialBookingState(): BookingState {
     detectedItems: [],
     itemCounts: {},
     inventorySummary: null,
+    specialtyItemSlugs: [],
     pickupAddressText: '',
     pickupPlace: null,
     pickupCoords: null,
@@ -437,7 +454,7 @@ export function createInitialBookingState(): BookingState {
     currentQuestion: 'What type of job is this?',
     suggestions: [
       'Junk removal',
-      'Delivery / pickup',
+      'Pick & drop',
       'Heavy item',
       'Home moving',
       'Helper',
@@ -450,5 +467,9 @@ export function createInitialBookingState(): BookingState {
     junkQuoteAcknowledged: false,
     junkConfirmStepComplete: false,
     customerRating: null,
+    fieldVoiceDiscountPercent: 0,
+    fieldVoiceSchedulePreference: null,
+    fieldVoiceScheduledWindow: null,
+    fieldVoiceItineraryNote: null,
   }
 }

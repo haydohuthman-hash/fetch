@@ -31,6 +31,7 @@ import {
 } from '../views/homeConstants'
 import { voiceFlowDebug, voiceFlowSttError } from '../voice/voiceFlowDebug'
 import { primeVoicePlaybackFromUserGesture } from '../voice/fetchVoice'
+import { isCoarsePointerDevice } from '../voice/voiceMobilePolicy'
 import { buildFetchUserMemoryContext } from '../lib/fetchUserMemoryContext'
 import { useFetchVoice } from '../voice/FetchVoiceContext'
 
@@ -136,6 +137,8 @@ export function HomeIntentChatComposer({
   const [chatPending, setChatPending] = useState(false)
   /** Incremental assistant text while SSE tokens arrive (cleared after the turn completes). */
   const [streamAssistantText, setStreamAssistantText] = useState('')
+  /** Web Speech API partial results on touch devices — faster perceived STT feedback. */
+  const [sttInterimText, setSttInterimText] = useState('')
   const [placeholderIndex, setPlaceholderIndex] = useState(0)
 
   const placeholderHints = useMemo(
@@ -227,8 +230,8 @@ export function HomeIntentChatComposer({
       if (fromStt) {
         sttSpeakPendingRef.current = true
       }
-      appendOrbChatTurn('user', trimmed)
       playUiEvent('processing_start')
+      appendOrbChatTurn('user', trimmed)
 
       const userMsg: HomeChatMessage = { role: 'user' as const, content: trimmed }
       const messagesForApi: HomeChatMessage[] = [...convRef.current, userMsg].slice(-10)
@@ -287,6 +290,7 @@ export function HomeIntentChatComposer({
           debounceKey: 'fetch_ai_home_intent',
           debounceMs: 0,
           perfRunId,
+          withVoiceHold: true,
         })
       } catch (e) {
         if (ac.signal.aborted) return
@@ -317,6 +321,7 @@ export function HomeIntentChatComposer({
           debounceKey: 'fetch_ai_home_intent',
           debounceMs: 0,
           perfRunId,
+          allowBrowserFallback: true,
         })
       } finally {
         if (chatAbortRef.current === ac) {
@@ -563,34 +568,46 @@ export function HomeIntentChatComposer({
 
     const rec = new SpeechRec()
     rec.lang = 'en-AU'
-    rec.interimResults = false
+    const coarse = isCoarsePointerDevice()
+    rec.interimResults = coarse
     rec.maxAlternatives = 1
     recognitionRef.current = rec
 
     rec.onstart = () => {
       voiceFlowDebug('listening', { source: 'home_intent_stt' })
       setListening(true)
+      setSttInterimText('')
       playUiEvent('listening_start')
     }
 
     rec.onresult = (event) => {
-      let text = ''
+      let finalText = ''
+      let latestInterim = ''
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         const row = event.results[i]
+        const chunk = row?.[0]?.transcript ?? ''
         if (row?.isFinal) {
-          text += row[0]?.transcript ?? ''
+          finalText += chunk
+        } else if (coarse) {
+          latestInterim = chunk
         }
       }
-      if (!text.trim() && event.results.length > 0) {
-        const last = event.results[event.results.length - 1]
-        text = last?.[0]?.transcript ?? ''
+      if (coarse && latestInterim.trim()) {
+        setSttInterimText(latestInterim.trim())
       }
-      const trimmed = text.trim()
-      playUiEvent('listening_end')
+      if (!finalText.trim() && event.results.length > 0) {
+        const last = event.results[event.results.length - 1]
+        if (last?.isFinal) {
+          finalText = last?.[0]?.transcript ?? ''
+        }
+      }
+      const trimmed = finalText.trim()
       if (!trimmed) {
         return
       }
 
+      setSttInterimText('')
+      playUiEvent('listening_end')
       void runHomeAiChat(trimmed, true)
     }
 
@@ -599,6 +616,7 @@ export function HomeIntentChatComposer({
       const code = e.error ?? 'unknown'
       voiceFlowSttError(`Speech recognition: ${code}`, { error: code })
       setListening(false)
+      setSttInterimText('')
       setMicPrimed(false)
       sttSpeakPendingRef.current = false
       playUiEvent('error')
@@ -606,6 +624,7 @@ export function HomeIntentChatComposer({
 
     rec.onend = () => {
       setListening(false)
+      setSttInterimText('')
       window.setTimeout(() => {
         if (!sttSpeakPendingRef.current) setMicPrimed(false)
       }, 100)
@@ -752,6 +771,17 @@ export function HomeIntentChatComposer({
           >
             Allow location to route from where you are. Type an address and tap the go arrow to
             navigate.
+          </p>
+        ) : null}
+        {listening && sttInterimText.trim().length > 0 ? (
+          <p
+            className={[
+              'fetch-home-intent-stt-interim px-3 pt-1 pb-0.5 text-[12px] font-normal italic leading-snug [text-wrap:pretty]',
+              variant === 'intentLanding' ? 'text-slate-500' : 'text-white/55',
+            ].join(' ')}
+            aria-live="polite"
+          >
+            {sttInterimText}
           </p>
         ) : null}
         {streamAssistantText.trim().length > 0 ? (

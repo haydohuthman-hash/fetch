@@ -1,3 +1,5 @@
+import { isCoarsePointerDevice } from './voiceMobilePolicy'
+
 export type UiFeedbackEvent =
   | 'activated'
   | 'card_reveal'
@@ -155,11 +157,32 @@ function playHaptic(event: UiFeedbackEvent) {
   }
 }
 
+function effectiveDebounceMs(event: UiFeedbackEvent, baseMs: number): number {
+  if (!isCoarsePointerDevice()) return baseMs
+  /* Touch: keep feedback snappy; still dampen only the noisiest repeaters */
+  const touchCeil: Partial<Record<UiFeedbackEvent, number>> = {
+    orb_tap: 0,
+    processing_start: 0,
+    listening_start: 0,
+    listening_end: 80,
+    success: 120,
+    error: 120,
+    activated: 800,
+    card_reveal: 400,
+    pin_drop: 200,
+    driver_found: 200,
+    payment_success: 280,
+  }
+  const cap = touchCeil[event]
+  return cap !== undefined ? cap : Math.min(baseMs, 160)
+}
+
 export function playUiFeedback(event: UiFeedbackEvent): void {
   const now = Date.now()
   const cfg = EVENT_CONFIG[event]
+  const debounceMs = effectiveDebounceMs(event, cfg.debounceMs)
   const last = lastPlayByEvent.get(event) ?? 0
-  if (now - last < cfg.debounceMs) return
+  if (now - last < debounceMs) return
   lastPlayByEvent.set(event, now)
   playHaptic(event)
   const ctx = getAudioContext()
