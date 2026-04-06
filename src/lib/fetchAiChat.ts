@@ -5,6 +5,7 @@ import {
   parseFetchPerfTimingHeader,
   type FetchPerfServerTiming,
 } from './fetchPerf'
+import { parseFetchAiBookingPatch, type FetchAiBookingPatch } from './fetchAiBookingPatch'
 
 export type FetchAiChatRole = 'user' | 'assistant'
 
@@ -15,6 +16,10 @@ const CHAT_TIMEOUT_MS = 22_000
 /** Thrown message fragments — UI may branch on these. */
 export const CHAT_ERROR_NETWORK = 'chat_network'
 export const CHAT_ERROR_OPENAI_NOT_CONFIGURED = 'openai_not_configured'
+export const CHAT_ERROR_ANTHROPIC_NOT_CONFIGURED = 'anthropic_not_configured'
+export const CHAT_ERROR_OPENAI_REQUEST_FAILED = 'openai_request_failed'
+export const CHAT_ERROR_LLM_REQUEST_FAILED = 'llm_request_failed'
+export const CHAT_ERROR_STREAM_INCOMPLETE = 'chat_stream_incomplete'
 
 export type FetchAiChatClientContext = {
   /** IANA timezone from `Intl` (e.g. Australia/Sydney) */
@@ -29,6 +34,8 @@ export type FetchAiChatClientContext = {
   brainLearningMemory?: string
   /** Map explore sheet: vetted nearby place list for the model (server may append). */
   nearbyExploreSummary?: string
+  /** Home mic/orb brain entry: voice-led booking; server biases prompts + choice sheets. */
+  brainSessionGoal?: 'booking_voice'
 }
 
 /** Populated when the server resolves a driving route (Google Directions + traffic). */
@@ -158,6 +165,7 @@ export async function postFetchAiChat(
   reply: string
   navigation: FetchAiChatNavigation | null
   interaction: FetchAiChatInteraction | null
+  bookingPatch: FetchAiBookingPatch | null
   perfTiming?: FetchPerfServerTiming | null
 }> {
   const controller = new AbortController()
@@ -263,6 +271,7 @@ export async function postFetchAiChat(
       error?: string
       navigation?: unknown
       interaction?: unknown
+      bookingPatch?: unknown
     } = {}
     try {
       data = (await res.json()) as typeof data
@@ -325,8 +334,192 @@ export async function postFetchAiChat(
     const perfTiming = parseFetchPerfTimingHeader(res)
     const navigation = parseFetchAiChatNavigation(data.navigation)
     const interaction = parseFetchAiChatInteraction(data.interaction)
+    const bookingPatch = parseFetchAiBookingPatch(data.bookingPatch)
 
-    return { reply, navigation, interaction, perfTiming }
+    return { reply, navigation, interaction, bookingPatch, perfTiming }
+  } finally {
+    window.clearTimeout(tid)
+    if (outer) {
+      outer.removeEventListener('abort', onOuterAbort)
+    }
+  }
+}
+
+export type PostFetchAiChatStreamOptions = PostFetchAiChatOptions & {
+  /** Called for each `token` SSE chunk (assistant reply text only). */
+  onToken?: (chunk: string) => void
+}
+
+type FetchAiChatStreamCompletePayload = {
+  reply?: string
+  navigation?: unknown
+  interaction?: unknown
+  bookingPatch?: unknown
+}
+
+function splitSseBlocks(buffer: string): { rest: string; blocks: string[] } {
+  const blocks: string[] = []
+  let rest = buffer
+  for (;;) {
+    const sep = rest.indexOf('\n\n')
+    if (sep === -1) break
+    blocks.push(rest.slice(0, sep))
+    rest = rest.slice(sep + 2)
+  }
+  return { rest, blocks }
+}
+
+function parseSseBlock(block: string): { event: string; data: string } {
+  let event = 'message'
+  const dataLines: string[] = []
+  for (const line of block.split('\n')) {
+    const l = line.replace(/\r$/, '')
+    if (l.startsWith('event:')) {
+      event = l.slice(6).trim()
+    } else if (l.startsWith('data:')) {
+      dataLines.push(l.slice(5).trimStart())
+    }
+  }
+  return { event, data: dataLines.join('\n') }
+}
+
+/**
+ * Same contract as `postFetchAiChat`, but uses `POST /api/fetch-ai/chat/stream` (SSE).
+ * Structured fields (`navigation`, `interaction`, `bookingPatch`) arrive only on the final `complete` event.
+ */
+export async function postFetchAiChatStream(
+  messages: FetchAiChatMessage[],
+  options?: PostFetchAiChatStreamOptions,
+): Promise<{
+  reply: string
+  navigation: FetchAiChatNavigation | null
+  interaction: FetchAiChatInteraction | null
+  bookingPatch: FetchAiBookingPatch | null
+  perfTiming?: FetchPerfServerTiming | null
+}> {
+  const controller = new AbortController()
+  const tid = window.setTimeout(() => controller.abort(), CHAT_TIMEOUT_MS)
+  const perfRunId = options?.perfRunId
+  const onToken = options?.onToken
+
+  const outer = options?.signal
+  const onOuterAbort = () => {
+    window.clearTimeout(tid)
+    controller.abort()
+  }
+  if (outer) {
+    if (outer.aborted) {
+      window.clearTimeout(tid)
+      controller.abort()
+    } else {
+      outer.addEventListener('abort', onOuterAbort, { once: true })
+    }
+  }
+
+  const url = fetchApiAbsoluteUrl('/api/fetch-ai/chat/stream')
+
+  try {
+    let res: Response
+    try {
+      if (perfRunId) {
+        fetchPerfMark(perfRunId, '3_client_request_sent', { route: 'fetch_ai_chat_stream' })
+      }
+      res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+          ...fetchPerfHeaders(perfRunId),
+        },
+        body: JSON.stringify({
+          messages,
+          locale: options?.locale,
+          context: options?.context,
+        }),
+        signal: controller.signal,
+      })
+      if (perfRunId) {
+        fetchPerfMark(perfRunId, '4_client_response_received', {
+          route: 'fetch_ai_chat_stream',
+          httpStatus: res.status,
+        })
+      }
+    } catch (err) {
+      const name = err instanceof Error ? err.name : ''
+      const msg = err instanceof Error ? err.message : String(err)
+      if (name === 'AbortError' || msg.toLowerCase().includes('abort')) {
+        throw err instanceof Error ? err : new Error('AbortError')
+      }
+      throw new Error(CHAT_ERROR_NETWORK)
+    }
+
+    const perfTiming = parseFetchPerfTimingHeader(res)
+    const ct = res.headers.get('content-type') || ''
+
+    if (!res.ok) {
+      let data: { error?: string } = {}
+      try {
+        data = (await res.json()) as { error?: string }
+      } catch {
+        /* ignore */
+      }
+      const errCode =
+        typeof data.error === 'string' ? data.error : `chat_http_${res.status}`
+      throw new Error(errCode)
+    }
+
+    if (!ct.includes('text/event-stream') || !res.body) {
+      throw new Error(CHAT_ERROR_STREAM_INCOMPLETE)
+    }
+
+    const reader = res.body.getReader()
+    const dec = new TextDecoder()
+    let carry = ''
+    let completePayload: FetchAiChatStreamCompletePayload | null = null
+
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      carry += dec.decode(value, { stream: true })
+      const { rest, blocks } = splitSseBlocks(carry)
+      carry = rest
+      for (const block of blocks) {
+        const { event, data } = parseSseBlock(block)
+        if (!data) continue
+        let parsed: unknown
+        try {
+          parsed = JSON.parse(data) as unknown
+        } catch {
+          continue
+        }
+        if (event === 'token' && parsed && typeof parsed === 'object') {
+          const t = (parsed as { t?: unknown }).t
+          if (typeof t === 'string' && t.length > 0) {
+            onToken?.(t)
+          }
+        } else if (event === 'complete' && parsed && typeof parsed === 'object') {
+          completePayload = parsed as FetchAiChatStreamCompletePayload
+        } else if (event === 'error' && parsed && typeof parsed === 'object') {
+          const err = (parsed as { error?: unknown }).error
+          throw new Error(typeof err === 'string' ? err : CHAT_ERROR_LLM_REQUEST_FAILED)
+        }
+      }
+    }
+
+    if (!completePayload) {
+      throw new Error(CHAT_ERROR_STREAM_INCOMPLETE)
+    }
+
+    const reply = typeof completePayload.reply === 'string' ? completePayload.reply.trim() : ''
+    if (!reply) {
+      throw new Error('empty_reply')
+    }
+
+    const navigation = parseFetchAiChatNavigation(completePayload.navigation)
+    const interaction = parseFetchAiChatInteraction(completePayload.interaction)
+    const bookingPatch = parseFetchAiBookingPatch(completePayload.bookingPatch)
+
+    return { reply, navigation, interaction, bookingPatch, perfTiming }
   } finally {
     window.clearTimeout(tid)
     if (outer) {

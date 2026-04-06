@@ -140,6 +140,7 @@ test('marketplace lifecycle materializes dispatch updates and notifications', as
   assert.equal(booking?.status, 'pending_match')
   assert.equal(booking?.matchedDriver, null)
   assert.equal(booking?.driverControlled, true)
+  assert.equal(booking?.matchingMode, 'pool')
   store.materializeState(state, booking.dispatchMeta.startedAt + 120_000)
 
   const updated = state.bookings.find((row) => row.id === 'bk_test')
@@ -150,6 +151,162 @@ test('marketplace lifecycle materializes dispatch updates and notifications', as
 
   await fs.rm(tempDir, { recursive: true, force: true })
   assert.ok(dispatchStarted > 0)
+})
+
+test('startDispatch sequential enables matching engine (driverControlled false)', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'fetch-seq-mode-'))
+  const dataFile = path.join(tempDir, 'marketplace-data.json')
+  const store = createMarketplaceStore(dataFile)
+  const state = await store.readState()
+  const paymentIntent = createPaymentIntentRecord({ bookingId: 'bk_seq_mode', amount: 120 })
+  paymentIntent.status = 'succeeded'
+  paymentIntent.confirmedAt = Date.now()
+  store.upsertPaymentIntent(state, paymentIntent)
+  store.upsertBooking(state, {
+    id: 'bk_seq_mode',
+    status: 'confirmed',
+    jobType: 'deliveryPickup',
+    serviceMode: 'pickup',
+    serviceType: 'pickup',
+    pickupAddressText: '1 Seq St',
+    pickupCoords: { lat: -27.47, lng: 153.03 },
+    dropoffAddressText: '2 Seq St',
+    dropoffCoords: { lat: -27.48, lng: 153.04 },
+    route: { distanceMeters: 1000, durationSeconds: 120, path: [] },
+    pricing: {
+      minPrice: 100,
+      maxPrice: 120,
+      currency: 'AUD',
+      estimatedDuration: 600,
+      explanation: 'test',
+    },
+    quoteBreakdown: {
+      baseFee: 50,
+      routeFee: 10,
+      routeTimeFee: 5,
+      inventoryFee: 0,
+      accessFee: 0,
+      disposalFee: 0,
+      helperFee: 0,
+      moveSizeMultiplier: 1,
+      subtotal: 65,
+      spread: 10,
+      totalItems: 1,
+      autoHelpers: 0,
+    },
+    aiReview: {
+      status: 'ready',
+      summary: 'ok',
+      confidence: 0.9,
+      riskLevel: 'low',
+      highlights: [],
+      blockers: [],
+      suggestedPrompt: null,
+      quoteBreakdown: null,
+      lastReviewedAt: Date.now(),
+      errorMessage: null,
+    },
+    detectedItems: [],
+    itemCounts: {},
+    inventorySummary: null,
+    accessDetails: { stairs: false, lift: true, carryDistance: 10, disassembly: false },
+    disposalRequired: null,
+    helperHours: null,
+    helperType: null,
+    helperNotes: null,
+    specialItemType: null,
+    isHeavyItem: false,
+    isBulky: false,
+    needsTwoMovers: false,
+    needsSpecialEquipment: false,
+    accessRisk: null,
+    paymentIntent,
+    matchedDriver: null,
+    timeline: [],
+  })
+  const r = store.startDispatch(state, 'bk_seq_mode', { matchingMode: 'sequential' })
+  assert.equal(r.error, null)
+  const b = state.bookings.find((row) => row.id === 'bk_seq_mode')
+  assert.ok(b)
+  assert.equal(b.matchingMode, 'sequential')
+  assert.equal(b.driverControlled, false)
+  await fs.rm(tempDir, { recursive: true, force: true })
+})
+
+test('atomicAcceptMatch rejects second driver', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'fetch-atomic-'))
+  const dataFile = path.join(tempDir, 'm.json')
+  const store = createMarketplaceStore(dataFile)
+  const state = await store.readState()
+  store.upsertBooking(state, {
+    id: 'bk_atom',
+    status: 'pending_match',
+    jobType: 'deliveryPickup',
+    serviceMode: 'pickup',
+    serviceType: 'pickup',
+    pickupAddressText: 'A',
+    pickupCoords: { lat: -27, lng: 153 },
+    dropoffAddressText: 'B',
+    dropoffCoords: { lat: -27.1, lng: 153.1 },
+    route: { distanceMeters: 500, durationSeconds: 60, path: [] },
+    pricing: {
+      minPrice: 50,
+      maxPrice: 60,
+      currency: 'AUD',
+      estimatedDuration: 300,
+      explanation: 't',
+    },
+    quoteBreakdown: {
+      baseFee: 20,
+      routeFee: 5,
+      routeTimeFee: 2,
+      inventoryFee: 0,
+      accessFee: 0,
+      disposalFee: 0,
+      helperFee: 0,
+      moveSizeMultiplier: 1,
+      subtotal: 27,
+      spread: 5,
+      totalItems: 1,
+      autoHelpers: 0,
+    },
+    aiReview: {
+      status: 'ready',
+      summary: 'ok',
+      confidence: 0.9,
+      riskLevel: 'low',
+      highlights: [],
+      blockers: [],
+      suggestedPrompt: null,
+      quoteBreakdown: null,
+      lastReviewedAt: Date.now(),
+      errorMessage: null,
+    },
+    detectedItems: [],
+    itemCounts: {},
+    inventorySummary: null,
+    accessDetails: { stairs: false, lift: true, carryDistance: 10, disassembly: false },
+    disposalRequired: null,
+    helperHours: null,
+    helperType: null,
+    helperNotes: null,
+    specialItemType: null,
+    isHeavyItem: false,
+    isBulky: false,
+    needsTwoMovers: false,
+    needsSpecialEquipment: false,
+    accessRisk: null,
+    paymentIntent: null,
+    matchedDriver: null,
+    timeline: [],
+  })
+  const d1 = { id: 'd1', name: 'Driver One', vehicle: 'Van', rating: 4.9 }
+  const d2 = { id: 'd2', name: 'Driver Two', vehicle: 'Ute', rating: 4.8 }
+  const a1 = store.atomicAcceptMatch(state, 'bk_atom', 'd1', d1)
+  assert.equal(a1.error, null)
+  const a2 = store.atomicAcceptMatch(state, 'bk_atom', 'd2', d2)
+  assert.equal(a2.error, 'already_assigned')
+  await fs.rm(tempDir, { recursive: true, force: true })
 })
 
 test('driverControlled skips demo dispatch timer progression', async () => {

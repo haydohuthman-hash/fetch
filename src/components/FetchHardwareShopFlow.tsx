@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { createPaymentIntent, waitForPaymentIntentServerConfirmed } from '../lib/booking/api'
 import type { HardwareProduct } from '../lib/hardwareCatalog'
-import { chargeHardwareWithDefaultCard } from '../lib/paymentCheckout'
+import { confirmDemoPaymentIntent, isStripePublishableConfigured } from '../lib/paymentCheckout'
+import { FetchStripePaymentElement } from './FetchStripePaymentElement'
 
 type Phase = 'detail' | 'checkout'
 
@@ -26,6 +28,7 @@ export function FetchHardwareShopFlow({ product, onDismiss }: FetchHardwareShopF
   const [qty, setQty] = useState(1)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [stripeHw, setStripeHw] = useState<{ clientSecret: string; paymentIntentId: string } | null>(null)
 
   const resetAndClose = useCallback(() => {
     setPhase('detail')
@@ -41,6 +44,7 @@ export function FetchHardwareShopFlow({ product, onDismiss }: FetchHardwareShopF
     setQty(1)
     setBusy(false)
     setError(null)
+    setStripeHw(null)
   }, [product?.id])
 
   if (!product || typeof document === 'undefined') return null
@@ -51,11 +55,24 @@ export function FetchHardwareShopFlow({ product, onDismiss }: FetchHardwareShopF
     setBusy(true)
     setError(null)
     try {
-      await chargeHardwareWithDefaultCard({
-        sku: product.sku,
-        qty,
-        amountAud: lineTotal,
+      const pi0 = await createPaymentIntent({
+        bookingId: null,
+        amount: lineTotal,
+        metadata: { type: 'hardware', sku: product.sku, qty },
       })
+      if (pi0.provider === 'stripe') {
+        if (!isStripePublishableConfigured()) {
+          setError('Stripe is enabled on the server. Set VITE_STRIPE_PUBLISHABLE_KEY for checkout.')
+          return
+        }
+        if (!pi0.clientSecret) {
+          setError('Missing Stripe client secret.')
+          return
+        }
+        setStripeHw({ clientSecret: pi0.clientSecret, paymentIntentId: pi0.id })
+        return
+      }
+      await confirmDemoPaymentIntent(pi0)
       resetAndClose()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Payment failed')
@@ -134,8 +151,9 @@ export function FetchHardwareShopFlow({ product, onDismiss }: FetchHardwareShopF
           ) : (
             <>
               <p className="text-[14px] leading-relaxed text-white/[0.78]">
-                You pay with your default card on file. Shipping and install are coordinated after
-                purchase — we&apos;ll reach out with next steps.
+                {isStripePublishableConfigured()
+                  ? 'Pay with the secure card form when Stripe is active on the server; otherwise your default saved card is charged. Shipping and install are coordinated after purchase.'
+                  : 'You pay with your default card on file. Shipping and install are coordinated after purchase — we&apos;ll reach out with next steps.'}
               </p>
               <div className="mt-4 rounded-xl border border-white/[0.08] bg-white/[0.04] p-4">
                 <div className="flex justify-between text-[13px] text-white/70">
@@ -180,6 +198,42 @@ export function FetchHardwareShopFlow({ product, onDismiss }: FetchHardwareShopF
                 onClick={() => setPhase('checkout')}
               >
                 Buy — ${lineTotal} AUD
+              </button>
+            </div>
+          ) : stripeHw && import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY?.trim() ? (
+            <div className="space-y-2">
+              <FetchStripePaymentElement
+                publishableKey={import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY.trim()}
+                clientSecret={stripeHw.clientSecret}
+                submitLabel={busy ? 'Confirming…' : 'Pay now'}
+                disabled={busy}
+                errorText={error}
+                onError={(msg) => setError(msg)}
+                onSuccess={() => {
+                  void (async () => {
+                    setBusy(true)
+                    setError(null)
+                    try {
+                      await waitForPaymentIntentServerConfirmed(stripeHw.paymentIntentId)
+                      resetAndClose()
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : 'Payment confirmation failed.')
+                    } finally {
+                      setBusy(false)
+                    }
+                  })()
+                }}
+              />
+              <button
+                type="button"
+                disabled={busy}
+                className="w-full text-[12px] font-medium text-white/55 underline decoration-white/25"
+                onClick={() => {
+                  setStripeHw(null)
+                  setError(null)
+                }}
+              >
+                Cancel
               </button>
             </div>
           ) : (

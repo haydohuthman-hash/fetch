@@ -623,14 +623,8 @@ export function MapsExploreSheet({
     [photoEnriched],
   )
 
-  const addressHero = (
-    <div
-      className={
-        usePeekPortal
-          ? 'fetch-maps-explore-hero fetch-maps-explore-hero--peek w-full'
-          : 'fetch-maps-explore-hero'
-      }
-    >
+  const addressSearchFields = (
+    <>
       <label className="sr-only" htmlFor="fetch-maps-address-input">
         Search address or place
       </label>
@@ -719,6 +713,24 @@ export function MapsExploreSheet({
           ) : null}
         </div>
       </div>
+    </>
+  )
+
+  const addressHero = (
+    <div
+      className={
+        usePeekPortal
+          ? 'fetch-maps-explore-hero fetch-maps-explore-hero--peek w-full'
+          : 'fetch-maps-explore-hero'
+      }
+    >
+      {usePeekPortal ? (
+        <div className="fetch-maps-explore-search-shell fetch-maps-explore-search-shell--peek">
+          {addressSearchFields}
+        </div>
+      ) : (
+        addressSearchFields
+      )}
     </div>
   )
 

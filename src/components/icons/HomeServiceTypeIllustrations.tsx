@@ -28,28 +28,22 @@ export function HomeServiceTypeIllustration({
     'aria-hidden': true as const,
   }
 
+  /** Minimal lift — service tiles are flat; icons stay readable without heavy drop shadow. */
   const shadowFilter = (
     <filter
       id={id('shadow')}
-      x="-45%"
-      y="-45%"
-      width="190%"
-      height="190%"
+      x="-20%"
+      y="-20%"
+      width="140%"
+      height="140%"
       colorInterpolationFilters="sRGB"
     >
-      <feDropShadow
-        dx="0"
-        dy="1.1"
-        stdDeviation="0.65"
-        floodColor="#0f172a"
-        floodOpacity="0.22"
-      />
       <feDropShadow
         dx="0"
         dy="0.35"
         stdDeviation="0.2"
         floodColor="#0f172a"
-        floodOpacity="0.18"
+        floodOpacity="0.07"
       />
     </filter>
   )

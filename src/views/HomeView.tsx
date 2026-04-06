@@ -20,26 +20,36 @@ import { FetchBrainMemoryOverlay } from '../components/FetchBrainMemoryOverlay'
 import { FetchHomeStepOne } from '../components/FetchHomeStepOne'
 import type { LiveTrackingMapFit } from '../components/FetchHomeStepOne/BookingMapReflection'
 import { BRISBANE_CENTER } from '../components/FetchHomeStepOne/brisbaneMap'
-import { PlacesAddressGeocodeField } from '../components/FetchHomeStepOne/PlacesAddressGeocodeField'
-import type { ResolvedPlace } from '../components/FetchHomeStepOne/PlacesAddressAutocomplete'
+import {
+  PlacesAddressAutocomplete,
+  type ResolvedPlace,
+} from '../components/FetchHomeStepOne/PlacesAddressAutocomplete'
 import type { FetchOrbExpression } from '../components/JarvisNeuralOrb'
+import { FetchStripePaymentElement } from '../components/FetchStripePaymentElement'
 import { FetchVoiceCommandFab } from '../components/FetchVoiceCommandFab'
-import { FetchSpeechBottomGlow } from '../components/FetchHomeFloatingChrome'
 import { AppleMapsNavRoutePanel } from '../components/AppleMapsNavRoutePanel'
-import { HomeIntentChatComposer } from '../components/HomeIntentChatComposer'
 import { MapExploreToolbar } from '../components/MapExploreToolbar'
 import { MapsExploreSheet } from '../components/MapsExploreSheet'
 import { MysteryAdventurePanel } from '../components/MysteryAdventurePanel'
 import { FetchStreetViewOverlay } from '../components/FetchStreetViewOverlay'
 import { BookingCompletionSummary } from '../components/booking/BookingCompletionSummary'
+import { TripSheetCard } from '../components/booking/TripSheetCard'
+import { TripDriverStatusStrip } from '../components/booking/TripDriverStatusStrip'
+import { TripPriceEstimateStrip } from '../components/booking/TripPriceEstimateStrip'
 import { HomeServiceTypeIllustration } from '../components/icons/HomeServiceTypeIllustrations'
 import {
   postFetchAiChat,
+  postFetchAiChatStream,
+  CHAT_ERROR_ANTHROPIC_NOT_CONFIGURED,
+  CHAT_ERROR_LLM_REQUEST_FAILED,
   CHAT_ERROR_NETWORK,
   CHAT_ERROR_OPENAI_NOT_CONFIGURED,
+  CHAT_ERROR_OPENAI_REQUEST_FAILED,
   type FetchAiChatMessage,
   type FetchAiChatNavigation,
 } from '../lib/fetchAiChat'
+import type { FetchAiBookingPatch } from '../lib/fetchAiBookingPatch'
+import { geocodeAddressTextAu } from '../lib/mapsGeocodeAu'
 import {
   appendBrainUserLineEphemeral,
   brainLinesToApiMessages,
@@ -83,20 +93,30 @@ import {
 import {
   bookingRecordToStatePatch,
   bookingStateToConfirmedUpsertPayload,
+  createPaymentIntent,
   dispatchBooking,
   fetchBooking,
   isLivePipelinePersistedStatus,
   isWireStatusActiveForDriverGps,
   isWireStatusMatching,
+  isWireStatusTreatedAsPaid,
   patchBookingStatus,
   resolveLiveTrackingEndpoints,
   shouldHideJobRouteDuringLiveTracking,
   submitCustomerBookingRating,
+  subscribeMarketplaceStream,
   upsertBooking,
   useLiveTripDirections,
+  waitForPaymentIntentServerConfirmed,
+  deriveTripSheetPhase,
+  mapStageForTripSheetPhase,
+  tripSheetPhasePrefersExpandedSnap,
+  tripSheetPhaseSuppressesHomeOrb,
+  type TripSheetPhase,
 } from '../lib/booking'
 import { useFetchTheme } from '../theme/FetchThemeContext'
-import { chargeDefaultSavedCard } from '../lib/paymentCheckout'
+import { syncCustomerSessionCookie } from '../lib/fetchServerSession'
+import { confirmDemoPaymentIntent, isStripePublishableConfigured } from '../lib/paymentCheckout'
 import {
   createPerfRunId,
   fetchPerfExtra,
@@ -108,8 +128,8 @@ import { suburbCommentaryLine } from '../lib/suburbCommentary'
 import { useFetchVoice } from '../voice/FetchVoiceContext'
 import {
   ADVANCED_SERVICE_MENU_OPTIONS,
+  HOME_INTENT_ORB_LINE,
   IDLE_TO_SLEEPY_MS,
-  INTENT_ORB_PROMPT,
   junkLiveJobCopy,
   LANDING_PRIMARY_SERVICES,
   SLEEPY_COPY,
@@ -128,6 +148,7 @@ import {
 } from '../lib/mapsExplorePlaces'
 import { pushRecentNavDestination } from '../lib/recentNavDestinations'
 import { buildHomeWelcomeLine } from '../lib/fetchWelcomeLine'
+import type { BookingPaymentIntent } from '../lib/assistant'
 import { firstNameFromDisplay, loadSession } from '../lib/fetchUserSession'
 import { appendHomeActivity, appendHomeAlert } from '../lib/homeActivityFeed'
 import { useFetchBootstrapping } from '../boot/FetchBootstrappingContext'
@@ -152,6 +173,76 @@ const FETCH_TUNNEL_PAUSE_AFTER_MS = 280
 const FETCH_TUNNEL_TOTAL_MS = FETCH_TUNNEL_ZOOM_MS + FETCH_TUNNEL_PAUSE_AFTER_MS
 const FETCH_CLARITY_TO_BRAIN_MS = 880
 const DRIVER_GPS_FRESH_MS = 45_000
+
+/** `VITE_BOOKING_MATCHING_MODE=sequential` sends timed offers to drivers; default is open pool. */
+const DEFAULT_BOOKING_DISPATCH_MATCHING: 'pool' | 'sequential' =
+  import.meta.env.VITE_BOOKING_MATCHING_MODE === 'sequential' ? 'sequential' : 'pool'
+
+function sessionCustomerEmailForBooking(): string | undefined {
+  const e = loadSession()?.email?.trim().toLowerCase()
+  return e || undefined
+}
+
+type ChatBookingHintSource = 'brain' | 'home'
+
+function buildChatBookingHintLine(
+  state: BookingState,
+  source: ChatBookingHintSource | null,
+  liveEtaSeconds: number | null | undefined,
+): string | null {
+  if (!source) return null
+  const from = source === 'brain' ? 'From Fetch chat' : 'From chat'
+  const st = state.bookingStatus
+  const mode = state.mode
+  if (st === 'completed' || st === 'cancelled') return null
+
+  const etaMin =
+    liveEtaSeconds != null && Number.isFinite(liveEtaSeconds) && liveEtaSeconds > 0
+      ? Math.max(1, Math.round(liveEtaSeconds / 60))
+      : null
+
+  if (mode === 'searching' || st === 'dispatching' || st === 'pending_match') {
+    return `Searching for drivers — ${from}`
+  }
+  if (mode === 'matched' || st === 'matched') {
+    return `Driver matched — ${from}`
+  }
+  if (st === 'en_route' || mode === 'live') {
+    const eta = etaMin != null ? `En route — ETA ~${etaMin} min` : 'En route'
+    return `${eta} — ${from}`
+  }
+  if (st === 'arrived') return `Driver arrived — ${from}`
+  if (st === 'in_progress') return `Job in progress — ${from}`
+  if (mode === 'pricing') return `Review pricing — ${from}`
+  if (mode === 'building') {
+    const needsDrop = state.jobType != null && requiresDropoff(state.jobType)
+    if (state.pickupCoords && (!needsDrop || state.dropoffCoords)) {
+      return `Route preview — ${from}`
+    }
+    return `Continue your booking — ${from}`
+  }
+  return `Booking in progress — ${from}`
+}
+
+/** True once driver matching/search is active and deposit/payment is satisfied (not junk pre-pay demo search). */
+function isPostDepositDriverSearchPhase(state: BookingState): boolean {
+  const st = state.bookingStatus
+  const inMatchingOrSearch =
+    state.mode === 'searching' ||
+    isWireStatusMatching(st) ||
+    st === 'match_failed'
+
+  if (!inMatchingOrSearch) return false
+
+  if (state.jobType === 'junkRemoval') {
+    return state.paymentIntent?.status === 'succeeded'
+  }
+  if (state.mode === 'searching') return true
+  if (st == null) return false
+  if (!isWireStatusTreatedAsPaid(st)) return false
+  if (st === 'confirmed') return false
+  return true
+}
 
 export type HomeViewProps = {
   /** Sheet account control — open auth or account in parent shell. */
@@ -182,13 +273,19 @@ export default function HomeView({
   /** Orb tap: tunnel → map zoom → clarity reveal → brain page. */
   const [homeBrainFlow, setHomeBrainFlow] = useState<'tunnel' | 'clarity' | 'brain' | null>(null)
   const [brainSkipReveal, setBrainSkipReveal] = useState(false)
+  /** Bumped when opening brain from home mic/orb — overlay auto-starts STT once. */
+  const [brainAutoVoiceEpoch, setBrainAutoVoiceEpoch] = useState(0)
+  /** After each assistant TTS turn in booking-voice mode, overlay opens mic again (unless a sheet is up). */
+  const [brainVoiceRelistenEpoch, setBrainVoiceRelistenEpoch] = useState(0)
+  const brainBookingVoiceActiveRef = useRef(false)
   const homeMapRef = useRef<google.maps.Map | null>(null)
   const brainWelcomeRef = useRef(false)
   const brainConvRef = useRef<BrainChatStoredLine[]>(loadBrainChatLines())
   const brainAbortRef = useRef<AbortController | null>(null)
   /** Blocks overlapping brain sends (Enter spam / double tap before `brainAiPending` paints). */
   const brainUtteranceInFlightRef = useRef(false)
-  const [composerListening, setComposerListening] = useState(false)
+  /** Tracks post-deposit search gate so we only auto-surface home once per phase (see isPostDepositDriverSearchPhase). */
+  const brainSearchSurfaceGateSyncedRef = useRef(false)
   const [brainSttListening, setBrainSttListening] = useState(false)
   const [brainLastReply, setBrainLastReply] = useState<string | null>(null)
   const brainVisualObjectUrlRef = useRef<string | null>(null)
@@ -214,6 +311,8 @@ export default function HomeView({
   const [brainAccountSnapshot, setBrainAccountSnapshot] = useState<BrainAccountSnapshot | null>(null)
   const [sheetGestureActive, setSheetGestureActive] = useState(false)
   const [confirmNonce, setConfirmNonce] = useState(0)
+  /** Short-lived expression overlay (success / concern micro-reactions). */
+  const [orbBurstExpression] = useState<FetchOrbExpression | null>(null)
   const [mapAttention, setMapAttention] = useState<
     'none' | 'pickup' | 'route' | 'driver' | 'navigation'
   >('none')
@@ -221,7 +320,10 @@ export default function HomeView({
   /** Map-forward mode from the sheet maps control (traffic + optional follow) without chat directions. */
   const [homeMapExploreMode, setHomeMapExploreMode] = useState(false)
   const [homeShellTab, setHomeShellTab] = useState<HomeShellTab>('services')
+  const [chatBookingHintSource, setChatBookingHintSource] =
+    useState<ChatBookingHintSource | null>(null)
   const [mapsExploreAddressExpanded, setMapsExploreAddressExpanded] = useState(false)
+  const [bookingAddressSuggestOpen, setBookingAddressSuggestOpen] = useState(false)
   const [explorePois, setExplorePois] = useState<ExploreMapPoi[]>([])
   const [userDroppedPin, setUserDroppedPin] = useState<google.maps.LatLngLiteral | null>(
     null,
@@ -232,6 +334,7 @@ export default function HomeView({
     | { mode: 'error'; message: string }
     | { mode: 'ready'; bundle: MysteryPlaceBundle; fetchStory: string }
   const [mysteryPanel, setMysteryPanel] = useState<MysteryPanelState>({ mode: 'closed' })
+
   const [streetViewPosition, setStreetViewPosition] =
     useState<google.maps.LatLngLiteral | null>(null)
   const mapPlacesSvcRef = useRef<google.maps.places.PlacesService | null>(null)
@@ -277,7 +380,11 @@ export default function HomeView({
   const [matchRetryBusy, setMatchRetryBusy] = useState(false)
   const [matchRetryError, setMatchRetryError] = useState<string | null>(null)
   const [matchUiTick, setMatchUiTick] = useState(0)
-  const [intentPlaceSuggestionsOpen, setIntentPlaceSuggestionsOpen] = useState(false)
+  const [stripeBookCheckout, setStripeBookCheckout] = useState<{
+    clientSecret: string
+    paymentIntent: BookingPaymentIntent
+    payAmount: number
+  } | null>(null)
   const [advancedServiceMenuOpen, setAdvancedServiceMenuOpen] = useState(false)
   const [driverMapTick, setDriverMapTick] = useState(0)
   const driverRouteStartedAtRef = useRef(0)
@@ -317,6 +424,22 @@ export default function HomeView({
     },
   })
 
+  const chatBookingHintLabel = useMemo(
+    () =>
+      buildChatBookingHintLine(
+        bookingState,
+        chatBookingHintSource,
+        liveTripDirections.etaSeconds,
+      ),
+    [bookingState, chatBookingHintSource, liveTripDirections.etaSeconds],
+  )
+
+  useEffect(() => {
+    const st = bookingState.bookingStatus
+    if (!chatBookingHintSource) return
+    if (st === 'completed' || st === 'cancelled') setChatBookingHintSource(null)
+  }, [bookingState.bookingStatus, chatBookingHintSource])
+
   const lastInteractRef = useRef(Date.now())
   const lastSpokenStepRef = useRef<string>('')
   const lastDirectionsKeyRef = useRef<string>('')
@@ -345,6 +468,7 @@ export default function HomeView({
   const [chatNavLegSteps, setChatNavLegSteps] = useState<DirectionsStepLite[]>([])
   const [bookingTrafficDelaySeconds, setBookingTrafficDelaySeconds] = useState<number | null>(null)
   const [mapFollowUser, setMapFollowUser] = useState(false)
+  const [pickupLockInCelebrateKey, setPickupLockInCelebrateKey] = useState(0)
   const [chatNavRerouteTick, setChatNavRerouteTick] = useState(0)
   const lastChatNavDevRerouteAtRef = useRef(0)
 
@@ -572,6 +696,7 @@ export default function HomeView({
 
   const closeFetchBrain = useCallback(() => {
     stopAssistantPlayback()
+    brainBookingVoiceActiveRef.current = false
     brainAbortRef.current?.abort()
     brainAbortRef.current = null
     brainPlacesAbortRef.current?.abort()
@@ -589,6 +714,42 @@ export default function HomeView({
     setBrainPlacesLoading(false)
     setBrainMemoriesSheetOpen(false)
   }, [clearBrainVisual, stopAssistantPlayback])
+
+  useEffect(() => {
+    const gate = isPostDepositDriverSearchPhase(bookingState)
+    const brainOpen = homeBrainFlow === 'brain' || homeBrainFlow === 'clarity'
+
+    if (!gate) {
+      brainSearchSurfaceGateSyncedRef.current = false
+      return
+    }
+
+    if (brainOpen && !brainSearchSurfaceGateSyncedRef.current) {
+      brainSearchSurfaceGateSyncedRef.current = true
+      closeFetchBrain()
+      setChatNavRoute(null)
+      setHomeMapExploreMode(false)
+      setIntentAddressEntryActive(false)
+      setHomeShellTab('services')
+      setSheetSnap('full')
+      const needsDrop =
+        bookingState.jobType != null && requiresDropoff(bookingState.jobType)
+      setMapAttention(
+        bookingState.pickupCoords && (!needsDrop || bookingState.dropoffCoords)
+          ? 'route'
+          : 'pickup',
+      )
+      setChatBookingHintSource((prev) => prev ?? 'brain')
+      bumpInteraction()
+    } else if (gate) {
+      brainSearchSurfaceGateSyncedRef.current = true
+    }
+  }, [
+    bookingState,
+    homeBrainFlow,
+    closeFetchBrain,
+    bumpInteraction,
+  ])
 
   const startNewBrainChat = useCallback(() => {
     bumpInteraction()
@@ -640,10 +801,6 @@ export default function HomeView({
     }
   }, [homeBrainFlow, brainConvRevision, homeActivityTick, savedAddresses])
 
-  const onComposerListeningChange = useCallback((v: boolean) => {
-    setComposerListening(v)
-  }, [])
-
   const onBrainListeningChange = useCallback((v: boolean) => {
     setBrainSttListening(v)
   }, [])
@@ -691,7 +848,6 @@ export default function HomeView({
     }
     if (isSpeechPlaying) return 'speaking'
     if (voiceHoldCaption) return 'thinking'
-    if (composerListening) return 'listening'
     return 'idle'
   }, [
     homeBrainFlow,
@@ -700,7 +856,6 @@ export default function HomeView({
     brainSurfaceSpeaking,
     isSpeechPlaying,
     voiceHoldCaption,
-    composerListening,
   ])
 
   useEffect(() => {
@@ -848,22 +1003,6 @@ export default function HomeView({
     return () => window.clearTimeout(t)
   }, [homeBrainFlow])
 
-  const pushOrbChatTurn = useCallback((role: 'user' | 'assistant', text: string) => {
-    const t = text.trim()
-    if (!t) return
-    setOrbChatTurns((prev) => {
-      const next = [
-        ...prev,
-        {
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-          role,
-          text: t,
-        },
-      ]
-      return next.length > 56 ? next.slice(-56) : next
-    })
-  }, [])
-
   const clearDriverFlowTimers = useCallback(() => {
     for (const id of driverFlowTimersRef.current) {
       window.clearTimeout(id)
@@ -877,8 +1016,12 @@ export default function HomeView({
     setBookNowSyncRetryBusy(true)
     setBookNowSyncError(null)
     try {
-      const saved = await upsertBooking({ ...r.payload, paymentIntent: r.paymentIntent })
-      await dispatchBooking(saved.id)
+      const saved = await upsertBooking({
+        ...r.payload,
+        paymentIntent: r.paymentIntent,
+        customerEmail: sessionCustomerEmailForBooking(),
+      })
+      await dispatchBooking(saved.id, { matchingMode: DEFAULT_BOOKING_DISPATCH_MATCHING })
       bookNowSyncRetryRef.current = null
       setShowDemoTimelineOnly(false)
       clearDriverFlowTimers()
@@ -938,7 +1081,7 @@ export default function HomeView({
     setMatchRetryBusy(true)
     setMatchRetryError(null)
     try {
-      const row = await dispatchBooking(id)
+      const row = await dispatchBooking(id, { matchingMode: DEFAULT_BOOKING_DISPATCH_MATCHING })
       setBookingState((prev) => {
         const patch = bookingRecordToStatePatch(row)
         const next: BookingState = { ...prev, ...patch }
@@ -1038,7 +1181,110 @@ export default function HomeView({
     }, 19600)
   }, [clearDriverFlowTimers, playUiEvent, speakLine])
 
+  const finalizePaidBookingAfterCharge = useCallback(
+    async (pi: BookingPaymentIntent, payAmount: number) => {
+      let marketplaceSynced = false
+      playUiEvent('success')
+      const bs = bookingStateRef.current
+      const liveAtIntro = computePriceForState(bs, { allowRouteFallback: true })
+      const pricing = liveAtIntro.ok ? liveAtIntro.pricing : bs.pricing
+      if (!pricing) return
+
+      appendHomeActivity({
+        title: 'Payment confirmed',
+        subtitle: `$${payAmount} AUD charged · intent ${pi.id} (${pi.status})`,
+        jobType: bookingStateRef.current.jobType ?? undefined,
+        priceMin: pricing.minPrice,
+        priceMax: pricing.maxPrice,
+        paymentIntentId: pi.id,
+        paymentStatus: pi.status,
+        distanceMeters:
+          bookingStateRef.current.distanceMeters ??
+          bookingStateRef.current.route?.distanceMeters ??
+          undefined,
+      })
+      appendHomeAlert({
+        title: 'Payment confirmed',
+        body: `Charged $${payAmount} AUD. Reference ${pi.id}.`,
+      })
+      refreshLocalFeeds()
+
+      let nextBookingId =
+        bs.bookingId && !bs.bookingId.startsWith('demo-')
+          ? bs.bookingId
+          : `bk_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
+
+      try {
+        const liveAtPay = computePriceForState(bs, { allowRouteFallback: true })
+        const merged: BookingState = {
+          ...bs,
+          paymentIntent: pi,
+          selectedPaymentMethodId: pi.paymentMethodId,
+          ...(liveAtPay.ok ? { pricing: liveAtPay.pricing, quoteBreakdown: liveAtPay.breakdown } : {}),
+        }
+        const payload = bookingStateToConfirmedUpsertPayload(merged, nextBookingId)
+        const saved = await upsertBooking({
+          ...payload,
+          paymentIntent: pi,
+          customerEmail: sessionCustomerEmailForBooking(),
+        })
+        nextBookingId = saved.id
+        await dispatchBooking(saved.id, {
+          matchingMode: DEFAULT_BOOKING_DISPATCH_MATCHING,
+        })
+        marketplaceSynced = true
+        bookNowSyncRetryRef.current = null
+      } catch (syncErr) {
+        const msg =
+          syncErr instanceof Error ? syncErr.message : 'Could not save booking to Fetch servers.'
+        setBookNowSyncError(msg)
+        const liveAtPay = computePriceForState(bs, { allowRouteFallback: true })
+        const merged: BookingState = {
+          ...bs,
+          paymentIntent: pi,
+          selectedPaymentMethodId: pi.paymentMethodId,
+          ...(liveAtPay.ok ? { pricing: liveAtPay.pricing, quoteBreakdown: liveAtPay.breakdown } : {}),
+        }
+        const payload = bookingStateToConfirmedUpsertPayload(merged, nextBookingId)
+        bookNowSyncRetryRef.current = { payload, paymentIntent: pi }
+        appendHomeActivity({
+          title: 'Booking sync failed',
+          subtitle: msg,
+          jobType: bs.jobType ?? undefined,
+          priceMin: pricing.minPrice,
+          priceMax: pricing.maxPrice,
+        })
+        appendHomeAlert({
+          title: 'Payment went through — booking sync failed',
+          body: `${msg} Use Retry save below.`,
+        })
+        refreshLocalFeeds()
+      }
+
+      startPostPaymentDriverFlow(
+        {
+          paymentIntent: pi,
+          selectedPaymentMethodId: pi.paymentMethodId,
+          bookingId: nextBookingId,
+        },
+        { serverLive: marketplaceSynced },
+      )
+    },
+    [
+      appendHomeActivity,
+      appendHomeAlert,
+      dispatchBooking,
+      playUiEvent,
+      refreshLocalFeeds,
+      startPostPaymentDriverFlow,
+    ],
+  )
+
   useEffect(() => () => clearDriverFlowTimers(), [clearDriverFlowTimers])
+
+  useEffect(() => {
+    void syncCustomerSessionCookie()
+  }, [])
 
   useEffect(() => {
     if (idleLong || !wasSleepy) return
@@ -1390,11 +1636,25 @@ export default function HomeView({
       }
     }
     setPendingConfirm(null)
-    playUiEvent('success')
-    speakLine(field === 'pickup' ? 'Locked in.' : 'Drop-off confirmed.', {
-      debounceKey: 'address_confirmed',
-      debounceMs: 0, withVoiceHold: true,
-    })
+    if (field === 'pickup') {
+      setPickupLockInCelebrateKey((k) => k + 1)
+      playUiEvent('pin_drop')
+      speakLine(
+        "Locked in — you're pinned on the map. I've got drivers active in your area; we're in great shape.",
+        {
+          debounceKey: 'address_confirmed',
+          debounceMs: 0,
+          withVoiceHold: true,
+        },
+      )
+    } else {
+      playUiEvent('success')
+      speakLine('Drop-off confirmed.', {
+        debounceKey: 'address_confirmed',
+        debounceMs: 0,
+        withVoiceHold: true,
+      })
+    }
   }, [pendingConfirm, applyAddressSelection, playUiEvent, speakLine])
 
   const cancelPendingAddress = useCallback(() => {
@@ -1423,7 +1683,6 @@ export default function HomeView({
     setMapFollowUser(false)
     setBookingState(createInitialBookingState())
     setMapAttention('none')
-    setIntentPlaceSuggestionsOpen(false)
     setBookNowError(null)
     setBookNowBusy(false)
     setBookNowSyncError(null)
@@ -1433,8 +1692,17 @@ export default function HomeView({
     setRatingSubmitBusy(false)
     setRatingSubmitError(null)
     lastJobCompletionSpokenBookingIdRef.current = null
+    setChatBookingHintSource(null)
     bumpInteraction()
   }, [bumpInteraction, clearDriverFlowTimers])
+
+  /** Brain header back / Escape: leave neural chat and land on default service selector (booking reset + sheet). */
+  const exitBrainChatToServiceSelector = useCallback(() => {
+    closeFetchBrain()
+    goBackToIntent()
+    setHomeShellTab('services')
+    setSheetSnap('full')
+  }, [closeFetchBrain, goBackToIntent])
 
   const applyChatNavigation = useCallback(
     (nav: FetchAiChatNavigation | null) => {
@@ -1447,6 +1715,88 @@ export default function HomeView({
       bumpInteraction()
     },
     [bumpInteraction],
+  )
+
+  const applyFetchAiBookingPatch = useCallback(
+    async (patch: FetchAiBookingPatch | null, source: ChatBookingHintSource) => {
+      if (!patch) return
+      const geoPu =
+        patch.pickupAddressText && mapsJsReady
+          ? await geocodeAddressTextAu(patch.pickupAddressText)
+          : null
+      const geoDo =
+        patch.dropoffAddressText && mapsJsReady
+          ? await geocodeAddressTextAu(patch.dropoffAddressText)
+          : null
+
+      const merged = (() => {
+        let s = bookingStateRef.current
+        if (patch.jobType) {
+          s = selectHomeJobType(s, patch.jobType).bookingState
+        }
+        if (geoPu) {
+          s = handleUserInput(
+            {
+              text: '',
+              source: 'quick_action',
+              addressSelection: {
+                field: 'pickup',
+                formattedAddress: geoPu.formattedAddress,
+                placeId: geoPu.placeId,
+                coords: geoPu.coords,
+                ...(geoPu.name ? { name: geoPu.name } : {}),
+              },
+            },
+            s,
+          ).bookingState
+        } else if (patch.pickupAddressText?.trim()) {
+          s = { ...s, pickupAddressText: patch.pickupAddressText.trim() }
+          s.flowStep = deriveFlowStep(s)
+        }
+        const jt = s.jobType
+        if (jt && requiresDropoff(jt)) {
+          if (geoDo) {
+            s = handleUserInput(
+              {
+                text: '',
+                source: 'quick_action',
+                addressSelection: {
+                  field: 'dropoff',
+                  formattedAddress: geoDo.formattedAddress,
+                  placeId: geoDo.placeId,
+                  coords: geoDo.coords,
+                  ...(geoDo.name ? { name: geoDo.name } : {}),
+                },
+              },
+              s,
+            ).bookingState
+          } else if (patch.dropoffAddressText?.trim()) {
+            s = { ...s, dropoffAddressText: patch.dropoffAddressText.trim() }
+            s.flowStep = deriveFlowStep(s)
+          }
+        }
+        return s
+      })()
+
+      setBookingState(merged)
+
+      setConfirmNonce((n) => n + 1)
+      setChatBookingHintSource(source)
+
+      if (patch.openBookingOnMap && source !== 'brain') {
+        setChatNavRoute(null)
+        setHomeMapExploreMode(false)
+        setIntentAddressEntryActive(false)
+        setHomeShellTab('services')
+        setSheetSnap('full')
+        const needsDrop = merged.jobType != null && requiresDropoff(merged.jobType)
+        setMapAttention(
+          merged.pickupCoords && (!needsDrop || merged.dropoffCoords) ? 'route' : 'pickup',
+        )
+      }
+      bumpInteraction()
+    },
+    [mapsJsReady, bumpInteraction],
   )
 
   const runBrainAiUtterance = useCallback(
@@ -1546,19 +1896,29 @@ export default function HomeView({
         const mem = buildFetchUserMemoryContext()
         const learn = buildFetchBrainLearningContext()
         setBrainAiPending(true)
-        const { reply, navigation, interaction, perfTiming } = await postFetchAiChat(messages, {
-          signal: ac.signal,
-          locale: 'en-AU',
-          context: {
-            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-            ...(geo ? geo : {}),
-            ...(mem ? { userMemory: mem } : {}),
-            brainAccountIntel: buildBrainAccountIntelForAi(intelSnap),
-            ...(learn ? { brainLearningMemory: learn } : {}),
-            ...(placesSummaryBlock ? { nearbyExploreSummary: placesSummaryBlock } : {}),
+        setBrainLastReply(null)
+        const { reply, navigation, interaction, bookingPatch, perfTiming } = await postFetchAiChatStream(
+          messages,
+          {
+            signal: ac.signal,
+            locale: 'en-AU',
+            context: {
+              timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+              ...(geo ? geo : {}),
+              ...(mem ? { userMemory: mem } : {}),
+              brainAccountIntel: buildBrainAccountIntelForAi(intelSnap),
+              ...(learn ? { brainLearningMemory: learn } : {}),
+              ...(placesSummaryBlock ? { nearbyExploreSummary: placesSummaryBlock } : {}),
+              ...(brainBookingVoiceActiveRef.current
+                ? { brainSessionGoal: 'booking_voice' as const }
+                : {}),
+            },
+            perfRunId,
+            onToken: (t) => {
+              setBrainLastReply((prev) => (prev == null ? '' : prev) + t)
+            },
           },
-          perfRunId,
-        })
+        )
         setBrainAiPending(false)
         if (ac.signal.aborted) return
         if (navigation?.active) applyChatNavigation(navigation)
@@ -1576,11 +1936,21 @@ export default function HomeView({
         brainConvRef.current = persistBrainChatExchange(prior, trimmed, reply)
         setBrainConvRevision((n) => n + 1)
         setBrainLastReply(reply)
+        if (bookingPatch) {
+          await applyFetchAiBookingPatch(bookingPatch, 'brain')
+        }
         setBrainSurfaceSpeaking(true)
         try {
           await speakLine(reply, { debounceKey: 'fetch_ai_brain', debounceMs: 0, perfRunId })
         } finally {
           setBrainSurfaceSpeaking(false)
+        }
+        if (
+          brainBookingVoiceActiveRef.current &&
+          interaction?.type !== 'choices' &&
+          !wantRestaurants
+        ) {
+          setBrainVoiceRelistenEpoch((n) => n + 1)
         }
       } catch (e) {
         setBrainAiPending(false)
@@ -1589,8 +1959,16 @@ export default function HomeView({
         setBrainConvRevision((n) => n + 1)
         const code = e instanceof Error ? e.message : ''
         let errLine: string
-        if (code === CHAT_ERROR_OPENAI_NOT_CONFIGURED) {
+        if (
+          code === CHAT_ERROR_OPENAI_NOT_CONFIGURED ||
+          code === CHAT_ERROR_ANTHROPIC_NOT_CONFIGURED
+        ) {
           errLine = 'The assistant needs server configuration before I can help from here.'
+        } else if (
+          code === CHAT_ERROR_OPENAI_REQUEST_FAILED ||
+          code === CHAT_ERROR_LLM_REQUEST_FAILED
+        ) {
+          errLine = 'The chat service had a problem. Try again in a moment.'
         } else if (code === CHAT_ERROR_NETWORK) {
           errLine = "I can't reach the Fetch server from the brain view."
         } else {
@@ -1610,10 +1988,26 @@ export default function HomeView({
         brainUtteranceInFlightRef.current = false
       }
     },
-    [applyChatNavigation, mapsJsReady, playUiEvent, speakLine, userMapLocation],
+    [
+      applyChatNavigation,
+      applyFetchAiBookingPatch,
+      mapsJsReady,
+      playUiEvent,
+      speakLine,
+      userMapLocation,
+    ],
   )
 
-  const dismissBrainFieldPlaces = useCallback(() => setBrainFieldPlaces(null), [])
+  const dismissBrainFieldPlaces = useCallback(() => {
+    setBrainFieldPlaces(null)
+    closeFetchBrain()
+    setChatNavRoute(null)
+    setHomeMapExploreMode(false)
+    setIntentAddressEntryActive(false)
+    setHomeShellTab('services')
+    setSheetSnap('full')
+    bumpInteraction()
+  }, [closeFetchBrain, bumpInteraction])
 
   const onBrainFieldPlaceMaps = useCallback((card: BrainFieldPlaceCard) => {
     window.open(card.mapsUrl, '_blank', 'noopener,noreferrer')
@@ -1772,7 +2166,7 @@ export default function HomeView({
       setBookingRouteSteps([])
       setBookingTrafficDelaySeconds(null)
       setMapFollowUser(false)
-      setSheetSnap('half')
+      setSheetSnap('full')
       setMapAttention('route')
       setConfirmNonce((n) => n + 1)
       bumpInteraction()
@@ -1801,7 +2195,7 @@ export default function HomeView({
       setHomeMapExploreMode(false)
       setMapAttention('navigation')
       setMapFollowUser(true)
-      setSheetSnap('half')
+      setSheetSnap('full')
       return
     }
     const bookingNavStripActive =
@@ -1836,7 +2230,7 @@ export default function HomeView({
           setHomeMapExploreMode(true)
           setSheetSnap('closed')
         } else {
-          setSheetSnap('half')
+          setSheetSnap('full')
         }
       } else {
         if (!chatNavRoute) setHomeMapExploreMode(false)
@@ -1845,6 +2239,24 @@ export default function HomeView({
     },
     [bumpInteraction, chatNavRoute],
   )
+
+  const openBrainFromHome = useCallback(() => {
+    bumpInteraction()
+    brainBookingVoiceActiveRef.current = true
+    setBrainAutoVoiceEpoch((n) => n + 1)
+    setOrbAwakened(true)
+    setSheetSnap('closed')
+    if (
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches
+    ) {
+      setBrainSkipReveal(true)
+      setHomeBrainFlow('brain')
+      return
+    }
+    setBrainSkipReveal(false)
+    setHomeBrainFlow('tunnel')
+  }, [bumpInteraction])
 
   const onShowPlaceOnMap = useCallback((lat: number, lng: number) => {
     const m = homeMapRef.current
@@ -2036,15 +2448,6 @@ export default function HomeView({
     bookingState.bookingStatus,
     bookingState.bookingId,
   ])
-
-  const mapStage = useMemo(() => {
-    if (!jobType) return 'idle' as const
-    const m = bookingState.mode
-    if (m === 'searching') return 'searching' as const
-    if (m === 'matched') return 'matched' as const
-    if (m === 'live') return 'live' as const
-    return 'building' as const
-  }, [jobType, bookingState.mode])
 
   /** Coarse grid so step index / banner throttles ~10m moves instead of every GPS tick. */
   const navUserCoarseKey = useMemo(() => {
@@ -2312,6 +2715,41 @@ export default function HomeView({
   }, [bookingState.bookingId, bookingState.bookingStatus])
 
   useEffect(() => {
+    const id = bookingState.bookingId
+    const st = bookingState.bookingStatus
+    if (!shouldPollMarketplaceBooking(id, st)) return
+    const unsub = subscribeMarketplaceStream(() => {
+      void (async () => {
+        try {
+          const row = await fetchBooking(id!)
+          setBookingState((prev) => {
+            const patch = bookingRecordToStatePatch(row)
+            const next: BookingState = { ...prev, ...patch }
+            if (row.status && isLivePipelinePersistedStatus(row.status)) {
+              next.mode = uiModeFromBookingLifecycle(row.status)
+            } else if (row.status === 'completed' || row.status === 'cancelled') {
+              next.mode = 'idle'
+            }
+            next.flowStep = deriveFlowStep(next)
+            return next
+          })
+          if (
+            row.status === 'matched' ||
+            row.status === 'en_route' ||
+            row.status === 'arrived' ||
+            row.status === 'in_progress'
+          ) {
+            setMapAttention('driver')
+          }
+        } catch {
+          /* ignore */
+        }
+      })()
+    })
+    return unsub
+  }, [bookingState.bookingId, bookingState.bookingStatus])
+
+  useEffect(() => {
     if (bookingState.bookingStatus !== 'completed') return
     const id = bookingState.bookingId
     if (!id) return
@@ -2325,12 +2763,9 @@ export default function HomeView({
   }, [bookingState.bookingStatus, bookingState.bookingId, speakLine])
 
   const navStripActive = mapNavStrip != null
-  /** Tighter sheet chrome, Fetch mark, frosted top, 25/50/80 snaps — maps tab + real nav strip, not explore-only. */
-  const homeSheetNavMapChrome =
-    homeShellTab === 'maps' &&
-    (chatNavRoute != null || (!homeMapExploreMode && navStripActive))
-  /** Dock orb top-left over map while route/nav strip chrome is active (not explore-only maps). */
-  const orbTopLeftOnNavMap = homeSheetNavMapChrome
+  /** Maps tab: glassy sheet chrome, compact snaps, orb docked top-left over the map. */
+  const homeSheetNavMapChrome = homeShellTab === 'maps'
+  const orbTopLeftOnNavMap = homeShellTab === 'maps'
 
   useEffect(() => {
     if (homeSheetNavMapChrome) setHomeOrbBottomPx(null)
@@ -2352,18 +2787,6 @@ export default function HomeView({
     chatNavRoute != null || homeMapExploreMode || homeShellTab === 'maps'
       ? 'navigation'
       : mapAttention
-
-  const orbExpression: FetchOrbExpression = useMemo(() => {
-    if (isSpeechPlaying) return 'speaking'
-    if (idleLong) return 'sleepy'
-    if (flowStep === 'route' && requiresDropoff(jobType)) return 'focused'
-    if (jobType && (flowStep === 'pickup' || flowStep === 'dropoff')) return 'curious'
-    if (orbMapAttention === 'driver') return 'excited'
-    if (orbMapAttention === 'route' || orbMapAttention === 'navigation') return 'focused'
-    if (orbMapAttention === 'pickup' && orbAwakened) return 'curious'
-    if (jobType) return 'proud'
-    return 'awake'
-  }, [isSpeechPlaying, idleLong, jobType, flowStep, orbMapAttention, orbAwakened])
 
   const orbState = (() => {
     if (isSpeechPlaying) return 'speaking' as const
@@ -2442,7 +2865,7 @@ export default function HomeView({
   }, [orbGlowColor, homeBrainFlow])
 
   const inputClass =
-    'fetch-stage-text-input fetch-home-address-input fetch-home-stage-field-input mt-2 w-full rounded-full border px-4 py-3.5 ring-0'
+    'fetch-stage-text-input fetch-home-address-input fetch-home-stage-field-input mt-1.5 w-full rounded-full border px-3.5 py-3 ring-0'
 
   const showConfirm = Boolean(pendingConfirm)
   const showIntent = !showConfirm && (!jobType || flowStep === 'intent')
@@ -2471,6 +2894,52 @@ export default function HomeView({
     !showBuildingRoute &&
     !showLaborDetails
 
+  const orbExpression: FetchOrbExpression = useMemo(() => {
+    const brainImmersive = homeBrainFlow === 'clarity' || homeBrainFlow === 'brain'
+    if (isSpeechPlaying) return 'speaking'
+    if (orbBurstExpression) return orbBurstExpression
+    if (!brainImmersive && brainSttListening) return 'listening'
+    if (voiceHoldCaption) return 'thinking'
+    if (bookNowBusy) return 'thinking'
+    if (mysteryPanel.mode === 'loading') return 'searching'
+    if (
+      bookingAddressSuggestOpen &&
+      (flowStep === 'pickup' || flowStep === 'dropoff')
+    ) {
+      return 'searching'
+    }
+    if (idleLong) return 'sleepy'
+    if (flowStep === 'route' && jobType != null && requiresDropoff(jobType)) return 'focused'
+    if (jobType && (flowStep === 'pickup' || flowStep === 'dropoff')) return 'curious'
+    if (orbMapAttention === 'driver') return 'excited'
+    if (orbMapAttention === 'route' || orbMapAttention === 'navigation') return 'focused'
+    if (orbMapAttention === 'pickup' && orbAwakened) return 'curious'
+    if (jobType) return 'proud'
+    return 'awake'
+  }, [
+    isSpeechPlaying,
+    orbBurstExpression,
+    homeBrainFlow,
+    brainSttListening,
+    voiceHoldCaption,
+    bookNowBusy,
+    mysteryPanel.mode,
+    bookingAddressSuggestOpen,
+    flowStep,
+    idleLong,
+    jobType,
+    orbMapAttention,
+    orbAwakened,
+  ])
+
+  const orbDockAutonomous =
+    showIntent &&
+    homeBrainFlow == null &&
+    !isSpeechPlaying &&
+    !voiceHoldCaption &&
+    !bookNowBusy &&
+    mysteryPanel.mode !== 'loading'
+
   const quoteLive = useMemo(
     () => computePriceForState(bookingState, { allowRouteFallback: true }),
     [bookingState],
@@ -2478,6 +2947,59 @@ export default function HomeView({
   const sheetDisplayPricing = quoteLive.ok ? quoteLive.pricing : bookingState.pricing
   const sheetDisplayBreakdown = quoteLive.ok ? quoteLive.breakdown : bookingState.quoteBreakdown
   const sheetQuoteError = !quoteLive.ok ? quoteLive.message : null
+
+  const uberTripCard = import.meta.env.VITE_UBER_TRIP_CARD !== 'false'
+
+  const tripSheetPhase: TripSheetPhase = useMemo(
+    () =>
+      deriveTripSheetPhase(bookingState, {
+        showConfirm,
+        showIntent,
+        showPickup,
+        showDropoff,
+        showLaborDetails,
+        showRouteReady,
+        showBuildingRoute,
+        showScanner,
+        showPostScan,
+        hasSheetPricing: sheetDisplayPricing != null,
+        stripeCheckoutActive: stripeBookCheckout != null,
+      }),
+    [
+      bookingState.bookingStatus,
+      bookingState.paymentIntent?.status,
+      showConfirm,
+      showIntent,
+      showPickup,
+      showDropoff,
+      showLaborDetails,
+      showRouteReady,
+      showBuildingRoute,
+      showScanner,
+      showPostScan,
+      sheetDisplayPricing,
+      stripeBookCheckout,
+    ],
+  )
+
+  const mapStage = useMemo(() => {
+    if (!jobType) return 'idle' as const
+    return mapStageForTripSheetPhase(tripSheetPhase, bookingState.mode)
+  }, [jobType, tripSheetPhase, bookingState.mode])
+
+  const suppressHomeOrbForTrip = useMemo(
+    () =>
+      uberTripCard &&
+      tripSheetPhaseSuppressesHomeOrb(tripSheetPhase) &&
+      homeShellTab === 'services',
+    [uberTripCard, tripSheetPhase, homeShellTab],
+  )
+
+  const showTripRouteEstimateStrip =
+    uberTripCard &&
+    sheetDisplayPricing != null &&
+    !isWireStatusTreatedAsPaid(bookingState.bookingStatus) &&
+    (tripSheetPhase === 'confirm_route' || tripSheetPhase === 'job_scan')
 
   useEffect(() => {
     if (!showPickup) setServicePersonalityLine(null)
@@ -2691,7 +3213,7 @@ export default function HomeView({
   ])
 
   const orbFetchPromptLine = useMemo(() => {
-    if (showIntent) return INTENT_ORB_PROMPT
+    if (showIntent) return null
     const b = bookingFlowBubble?.trim()
     return b && b.length > 0 ? b : null
   }, [showIntent, bookingFlowBubble])
@@ -2759,45 +3281,70 @@ export default function HomeView({
     return -1
   }, [orbChatTurns])
 
-  const orbChatStackBottom = useMemo(
-    () =>
-      homeOrbBottomPx != null
-        ? `calc(${homeOrbBottomPx}px + 6.5rem + 0.85rem)`
-        : 'calc(max(1.1rem, env(safe-area-inset-bottom)) + min(58dvh, 34rem) + 8px + 6.5rem * 0.5 + 0.85rem)',
-    [homeOrbBottomPx],
-  )
+  const orbChatStackBottom = useMemo(() => {
+    const orbH = orbTopLeftOnNavMap ? '4rem' : '6.5rem'
+    const orbHalf = orbTopLeftOnNavMap ? '2rem' : '3.25rem'
+    if (homeOrbBottomPx != null) {
+      return `calc(${homeOrbBottomPx}px + ${orbH} + 0.85rem)`
+    }
+    return `calc(max(1.1rem, env(safe-area-inset-bottom)) + min(58dvh, 34rem) + 8px + ${orbHalf} + 0.85rem)`
+  }, [homeOrbBottomPx, orbTopLeftOnNavMap])
 
   useEffect(() => {
     if (sheetGestureActive) return
-    if (showConfirm) setSheetSnap('half')
+    if (showConfirm) setSheetSnap('full')
   }, [showConfirm, sheetGestureActive])
 
   useEffect(() => {
     if (sheetGestureActive) return
-    if (showPostScan && sheetDisplayPricing && !showScanner) setSheetSnap('half')
+    if (showPostScan && sheetDisplayPricing && !showScanner) setSheetSnap('full')
   }, [showPostScan, sheetDisplayPricing, showScanner, sheetGestureActive])
 
   useEffect(() => {
     if (sheetGestureActive) return
     const suggestionsWantFull =
-      (homeShellTab === 'maps' && mapsExploreAddressExpanded) ||
-      (showIntent && intentPlaceSuggestionsOpen)
+      homeShellTab === 'maps' && mapsExploreAddressExpanded
     if (suggestionsWantFull) {
       setSheetSnap('full')
       return
     }
     if (homeShellTab === 'maps') return
-    if (showIntent && !intentPlaceSuggestionsOpen) setSheetSnap('compact')
-    if (showPickup || showDropoff) setSheetSnap('half')
+    if (showIntent) setSheetSnap('compact')
+    if ((showPickup || showDropoff) && !bookingAddressSuggestOpen) setSheetSnap('compact')
   }, [
     sheetGestureActive,
     homeShellTab,
     mapsExploreAddressExpanded,
+    bookingAddressSuggestOpen,
     showIntent,
     showPickup,
     showDropoff,
-    intentPlaceSuggestionsOpen,
   ])
+
+  useEffect(() => {
+    if (!showPickup && !showDropoff) setBookingAddressSuggestOpen(false)
+  }, [showPickup, showDropoff])
+
+  useEffect(() => {
+    if (sheetGestureActive) return
+    if (homeShellTab === 'maps') return
+    if (bookingAddressSuggestOpen && (showPickup || showDropoff)) {
+      setSheetSnap('full')
+    }
+  }, [
+    sheetGestureActive,
+    homeShellTab,
+    bookingAddressSuggestOpen,
+    showPickup,
+    showDropoff,
+  ])
+
+  useEffect(() => {
+    if (sheetGestureActive || !uberTripCard) return
+    if (homeShellTab !== 'services') return
+    if (!tripSheetPhasePrefersExpandedSnap(tripSheetPhase)) return
+    setSheetSnap('half')
+  }, [sheetGestureActive, uberTripCard, homeShellTab, tripSheetPhase])
 
   const onPeekHomeClick = useCallback(() => {
     setIntentAddressEntryActive(false)
@@ -2810,6 +3357,94 @@ export default function HomeView({
     bumpInteraction()
     onAccountNavigate?.()
   }, [bumpInteraction, onAccountNavigate])
+
+  const homeShellFooterNav = useMemo(
+    () => (
+      <nav
+        className="fetch-home-intent-bottom-nav"
+        aria-label="Home, maps, and account"
+      >
+        <button
+          type="button"
+          className={[
+            'fetch-home-intent-bottom-nav__icon',
+            homeShellTab === 'services' ? 'fetch-home-intent-bottom-nav__icon--active' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          aria-label="Home"
+          aria-current={homeShellTab === 'services' ? 'page' : undefined}
+          onClick={() => {
+            bumpInteraction()
+            onPeekHomeClick()
+          }}
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <path
+              d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M9 22V12h6v10"
+              stroke="currentColor"
+              strokeWidth="1.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+        <span className="fetch-home-intent-bottom-nav__divider" aria-hidden />
+        <button
+          type="button"
+          className={[
+            'fetch-home-intent-bottom-nav__icon',
+            homeShellTab === 'maps' ? 'fetch-home-intent-bottom-nav__icon--active' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          aria-label="Open maps"
+          onClick={() => {
+            bumpInteraction()
+            onHomeShellTabChange('maps')
+          }}
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+            <path d="M12 3.5 20 21 12 17 4 21 12 3.5z" />
+          </svg>
+        </button>
+        <span className="fetch-home-intent-bottom-nav__divider" aria-hidden />
+        <button
+          type="button"
+          className="fetch-home-intent-bottom-nav__icon"
+          aria-label="Account"
+          onClick={() => {
+            bumpInteraction()
+            onAccountsClick()
+          }}
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <circle cx="12" cy="9" r="3.5" stroke="currentColor" strokeWidth="1.65" />
+            <path
+              d="M5 20v-1a5 5 0 015-5h4a5 5 0 015 5v1"
+              stroke="currentColor"
+              strokeWidth="1.65"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
+      </nav>
+    ),
+    [
+      bumpInteraction,
+      homeShellTab,
+      onAccountsClick,
+      onHomeShellTabChange,
+      onPeekHomeClick,
+    ],
+  )
 
   const onHomeOrbBottomPxChange = useCallback(
     (px: number) => {
@@ -3036,6 +3671,36 @@ export default function HomeView({
   const brainImmersive =
     homeBrainFlow === 'clarity' || homeBrainFlow === 'brain'
 
+  /** Services-tab booking after job pick: hide shell nav, account, mic, and closed peek chrome. */
+  const bookingSheetFocusMode = useMemo(
+    () =>
+      homeShellTab === 'services' &&
+      Boolean(cardVisible && homeBrainFlow == null && !brainImmersive) &&
+      (showConfirm || (Boolean(jobType) && !showIntent)),
+    [
+      homeShellTab,
+      cardVisible,
+      homeBrainFlow,
+      brainImmersive,
+      showConfirm,
+      jobType,
+      showIntent,
+    ],
+  )
+
+  const prevHomeShellTabRef = useRef<HomeShellTab>(homeShellTab)
+  useEffect(() => {
+    const prev = prevHomeShellTabRef.current
+    prevHomeShellTabRef.current = homeShellTab
+    if (brainImmersive) return
+    if (prev === 'maps' || homeShellTab !== 'maps') return
+    void speakLine('Maps are open — ready when you are.', {
+      debounceKey: 'maps_tab_ready_line',
+      debounceMs: 0,
+      withVoiceHold: true,
+    })
+  }, [homeShellTab, brainImmersive, speakLine])
+
   return (
     <div
       className="fetch-home-vision relative min-h-dvh w-full"
@@ -3044,7 +3709,6 @@ export default function HomeView({
         homeBrainFlow === 'tunnel' ? 'tunnel' : homeBrainFlow ? 'brain' : 'idle'
       }
     >
-      {!brainImmersive ? <FetchSpeechBottomGlow /> : null}
 
       {homeBrainFlow === 'tunnel' ? (
         <>
@@ -3067,6 +3731,7 @@ export default function HomeView({
           mapTunnelPhase={homeBrainFlow === 'tunnel' ? 'tunnel' : null}
           suspendMapCameraAutomation={homeBrainFlow != null}
           onMapInstance={handleHomeMapInstance}
+          chatBookingHintLabel={chatBookingHintLabel}
           pickup={
             chatNavRoute
               ? 'Your location'
@@ -3107,6 +3772,7 @@ export default function HomeView({
           onHomeMapMenuAccount={onAccountNavigate}
           homeMapHardwareCatalog={HARDWARE_PRODUCTS}
           liveTrackingFit={chatNavRoute ? null : homeLiveTrackingFit}
+          pickupLockInCelebrateKey={pickupLockInCelebrateKey}
         />
         {homeShellTab === 'maps' &&
         !chatNavRoute &&
@@ -3120,20 +3786,6 @@ export default function HomeView({
           />
         ) : null}
         </>
-      ) : null}
-
-      {!brainImmersive ? (
-        <div
-          className={[
-            'fetch-orb-ground-glow-layer fetch-orb-ground-glow-layer--home pointer-events-none fixed inset-x-0 bottom-0 z-[36] h-[18vh] min-h-[5.5rem]',
-            isSpeechPlaying ? 'fetch-orb-ground-glow-layer--speech' : '',
-          ].join(' ')}
-          aria-hidden
-        >
-          <div className="fetch-orb-ground-glow-base" />
-          <div className="fetch-orb-ground-glow-fill" />
-          <div className="fetch-orb-ground-glow-voice-sheen" />
-        </div>
       ) : null}
 
       {!brainImmersive ? (
@@ -3157,7 +3809,7 @@ export default function HomeView({
         homeShellTab={homeShellTab}
         onHomeShellTabChange={onHomeShellTabChange}
         showHomeShellTabs={Boolean(
-          cardVisible && homeBrainFlow == null && !brainImmersive,
+          cardVisible && homeBrainFlow == null && !brainImmersive && !bookingSheetFocusMode,
         )}
         mapsPeekInsetRef={mapsPeekInsetRef}
         mapsCompactPeek={
@@ -3166,6 +3818,51 @@ export default function HomeView({
           sheetSnap === 'closed'
         }
         navMapChrome={homeSheetNavMapChrome}
+        hideExpandedHeaderChrome={Boolean(
+          (showIntent && homeShellTab === 'services') ||
+            homeShellTab === 'maps' ||
+            bookingSheetFocusMode,
+        )}
+        edgeToEdgeShell={Boolean(
+          cardVisible && homeBrainFlow == null && !brainImmersive,
+        )}
+        shellFooterNav={
+          cardVisible && homeBrainFlow == null && !brainImmersive && !bookingSheetFocusMode
+            ? homeShellFooterNav
+            : undefined
+        }
+        suppressPeekBar={bookingSheetFocusMode}
+        topLeftAccessory={
+          showIntent &&
+          cardVisible &&
+          homeBrainFlow == null &&
+          !brainImmersive &&
+          homeShellTab === 'services' ? (
+            <button
+              type="button"
+              className="fetch-home-intent-mic-btn"
+              aria-label="Speak for help"
+              onClick={() => {
+                openBrainFromHome()
+              }}
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.85"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M12 16a4 4 0 0 0 4-4V8a4 4 0 1 0-8 0v4a4 4 0 0 0 4 4z" />
+                <path d="M19 11a7 7 0 0 1-14 0M12 19v2M8 22h8" />
+              </svg>
+            </button>
+          ) : undefined
+        }
       >
         {homeShellTab === 'maps' ? (
           chatNavRoute ? (
@@ -3191,7 +3888,7 @@ export default function HomeView({
                     onClick={() => {
                       if (chatNavRoute) applyChatNavToBooking(chatNavRoute)
                     }}
-                    className="w-full py-1.5 text-center text-[12px] font-semibold text-[#007AFF] transition-opacity hover:opacity-80"
+                    className="w-full py-1.5 text-center text-[12px] font-semibold text-fetch-charcoal underline decoration-fetch-charcoal/35 underline-offset-2 transition-opacity hover:opacity-80"
                   >
                     Use for booking
                   </button>
@@ -3214,8 +3911,14 @@ export default function HomeView({
         ) : (
           <>
           {showConfirm && pendingConfirm ? (
-            <>
-              <div className="overflow-hidden rounded-xl">
+            <section className="fetch-home-booking-step fetch-home-booking-step--confirm-address w-full">
+              <h2 className="text-[14px] font-semibold leading-tight tracking-[-0.02em] text-fetch-charcoal">
+                {pendingConfirm.field === 'pickup' ? 'Confirm pickup' : 'Confirm drop-off'}
+              </h2>
+              <p className="mt-1.5 text-[12px] font-medium leading-snug text-fetch-muted/90 [text-wrap:pretty]">
+                {pendingConfirm.address}
+              </p>
+              <div className="mt-2 overflow-hidden rounded-xl">
                 <img
                   src={`https://maps.googleapis.com/maps/api/streetview?size=600x260&location=${pendingConfirm.coords.lat},${pendingConfirm.coords.lng}&fov=90&pitch=5&key=${mapsApiKey}`}
                   alt={`Street view of ${pendingConfirm.address}`}
@@ -3230,7 +3933,7 @@ export default function HomeView({
                   }}
                 />
               </div>
-              <div className="mt-2.5 flex gap-2">
+              <div className="mt-2 flex gap-2">
                 <button
                   type="button"
                   onClick={cancelPendingAddress}
@@ -3246,7 +3949,7 @@ export default function HomeView({
                   Confirm
                 </button>
               </div>
-            </>
+            </section>
           ) : null}
 
           {showIntent && chatNavRoute ? (
@@ -3272,139 +3975,108 @@ export default function HomeView({
                     onClick={() => {
                       if (chatNavRoute) applyChatNavToBooking(chatNavRoute)
                     }}
-                    className="w-full py-1.5 text-center text-[12px] font-semibold text-[#007AFF] transition-opacity hover:opacity-80"
+                    className="w-full py-1.5 text-center text-[12px] font-semibold text-fetch-charcoal underline decoration-fetch-charcoal/35 underline-offset-2 transition-opacity hover:opacity-80"
                   >
                     Use for booking
                   </button>
                 }
-              >
-                <div className="pointer-events-auto -mx-1 w-[calc(100%+0.5rem)] max-w-none" data-sheet-no-drag>
-                  <HomeIntentChatComposer
-                    appendOrbChatTurn={pushOrbChatTurn}
-                    onChatNavigation={applyChatNavigation}
-                    onListeningChange={onComposerListeningChange}
-                    onPlaceSuggestionsOpenChange={setIntentPlaceSuggestionsOpen}
-                    showGuestAccountHint={!loadSession()}
-                    mapsJsReady={mapsJsReady}
-                    onStartNavigationToPlace={startChatNavigationToPlace}
-                    onAddressEntryIntentChange={setIntentAddressEntryActive}
-                  />
-                </div>
-              </AppleMapsNavRoutePanel>
+              />
             </div>
           ) : showIntent ? (
-            <div className="fetch-home-landing flex flex-col">
+            <div className="fetch-home-landing fetch-home-landing--intent-tight flex flex-col">
               <section className="fetch-home-landing-section fetch-home-landing-section--intent shrink-0">
                 <div className="fetch-home-service-rail-row">
-                  <div className="fetch-home-service-rail-headline-row">
-                    <h3
-                      id="fetch-home-intent-service-headline"
-                      className="fetch-home-service-rail-headline"
-                    >
-                      Choose a service
-                    </h3>
-                    <button
-                      type="button"
-                      className="fetch-home-service-advanced-trigger"
-                      aria-label="All service types"
-                      aria-expanded={advancedServiceMenuOpen}
-                      aria-haspopup="dialog"
-                      aria-controls="fetch-home-advanced-service-menu"
-                      onClick={() => setAdvancedServiceMenuOpen(true)}
-                    >
-                      <svg
-                        width="20"
-                        height="20"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.25"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        aria-hidden
-                      >
-                        <path d="m9 18 6-6-6-6" />
-                      </svg>
-                    </button>
-                  </div>
-                  <div
-                    className="fetch-home-service-carousel-clip"
-                    role="presentation"
-                  >
+                  <div className="fetch-home-intent-carousel-stack">
                     <div
-                      className="fetch-home-service-carousel"
-                      role="group"
-                      aria-labelledby="fetch-home-intent-service-headline"
+                      className="fetch-home-service-carousel-clip"
+                      role="presentation"
                     >
-                      <div className="fetch-home-service-carousel-track">
-                        {LANDING_PRIMARY_SERVICES.map((opt) => (
-                          <button
-                            key={opt.id}
-                            type="button"
-                            data-tone={opt.tone}
-                            aria-label={opt.label}
-                            onClick={() => {
-                              pendingServicePersonalityRef.current =
-                                opt.fetchPersonalityExample
-                              setServicePersonalityLine(
-                                opt.fetchPersonalityExample,
-                              )
-                              commitJobTypeSelection(opt.jobType)
-                            }}
-                            className="fetch-home-service-segment"
-                          >
-                            <HomeServiceTypeIllustration
-                              jobType={opt.jobType}
-                              className="fetch-home-service-segment-icon"
-                            />
-                            <span className="fetch-home-service-segment-label font-semibold leading-tight tracking-[-0.02em]">
-                              {opt.label}
-                            </span>
-                          </button>
-                        ))}
+                      <div
+                        className="fetch-home-service-carousel"
+                        role="group"
+                        aria-label="Services"
+                      >
+                        <div className="fetch-home-service-carousel-track">
+                          {LANDING_PRIMARY_SERVICES.map((opt) => (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              data-tone={opt.tone}
+                              aria-label={opt.label}
+                              onClick={() => {
+                                pendingServicePersonalityRef.current =
+                                  opt.fetchPersonalityExample
+                                setServicePersonalityLine(
+                                  opt.fetchPersonalityExample,
+                                )
+                                commitJobTypeSelection(opt.jobType)
+                              }}
+                              className="fetch-home-service-segment"
+                            >
+                              <HomeServiceTypeIllustration
+                                jobType={opt.jobType}
+                                className="fetch-home-service-segment-icon"
+                              />
+                              <span className="fetch-home-service-segment-label font-semibold leading-tight tracking-[-0.02em]">
+                                {opt.label}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
-                <HomeIntentChatComposer
-                  variant="intentLanding"
-                  appendOrbChatTurn={pushOrbChatTurn}
-                  onChatNavigation={applyChatNavigation}
-                  onListeningChange={onComposerListeningChange}
-                  onPlaceSuggestionsOpenChange={setIntentPlaceSuggestionsOpen}
-                  showGuestAccountHint={!loadSession()}
-                  mapsJsReady={mapsJsReady}
-                  onStartNavigationToPlace={startChatNavigationToPlace}
-                  onAddressEntryIntentChange={setIntentAddressEntryActive}
-                />
               </section>
             </div>
           ) : null}
 
           {showPickup ? (
-            <>
-              <div className="flex items-start justify-between gap-2">
-                <h2 className="text-[14px] font-semibold leading-tight tracking-[-0.02em] text-fetch-charcoal">
-                  {jobType === 'helper'
-                    ? 'Where you need help'
-                    : jobType === 'cleaning'
-                      ? 'Where to clean'
-                      : 'Pickup location'}
-                </h2>
-                <button
-                  type="button"
-                  onClick={goBackToIntent}
-                  className="shrink-0 text-[11px] font-semibold text-fetch-muted underline decoration-fetch-muted/40 underline-offset-2"
-                >
-                  Back
-                </button>
-              </div>
-              <p className="mt-1.5 max-w-[18rem] text-[12px] font-medium leading-snug tracking-[-0.01em] text-fetch-muted/90 [text-wrap:pretty]">
+            <TripSheetCard
+              enabled={uberTripCard}
+              title={
+                jobType === 'helper'
+                  ? 'Where you need help'
+                  : jobType === 'cleaning'
+                    ? 'Where to clean'
+                    : 'Pickup location'
+              }
+              secondaryAction={{ label: 'Back', onClick: goBackToIntent }}
+              helpAction={uberTripCard ? { onClick: openBrainFromHome } : null}
+            >
+              <section className="fetch-home-booking-step w-full">
+              {mapsApiKey ? (
+                <div className="relative z-[5] mt-1.5">
+                  <PlacesAddressAutocomplete
+                    key={`pickup-${bookingState.pickupPlace?.placeId ?? bookingState.pickupAddressText ?? 'new'}`}
+                    apiKey={mapsApiKey}
+                    field="pickup"
+                    placeholder={
+                      jobType === 'helper'
+                        ? 'Search address for this job'
+                        : jobType === 'cleaning'
+                          ? 'Search address to clean'
+                          : 'Search pickup address'
+                    }
+                    autoFocus
+                    initialDisplayValue={bookingState.pickupAddressText}
+                    onResolved={onPickupResolved}
+                    onSuggestionsOpenChange={setBookingAddressSuggestOpen}
+                    className={[
+                      'fetch-stage-text-input fetch-home-address-input fetch-home-stage-field-input w-full rounded-full border px-3.5 py-3 ring-0',
+                      'mt-0',
+                    ].join(' ')}
+                  />
+                </div>
+              ) : (
+                <p className="mt-1.5 text-[12px] text-fetch-muted">Add a Google Maps API key to use addresses.</p>
+              )}
+              <p className="mt-1.5 max-w-[20rem] text-[12px] font-medium leading-snug tracking-[-0.01em] text-fetch-muted/90 [text-wrap:pretty]">
                 {bookingState.currentQuestion ??
-                  'Type your full address, then confirm — no address suggestions while you type.'}
+                  'Suggestions appear under the field as you type — or tap a saved place.'}
               </p>
               {savedAddresses.length > 0 ? (
-                <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Saved places">
+                <div className="mt-1.5 flex flex-wrap gap-1.5" role="group" aria-label="Saved places">
                   {savedAddresses.map((a) => (
                     <button
                       key={a.id}
@@ -3417,47 +4089,44 @@ export default function HomeView({
                   ))}
                 </div>
               ) : null}
-              {mapsApiKey ? (
-                <PlacesAddressGeocodeField
-                  key="pickup"
-                  apiKey={mapsApiKey}
-                  field="pickup"
-                  placeholder={
-                    jobType === 'helper'
-                      ? 'Enter address for this job'
-                      : jobType === 'cleaning'
-                        ? 'Enter address to clean'
-                        : 'Enter pickup address'
-                  }
-                  autoFocus
-                  onResolved={onPickupResolved}
-                  className={inputClass}
-                />
-              ) : (
-                <p className="mt-2 text-[12px] text-fetch-muted">Add a Google Maps API key to use addresses.</p>
-              )}
-            </>
+              </section>
+            </TripSheetCard>
           ) : null}
 
           {showDropoff ? (
-            <>
-              <div className="flex items-start justify-between gap-2">
-                <h2 className="text-[14px] font-semibold leading-tight tracking-[-0.02em] text-fetch-charcoal">
-                  Drop-off location
-                </h2>
-                <button
-                  type="button"
-                  onClick={goBackToPickup}
-                  className="shrink-0 text-[11px] font-semibold text-fetch-muted underline decoration-fetch-muted/40 underline-offset-2"
-                >
-                  Back
-                </button>
-              </div>
-              <p className="mt-1.5 max-w-[18rem] text-[12px] font-medium leading-snug tracking-[-0.01em] text-fetch-muted/90 [text-wrap:pretty]">
-                {bookingState.currentQuestion ?? 'Where should we deliver?'}
+            <TripSheetCard
+              enabled={uberTripCard}
+              title="Drop-off location"
+              secondaryAction={{ label: 'Back', onClick: goBackToPickup }}
+              helpAction={uberTripCard ? { onClick: openBrainFromHome } : null}
+            >
+              <section className="fetch-home-booking-step w-full">
+              {mapsApiKey ? (
+                <div className="relative z-[5] mt-1.5">
+                  <PlacesAddressAutocomplete
+                    key={`dropoff-${bookingState.dropoffPlace?.placeId ?? bookingState.dropoffAddressText ?? 'new'}`}
+                    apiKey={mapsApiKey}
+                    field="dropoff"
+                    placeholder="Search drop-off address"
+                    autoFocus
+                    initialDisplayValue={bookingState.dropoffAddressText}
+                    onResolved={onDropoffResolved}
+                    onSuggestionsOpenChange={setBookingAddressSuggestOpen}
+                    className={[
+                      'fetch-stage-text-input fetch-home-address-input fetch-home-stage-field-input w-full rounded-full border px-3.5 py-3 ring-0',
+                      'mt-0',
+                    ].join(' ')}
+                  />
+                </div>
+              ) : (
+                <p className="mt-1.5 text-[12px] text-fetch-muted">Add a Google Maps API key to use addresses.</p>
+              )}
+              <p className="mt-1.5 max-w-[20rem] text-[12px] font-medium leading-snug tracking-[-0.01em] text-fetch-muted/90 [text-wrap:pretty]">
+                {bookingState.currentQuestion ??
+                  'Suggestions show under the field — pick one to continue.'}
               </p>
               {savedAddresses.length > 0 ? (
-                <div className="mt-2 flex flex-wrap gap-1.5" role="group" aria-label="Saved places">
+                <div className="mt-1.5 flex flex-wrap gap-1.5" role="group" aria-label="Saved places">
                   {savedAddresses.map((a) => (
                     <button
                       key={a.id}
@@ -3470,240 +4139,232 @@ export default function HomeView({
                   ))}
                 </div>
               ) : null}
-              {mapsApiKey ? (
-                <PlacesAddressGeocodeField
-                  key="dropoff"
-                  apiKey={mapsApiKey}
-                  field="dropoff"
-                  placeholder="Enter drop-off address"
-                  autoFocus
-                  onResolved={onDropoffResolved}
-                  className={inputClass}
-                />
-              ) : (
-                <p className="mt-2 text-[12px] text-fetch-muted">Add a Google Maps API key to use addresses.</p>
-              )}
-            </>
+              </section>
+            </TripSheetCard>
           ) : null}
 
           {showLaborDetails ? (
-            <>
-              <div className="flex items-start justify-between gap-2">
-                <h2 className="text-[14px] font-semibold leading-tight tracking-[-0.02em] text-fetch-charcoal">
-                  {jobType === 'helper' ? 'Helper details' : 'Cleaning details'}
-                </h2>
-                <button
-                  type="button"
-                  onClick={goBackToIntent}
-                  className="shrink-0 text-[11px] font-semibold text-fetch-muted underline decoration-fetch-muted/40 underline-offset-2"
-                >
-                  Start over
-                </button>
-              </div>
-              <p className="mt-1.5 max-w-[18rem] text-[12px] font-medium leading-snug tracking-[-0.01em] text-fetch-muted/90 [text-wrap:pretty]">
-                {bookingState.currentQuestion ??
-                  (jobType === 'helper'
-                    ? 'How long and what kind of help?'
-                    : 'How long and what type of clean?')}
-              </p>
-              {bookingState.pickupAddressText ? (
-                <p className="mt-2 text-[11px] leading-snug text-fetch-muted">
-                  <span className="font-semibold text-fetch-charcoal/80">At: </span>
-                  {bookingState.pickupAddressText}
-                </p>
-              ) : null}
-              <p className="mt-3 text-[11px] font-semibold text-fetch-charcoal/90">Hours</p>
-              <div className="mt-1.5 flex flex-wrap gap-1.5">
-                {([2, 3, 4, 6, 8] as const).map((h) => (
+            <TripSheetCard
+              enabled={uberTripCard}
+              title={jobType === 'helper' ? 'Helper details' : 'Cleaning details'}
+              secondaryAction={{ label: 'Start over', onClick: goBackToIntent }}
+              helpAction={uberTripCard ? { onClick: openBrainFromHome } : null}
+              footer={
+                uberTripCard ? (
                   <button
-                    key={h}
                     type="button"
-                    onClick={() => setLaborHours(h)}
-                    className={
-                      laborHours === h
-                        ? 'rounded-full border border-violet-400/55 bg-violet-500/20 px-3 py-1.5 text-[12px] font-semibold text-fetch-charcoal'
-                        : 'rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[12px] font-medium text-fetch-muted'
-                    }
+                    onClick={handleLaborContinue}
+                    disabled={!laborTask.trim()}
+                    className="fetch-stage-primary-btn w-full rounded-2xl px-3 py-2.5 text-center text-[13px] font-semibold transition-transform active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-45"
                   >
-                    {h}h
+                    Get quote
                   </button>
-                ))}
+                ) : undefined
+              }
+            >
+              <div className="fetch-home-booking-step fetch-home-booking-step--stack w-full min-h-0">
+                <div className="fetch-home-booking-step__main min-h-0">
+                <p className="max-w-[18rem] text-[12px] font-medium leading-snug tracking-[-0.01em] text-fetch-muted/90 [text-wrap:pretty]">
+                  {bookingState.currentQuestion ??
+                    (jobType === 'helper'
+                      ? 'How long and what kind of help?'
+                      : 'How long and what type of clean?')}
+                </p>
+                {bookingState.pickupAddressText ? (
+                  <p className="mt-2 text-[11px] leading-snug text-fetch-muted">
+                    <span className="font-semibold text-fetch-charcoal/80">At: </span>
+                    {bookingState.pickupAddressText}
+                  </p>
+                ) : null}
+                <p className="mt-3 text-[11px] font-semibold text-fetch-charcoal/90">Hours</p>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {([2, 3, 4, 6, 8] as const).map((h) => (
+                    <button
+                      key={h}
+                      type="button"
+                      onClick={() => setLaborHours(h)}
+                      className={
+                        laborHours === h
+                          ? 'rounded-full border border-black/70 bg-black/[0.08] px-3 py-1.5 text-[12px] font-semibold text-fetch-charcoal'
+                          : 'rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-[12px] font-medium text-fetch-muted'
+                      }
+                    >
+                      {h}h
+                    </button>
+                  ))}
+                </div>
+                <label className="mt-3 block text-[11px] font-semibold text-fetch-charcoal/90">
+                  {jobType === 'helper' ? 'What do you need done?' : 'Type of clean'}
+                </label>
+                <input
+                  type="text"
+                  value={laborTask}
+                  onChange={(e) => setLaborTask(e.target.value)}
+                  placeholder={
+                    jobType === 'helper' ? 'e.g. Load a truck, assembly' : 'e.g. Deep clean, end of lease'
+                  }
+                  className={inputClass}
+                />
+                <label className="mt-2 block text-[11px] font-semibold text-fetch-charcoal/90">
+                  Notes (optional)
+                </label>
+                <input
+                  type="text"
+                  value={laborNotes}
+                  onChange={(e) => setLaborNotes(e.target.value)}
+                  placeholder="Access info, supplies, pets…"
+                  className={inputClass}
+                />
               </div>
-              <label className="mt-3 block text-[11px] font-semibold text-fetch-charcoal/90">
-                {jobType === 'helper' ? 'What do you need done?' : 'Type of clean'}
-              </label>
-              <input
-                type="text"
-                value={laborTask}
-                onChange={(e) => setLaborTask(e.target.value)}
-                placeholder={
-                  jobType === 'helper' ? 'e.g. Load a truck, assembly' : 'e.g. Deep clean, end of lease'
-                }
-                className={inputClass}
-              />
-              <label className="mt-2 block text-[11px] font-semibold text-fetch-charcoal/90">
-                Notes (optional)
-              </label>
-              <input
-                type="text"
-                value={laborNotes}
-                onChange={(e) => setLaborNotes(e.target.value)}
-                placeholder="Access info, supplies, pets…"
-                className={inputClass}
-              />
-              <button
-                type="button"
-                onClick={handleLaborContinue}
-                disabled={!laborTask.trim()}
-                className="fetch-stage-primary-btn mt-3 w-full rounded-2xl px-3 py-2.5 text-center text-[13px] font-semibold transition-transform active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-45"
-              >
-                Get quote
-              </button>
-            </>
+              {!uberTripCard ? (
+                <div className="fetch-home-booking-step__footer">
+                  <button
+                    type="button"
+                    onClick={handleLaborContinue}
+                    disabled={!laborTask.trim()}
+                    className="fetch-stage-primary-btn w-full rounded-2xl px-3 py-2.5 text-center text-[13px] font-semibold transition-transform active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    Get quote
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            </TripSheetCard>
           ) : null}
 
           {showRouteReady ? (
-            <>
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="min-w-0 text-[13px] font-semibold leading-tight tracking-[-0.02em] text-fetch-charcoal">
-                  {flowStep === 'route' && requiresDropoff(jobType) ? 'Route' : 'Ready'}
-                </h2>
-                <button
-                  type="button"
-                  onClick={goBackToPickup}
-                  className="shrink-0 rounded-lg px-2 py-1 text-[11px] font-semibold text-fetch-muted ring-1 ring-fetch-muted/20 transition-colors hover:bg-fetch-muted/10 active:scale-[0.97]"
-                  aria-label="Cancel route and change drop-off"
-                >
-                  Cancel route
-                </button>
+            <TripSheetCard
+              enabled={uberTripCard}
+              title={flowStep === 'route' && requiresDropoff(jobType) ? 'Route' : 'Ready'}
+              secondaryAction={{
+                label: 'Change addresses',
+                onClick: goBackToPickup,
+                ariaLabel: 'Cancel route and change drop-off',
+              }}
+              helpAction={uberTripCard ? { onClick: openBrainFromHome } : null}
+              estimateStrip={showTripRouteEstimateStrip ? <TripPriceEstimateStrip pricing={sheetDisplayPricing!} /> : null}
+              footer={
+                uberTripCard && flowStep !== 'route' ? (
+                  <button
+                    type="button"
+                    onClick={handleRouteNext}
+                    className="fetch-stage-primary-btn w-full rounded-2xl px-3 py-2.5 text-center text-[13px] font-semibold transition-transform active:scale-[0.97]"
+                  >
+                    Continue to photo scan
+                  </button>
+                ) : undefined
+              }
+            >
+              <div className="fetch-home-booking-step fetch-home-booking-step--stack w-full min-h-0">
+              <div className="fetch-home-booking-step__main min-h-0">
+                {bookingState.pickupAddressText ? (
+                  <p className="mt-1.5 line-clamp-2 text-[11px] leading-snug text-fetch-muted">
+                    <span className="font-semibold text-fetch-charcoal/80">A </span>
+                    {bookingState.pickupAddressText}
+                  </p>
+                ) : null}
+                {bookingState.dropoffAddressText ? (
+                  <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-fetch-muted">
+                    <span className="font-semibold text-fetch-charcoal/80">B </span>
+                    {bookingState.dropoffAddressText}
+                  </p>
+                ) : null}
+                {bookingState.distanceMeters != null && bookingState.durationSeconds != null ? (
+                  <p className="mt-1 text-[11px] tabular-nums text-fetch-muted">
+                    {(bookingState.distanceMeters / 1000).toFixed(1)} km · ~{Math.round(bookingState.durationSeconds / 60)} min
+                  </p>
+                ) : null}
+                {flowStep === 'route' ? (
+                  <p className="mt-2 text-[11px] font-medium text-fetch-muted/80">Mapping route…</p>
+                ) : null}
               </div>
-              {bookingState.pickupAddressText ? (
-                <p className="mt-1.5 line-clamp-2 text-[11px] leading-snug text-fetch-muted">
-                  <span className="font-semibold text-fetch-charcoal/80">A </span>
-                  {bookingState.pickupAddressText}
-                </p>
+              {!uberTripCard && flowStep !== 'route' ? (
+                <div className="fetch-home-booking-step__footer">
+                  <button
+                    type="button"
+                    onClick={handleRouteNext}
+                    className="fetch-stage-primary-btn w-full rounded-2xl px-3 py-2.5 text-center text-[13px] font-semibold transition-transform active:scale-[0.97]"
+                  >
+                    Continue to photo scan
+                  </button>
+                </div>
               ) : null}
-              {bookingState.dropoffAddressText ? (
-                <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-fetch-muted">
-                  <span className="font-semibold text-fetch-charcoal/80">B </span>
-                  {bookingState.dropoffAddressText}
-                </p>
-              ) : null}
-              {bookingState.distanceMeters != null && bookingState.durationSeconds != null ? (
-                <p className="mt-1 text-[11px] tabular-nums text-fetch-muted">
-                  {(bookingState.distanceMeters / 1000).toFixed(1)} km · ~{Math.round(bookingState.durationSeconds / 60)} min
-                </p>
-              ) : null}
-              {flowStep !== 'route' ? (
-                <button
-                  type="button"
-                  onClick={handleRouteNext}
-                  className="fetch-stage-primary-btn mt-2.5 w-full rounded-2xl px-3 py-2.5 text-center text-[13px] font-semibold transition-transform active:scale-[0.97]"
-                >
-                  Continue to photo scan
-                </button>
-              ) : (
-                <p className="mt-2 text-[11px] font-medium text-fetch-muted/80">Mapping route…</p>
-              )}
-            </>
+            </div>
+            </TripSheetCard>
           ) : null}
 
           {showBuildingRoute ? (
-            <>
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="text-[13px] font-semibold leading-tight text-fetch-charcoal">Route</h2>
-                <button
-                  type="button"
-                  onClick={goBackToPickup}
-                  className="shrink-0 rounded-lg px-2 py-1 text-[11px] font-semibold text-fetch-muted ring-1 ring-fetch-muted/20 transition-colors hover:bg-fetch-muted/10 active:scale-[0.97]"
-                  aria-label="Cancel route and change drop-off"
-                >
-                  Cancel route
-                </button>
+            <TripSheetCard
+              enabled={uberTripCard}
+              title="Route"
+              secondaryAction={{
+                label: 'Change addresses',
+                onClick: goBackToPickup,
+                ariaLabel: 'Cancel route and change drop-off',
+              }}
+              helpAction={uberTripCard ? { onClick: openBrainFromHome } : null}
+            >
+              <div className="fetch-home-booking-step fetch-home-booking-step--stack w-full min-h-0">
+              <div className="fetch-home-booking-step__main min-h-0">
+                <div className="mt-1.5 flex items-center gap-2">
+                  <div className="fetch-stage-spinner h-3 w-3 shrink-0 animate-spin rounded-full" />
+                  <p className="text-[11px] font-medium text-fetch-muted/85">Mapping pickup to drop-off…</p>
+                </div>
+                {bookingState.pickupAddressText ? (
+                  <p className="mt-1.5 line-clamp-1 text-[11px] text-fetch-muted">
+                    <span className="font-semibold text-fetch-charcoal/75">A </span>
+                    {bookingState.pickupAddressText}
+                  </p>
+                ) : null}
+                {bookingState.dropoffAddressText ? (
+                  <p className="line-clamp-1 text-[11px] text-fetch-muted">
+                    <span className="font-semibold text-fetch-charcoal/75">B </span>
+                    {bookingState.dropoffAddressText}
+                  </p>
+                ) : null}
               </div>
-              <div className="mt-1.5 flex items-center gap-2">
-                <div className="fetch-stage-spinner h-3 w-3 shrink-0 animate-spin rounded-full" />
-                <p className="text-[11px] font-medium text-fetch-muted/85">Mapping pickup to drop-off…</p>
-              </div>
-              {bookingState.pickupAddressText ? (
-                <p className="mt-1.5 line-clamp-1 text-[11px] text-fetch-muted">
-                  <span className="font-semibold text-fetch-charcoal/75">A </span>
-                  {bookingState.pickupAddressText}
-                </p>
-              ) : null}
-              {bookingState.dropoffAddressText ? (
-                <p className="line-clamp-1 text-[11px] text-fetch-muted">
-                  <span className="font-semibold text-fetch-charcoal/75">B </span>
-                  {bookingState.dropoffAddressText}
-                </p>
-              ) : null}
-            </>
+            </div>
+            </TripSheetCard>
           ) : null}
 
           {showScanner ? (
-            <>
-              <div className="flex items-start justify-between gap-2">
-                <h2 className="text-[14px] font-semibold leading-tight tracking-[-0.02em] text-fetch-charcoal">
-                  {jobType === 'junkRemoval' ? 'Show me the junk' : 'Show me what we\'re moving'}
-                </h2>
-                <button
-                  type="button"
-                  onClick={goBackToIntent}
-                  className="shrink-0 text-[11px] font-semibold text-fetch-muted underline decoration-fetch-muted/40 underline-offset-2"
-                >
-                  Start over
-                </button>
-              </div>
-              <p className="mt-1.5 text-[12px] font-medium leading-snug text-fetch-muted/90">
-                Take a photo and I'll identify the items.
-              </p>
+            <TripSheetCard
+              enabled={uberTripCard}
+              title={jobType === 'junkRemoval' ? 'Show me the junk' : "Show me what we're moving"}
+              secondaryAction={{ label: 'Start over', onClick: goBackToIntent }}
+              helpAction={uberTripCard ? { onClick: openBrainFromHome } : null}
+              estimateStrip={showTripRouteEstimateStrip ? <TripPriceEstimateStrip pricing={sheetDisplayPricing!} /> : null}
+            >
+            <section className="fetch-home-booking-step fetch-home-booking-step--stack w-full">
+              <div className="fetch-home-booking-step__main min-h-0">
+                <p className="text-[12px] font-medium leading-snug text-fetch-muted/90">
+                  Take a photo and I'll identify the items.
+                </p>
 
-              {scanThumbs.length > 0 ? (
-                <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
-                  {scanThumbs.map((src, i) => (
-                    <img
-                      key={i}
-                      src={src}
-                      alt={`Photo ${i + 1}`}
-                      className="h-[56px] w-[56px] shrink-0 rounded-lg object-cover ring-1 ring-black/[0.06]"
-                    />
-                  ))}
-                </div>
-              ) : null}
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                multiple
-                onChange={handlePhotoAdd}
-                className="hidden"
-              />
-
-              <div className="mt-2.5 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={scanning}
-                  className="fetch-home-secondary-btn flex-1 rounded-2xl px-3 py-2.5 text-center text-[13px] font-semibold transition-transform active:scale-[0.97] disabled:opacity-50"
-                >
-                  {scanThumbs.length > 0 ? 'Add more' : 'Take photo'}
-                </button>
-                {scanFiles.length > 0 && !bookingState.scan.result ? (
-                  <button
-                    type="button"
-                    onClick={handleScan}
-                    disabled={scanning}
-                    className="fetch-stage-primary-btn flex-1 rounded-2xl px-3 py-2.5 text-center text-[13px] font-semibold transition-transform active:scale-[0.97] disabled:opacity-60"
-                  >
-                    {scanning ? 'Scanning…' : 'Scan'}
-                  </button>
+                {scanThumbs.length > 0 ? (
+                  <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
+                    {scanThumbs.map((src, i) => (
+                      <img
+                        key={i}
+                        src={src}
+                        alt={`Photo ${i + 1}`}
+                        className="h-[56px] w-[56px] shrink-0 rounded-lg object-cover ring-1 ring-black/[0.06]"
+                      />
+                    ))}
+                  </div>
                 ) : null}
-              </div>
 
-              {bookingState.scan.result && Object.keys(bookingState.itemCounts).length > 0 ? (
-                <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  multiple
+                  onChange={handlePhotoAdd}
+                  className="hidden"
+                />
+
+                {bookingState.scan.result && Object.keys(bookingState.itemCounts).length > 0 ? (
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     {Object.entries(bookingState.itemCounts).map(([item, qty]) => (
                       <span
@@ -3714,30 +4375,86 @@ export default function HomeView({
                       </span>
                     ))}
                   </div>
+                ) : null}
+
+                {scanning ? (
+                  <div className="mt-3 flex items-center gap-2">
+                    <div className="fetch-stage-spinner h-3 w-3 animate-spin rounded-full" />
+                    <p className="text-[12px] font-medium text-fetch-muted/80">Analysing your photos…</p>
+                  </div>
+                ) : null}
+              </div>
+              <div className="fetch-home-booking-step__footer flex flex-col gap-2">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={scanning}
+                    className="fetch-home-secondary-btn flex-1 rounded-2xl px-3 py-2.5 text-center text-[13px] font-semibold transition-transform active:scale-[0.97] disabled:opacity-50"
+                  >
+                    {scanThumbs.length > 0 ? 'Add more' : 'Take photo'}
+                  </button>
+                  {scanFiles.length > 0 && !bookingState.scan.result ? (
+                    <button
+                      type="button"
+                      onClick={handleScan}
+                      disabled={scanning}
+                      className="fetch-stage-primary-btn flex-1 rounded-2xl px-3 py-2.5 text-center text-[13px] font-semibold transition-transform active:scale-[0.97] disabled:opacity-60"
+                    >
+                      {scanning ? 'Scanning…' : 'Scan'}
+                    </button>
+                  ) : null}
+                </div>
+                {bookingState.scan.result && Object.keys(bookingState.itemCounts).length > 0 ? (
                   <button
                     type="button"
                     onClick={handleConfirmItems}
-                    className="fetch-stage-primary-btn mt-3 w-full rounded-2xl px-3 py-2.5 text-center text-[13px] font-semibold transition-transform active:scale-[0.97]"
+                    className="fetch-stage-primary-btn w-full rounded-2xl px-3 py-2.5 text-center text-[13px] font-semibold transition-transform active:scale-[0.97]"
                   >
                     Confirm items
                   </button>
-                </>
-              ) : null}
-
-              {scanning ? (
-                <div className="mt-3 flex items-center gap-2">
-                  <div className="fetch-stage-spinner h-3 w-3 animate-spin rounded-full" />
-                  <p className="text-[12px] font-medium text-fetch-muted/80">Analysing your photos…</p>
-                </div>
-              ) : null}
-            </>
+                ) : null}
+              </div>
+            </section>
+            </TripSheetCard>
           ) : null}
 
           {showPostScan && bookingState.bookingStatus && isLivePipelinePersistedStatus(bookingState.bookingStatus)
             ? (() => {
                 const jc = junkLiveJobCopy(bookingState.bookingStatus!, bookingState.driver)
+                const stLive = bookingState.bookingStatus!
+                const liveStatusLabel =
+                  stLive === 'dispatching' || stLive === 'pending_match'
+                    ? 'Finding driver'
+                    : stLive === 'matched'
+                      ? 'Assigned'
+                      : stLive === 'en_route'
+                        ? 'En route'
+                        : stLive === 'arrived'
+                          ? 'Arrived'
+                          : stLive === 'in_progress'
+                            ? 'In progress'
+                            : stLive === 'completed'
+                              ? 'Completed'
+                              : stLive === 'match_failed'
+                                ? 'No driver yet'
+                                : 'Trip'
+                const liveEtaLine =
+                  (bookingState.mode === 'searching' ||
+                    bookingState.mode === 'matched' ||
+                    bookingState.mode === 'live') &&
+                  liveTripDirections.etaSeconds != null
+                    ? `${Math.max(1, Math.round(liveTripDirections.etaSeconds / 60))} min away`
+                    : bookingState.driver?.etaMinutes != null
+                      ? `${bookingState.driver.etaMinutes} min away`
+                      : null
                 return (
-                  <>
+                  <TripSheetCard
+                    enabled={uberTripCard}
+                    title={jc.title}
+                    secondaryAction={{ label: 'Start over', onClick: goBackToIntent }}
+                    helpAction={uberTripCard ? { onClick: openBrainFromHome } : null}
+                  >
                     {bookNowSyncError ? (
                       <div className="mb-3 rounded-xl border border-red-200/50 bg-red-50/90 px-3 py-2.5">
                         <p className="text-[11px] font-semibold leading-snug text-red-900/90">
@@ -3762,49 +4479,105 @@ export default function HomeView({
                         until sync succeeds.
                       </p>
                     ) : null}
-                    <div className="flex items-start justify-between gap-2">
-                      <h2 className="text-[14px] font-semibold leading-tight tracking-[-0.02em] text-fetch-charcoal">
-                        {jc.title}
-                      </h2>
-                      <button
-                        type="button"
-                        onClick={goBackToIntent}
-                        className="shrink-0 text-[11px] font-semibold text-fetch-muted underline decoration-fetch-muted/40 underline-offset-2"
-                      >
-                        Start over
-                      </button>
-                    </div>
-                    <p className="mt-1.5 text-[12px] font-medium leading-snug text-fetch-muted/90">
-                      {jc.line}
-                    </p>
-                    {bookingState.driver && isWireStatusActiveForDriverGps(bookingState.bookingStatus) ? (
-                      <p className="mt-2 text-[11px] font-medium text-fetch-charcoal/85">
-                        {bookingState.driver.vehicle ? `${bookingState.driver.vehicle} · ` : ''}
-                        {bookingState.driver.rating != null ? `${bookingState.driver.rating}★` : ''}
-                      </p>
-                    ) : null}
+                    {uberTripCard ? (
+                      <div className="mb-3">
+                        <TripDriverStatusStrip
+                          driver={bookingState.driver}
+                          statusLabel={liveStatusLabel}
+                          statusTone={
+                            stLive === 'en_route' || stLive === 'in_progress' ? 'emphasis' : 'neutral'
+                          }
+                          etaLine={liveEtaLine}
+                          detailLine={jc.line}
+                          leading={isWireStatusMatching(bookingState.bookingStatus) ? 'spinner' : 'avatar'}
+                        />
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-start justify-between gap-2">
+                          <h2 className="text-[14px] font-semibold leading-tight tracking-[-0.02em] text-fetch-charcoal">
+                            {jc.title}
+                          </h2>
+                          <button
+                            type="button"
+                            onClick={goBackToIntent}
+                            className="shrink-0 text-[11px] font-semibold text-fetch-muted underline decoration-fetch-muted/40 underline-offset-2"
+                          >
+                            Start over
+                          </button>
+                        </div>
+                        <p className="mt-1.5 text-[12px] font-medium leading-snug text-fetch-muted/90">
+                          {jc.line}
+                        </p>
+                        {bookingState.driver && isWireStatusActiveForDriverGps(bookingState.bookingStatus) ? (
+                          <p className="mt-2 text-[11px] font-medium text-fetch-charcoal/85">
+                            {bookingState.driver.vehicle ? `${bookingState.driver.vehicle} · ` : ''}
+                            {bookingState.driver.rating != null ? `${bookingState.driver.rating}★` : ''}
+                          </p>
+                        ) : null}
+                      </>
+                    )}
                     {isWireStatusMatching(bookingState.bookingStatus) ? (
                       <div className="mt-3 space-y-1">
                         <div className="flex items-center gap-2">
-                          <div className="fetch-stage-spinner h-3 w-3 animate-spin rounded-full" />
+                          {!uberTripCard ? (
+                            <div className="fetch-stage-spinner h-3 w-3 animate-spin rounded-full" />
+                          ) : null}
                           <p className="text-[12px] font-medium text-fetch-muted/80">
                             {(() => {
                               void matchUiTick
                               const start = bookingState.matchingMeta?.matchStartedAt
-                              if (start == null) return 'Searching…'
+                              const pool = bookingState.matchingMode !== 'sequential'
+                              if (start == null) {
+                                return pool
+                                  ? 'Searching — nearby drivers can claim your job.'
+                                  : 'Searching — contacting drivers in order…'
+                              }
                               const sec = Math.max(0, Math.floor((Date.now() - start) / 1000))
-                              return sec >= 60
-                                ? `Searching · ${Math.floor(sec / 60)}m ${sec % 60}s`
-                                : `Searching · ${sec}s`
+                              const elapsed =
+                                sec >= 60
+                                  ? `${Math.floor(sec / 60)}m ${sec % 60}s`
+                                  : `${sec}s`
+                              return pool
+                                ? `Waiting for a driver · ${elapsed}`
+                                : `Matching · ${elapsed}`
                             })()}
                           </p>
                         </div>
-                        {bookingState.matchingMeta != null &&
+                        {bookingState.matchingMode === 'sequential' &&
+                        bookingState.matchingMeta?.activeDriverId ? (
+                          <p className="pl-5 text-[11px] font-medium text-fetch-muted/75">
+                            Offer is with a specific driver — waiting for them to accept or pass.
+                          </p>
+                        ) : null}
+                        {bookingState.matchingMode === 'sequential' &&
+                        bookingState.matchingMeta != null &&
                         (bookingState.matchingMeta.driversContacted ?? 0) > 0 ? (
                           <p className="pl-5 text-[11px] font-medium text-fetch-muted/70">
                             Drivers contacted: {bookingState.matchingMeta.driversContacted}
                           </p>
+                        ) : bookingState.matchingMode === 'pool' ||
+                          bookingState.matchingMode == null ? (
+                          <p className="pl-5 text-[11px] font-medium text-fetch-muted/70">
+                            Open pool: drivers see your job on their dashboard when online nearby.
+                          </p>
                         ) : null}
+                        {(() => {
+                          void matchUiTick
+                          const meta = bookingState.matchingMeta
+                          const start = meta?.matchStartedAt
+                          const pool =
+                            bookingState.matchingMode === 'pool' || bookingState.matchingMode == null
+                          if (!pool || start == null) return null
+                          const sec = Math.max(0, Math.floor((Date.now() - start) / 1000))
+                          if (sec < 20 || (meta?.driversContacted ?? 0) > 0) return null
+                          return (
+                            <p className="pl-5 text-[11px] font-medium text-amber-200/85 [text-wrap:pretty]">
+                              Still no drivers on this job — make sure at least one driver is online in the
+                              driver dashboard, or keep this screen open while drivers come available.
+                            </p>
+                          )
+                        })()}
                       </div>
                     ) : null}
                     {bookingState.bookingStatus === 'match_failed' ? (
@@ -3901,31 +4674,26 @@ export default function HomeView({
                         </button>
                       </>
                     ) : null}
-                  </>
+                  </TripSheetCard>
                 )
               })()
             : showPostScan && sheetDisplayPricing ? (
-            <>
-              <div className="flex items-start justify-between gap-2">
-                <h2 className="text-[14px] font-semibold leading-tight tracking-[-0.02em] text-fetch-charcoal">
-                  Your quote
-                </h2>
-                <button
-                  type="button"
-                  onClick={goBackToIntent}
-                  className="shrink-0 text-[11px] font-semibold text-fetch-muted underline decoration-fetch-muted/40 underline-offset-2"
-                >
-                  Start over
-                </button>
-              </div>
+            <TripSheetCard
+              enabled={uberTripCard}
+              title="Your quote"
+              secondaryAction={{ label: 'Start over', onClick: goBackToIntent }}
+              helpAction={uberTripCard ? { onClick: openBrainFromHome } : null}
+            >
+            <section className="fetch-home-booking-step fetch-home-booking-step--stack w-full">
+              <div className="fetch-home-booking-step__main min-h-0">
 
-              {sheetQuoteError && !quoteLive.ok ? (
-                <p className="mt-2 text-[11px] font-medium leading-snug text-amber-200/90">
-                  {sheetQuoteError}
-                </p>
-              ) : null}
+                {sheetQuoteError && !quoteLive.ok ? (
+                  <p className="mt-2 text-[11px] font-medium leading-snug text-amber-200/90">
+                    {sheetQuoteError}
+                  </p>
+                ) : null}
 
-              {sheetDisplayPricing.totalPrice != null ? (
+                {sheetDisplayPricing.totalPrice != null ? (
                 <div className="mt-2">
                   <p className="text-[11px] font-medium text-fetch-muted/75">Total (estimate)</p>
                   <div className="mt-0.5 flex items-baseline gap-1.5">
@@ -4034,12 +4802,71 @@ export default function HomeView({
                 </div>
               ) : null}
               <p className="mt-2 text-[10px] leading-snug text-fetch-muted/75 [text-wrap:pretty]">
-                Book now creates a payment intent on the Fetch server and confirms it with your default
-                card from Account (demo storage on this device — see Account for details).
+                {isStripePublishableConfigured()
+                  ? 'When the server uses Stripe, you pay with the secure card form below. Otherwise Book now charges your default card from Account on the Fetch server (demo storage on this device — see Account).'
+                  : 'Book now creates a payment intent on the Fetch server and confirms it with your default card from Account (demo storage on this device — see Account for details).'}
               </p>
+              {stripeBookCheckout && import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY?.trim() ? (
+                <div className="mt-3 rounded-2xl border border-white/[0.08] bg-black/25 p-3">
+                  <p className="text-[11px] font-semibold text-fetch-charcoal/90">Card payment (Stripe)</p>
+                  <p className="mt-1 text-[10px] text-fetch-muted/80 [text-wrap:pretty]">
+                    Pay to confirm. Ensure webhooks reach <code className="text-fetch-muted">/api/payments/webhook</code>{' '}
+                    (e.g. <code className="text-fetch-muted">stripe listen</code>) so the server can unlock dispatch.
+                  </p>
+                  <FetchStripePaymentElement
+                    publishableKey={import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY.trim()}
+                    clientSecret={stripeBookCheckout.clientSecret}
+                    submitLabel={bookNowBusy ? 'Confirming…' : 'Pay & book'}
+                    disabled={bookNowBusy}
+                    errorText={bookNowError}
+                    onError={(msg) => setBookNowError(msg)}
+                    onSuccess={() => {
+                      void (async () => {
+                        const draft = stripeBookCheckout
+                        if (!draft) return
+                        setBookNowBusy(true)
+                        setBookNowError(null)
+                        try {
+                          const pi = await waitForPaymentIntentServerConfirmed(draft.paymentIntent.id)
+                          if (pi.status !== 'succeeded') {
+                            throw new Error(`Payment did not complete (status: ${pi.status}).`)
+                          }
+                          setStripeBookCheckout(null)
+                          await finalizePaidBookingAfterCharge(pi, draft.payAmount)
+                        } catch (e) {
+                          setBookNowError(
+                            e instanceof Error ? e.message : 'Payment confirmation failed.',
+                          )
+                        } finally {
+                          setBookNowBusy(false)
+                        }
+                      })()
+                    }}
+                  />
+                  <button
+                    type="button"
+                    disabled={bookNowBusy}
+                    className="mt-2 w-full text-[11px] font-medium text-fetch-muted underline decoration-fetch-muted/35"
+                    onClick={() => {
+                      setStripeBookCheckout(null)
+                      setBookNowError(null)
+                    }}
+                  >
+                    Cancel card checkout
+                  </button>
+                </div>
+              ) : null}
+              </div>
+              <div
+                className={
+                  uberTripCard
+                    ? 'fetch-home-booking-step__footer fetch-trip-sheet-card__footer-pinned border-t border-fetch-charcoal/[0.06] pt-3'
+                    : 'fetch-home-booking-step__footer'
+                }
+              >
               <button
                 type="button"
-                disabled={bookNowBusy || !sheetDisplayPricing}
+                disabled={bookNowBusy || !sheetDisplayPricing || Boolean(stripeBookCheckout)}
                 onClick={() => {
                   if (fetchPerfIsEnabled()) {
                     fetchPerfMark(undefined, '1_user_action', { action: 'book_now_click' })
@@ -4056,12 +4883,28 @@ export default function HomeView({
                     setBookNowError(null)
                     setBookNowSyncError(null)
                     bookNowSyncRetryRef.current = null
-                    let marketplaceSynced = false
                     try {
-                      const pi = await chargeDefaultSavedCard({
+                      const pi0 = await createPaymentIntent({
                         amount: payAmount,
-                        bookingId: bookingState.bookingId,
+                        bookingId: bookingStateRef.current.bookingId,
                       })
+                      if (pi0.provider === 'stripe') {
+                        if (!isStripePublishableConfigured()) {
+                          throw new Error(
+                            'Stripe is enabled on the server. Set VITE_STRIPE_PUBLISHABLE_KEY for the app.',
+                          )
+                        }
+                        if (!pi0.clientSecret) {
+                          throw new Error('Stripe payment intent is missing clientSecret.')
+                        }
+                        setStripeBookCheckout({
+                          clientSecret: pi0.clientSecret,
+                          paymentIntent: pi0,
+                          payAmount,
+                        })
+                        return
+                      }
+                      const pi = await confirmDemoPaymentIntent(pi0)
                       if (pi.status !== 'succeeded') {
                         throw new Error(
                           `Payment did not complete (status: ${pi.status}).${
@@ -4069,84 +4912,7 @@ export default function HomeView({
                           }`,
                         )
                       }
-                      playUiEvent('success')
-                      appendHomeActivity({
-                        title: 'Payment confirmed',
-                        subtitle: `$${payAmount} AUD charged · intent ${pi.id} (${pi.status})`,
-                        jobType: jobType ?? undefined,
-                        priceMin: pricing.minPrice,
-                        priceMax: pricing.maxPrice,
-                        paymentIntentId: pi.id,
-                        paymentStatus: pi.status,
-                        distanceMeters:
-                          bookingStateRef.current.distanceMeters ??
-                          bookingStateRef.current.route?.distanceMeters ??
-                          undefined,
-                      })
-                      appendHomeAlert({
-                        title: 'Payment confirmed',
-                        body: `Charged $${payAmount} AUD. Reference ${pi.id}.`,
-                      })
-                      refreshLocalFeeds()
-                      const bs = bookingStateRef.current
-                      let nextBookingId =
-                        bs.bookingId && !bs.bookingId.startsWith('demo-')
-                          ? bs.bookingId
-                          : `bk_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`
-                      try {
-                        const liveAtPay = computePriceForState(bs, { allowRouteFallback: true })
-                        const merged: BookingState = {
-                          ...bs,
-                          paymentIntent: pi,
-                          selectedPaymentMethodId: pi.paymentMethodId,
-                          ...(liveAtPay.ok
-                            ? { pricing: liveAtPay.pricing, quoteBreakdown: liveAtPay.breakdown }
-                            : {}),
-                        }
-                        const payload = bookingStateToConfirmedUpsertPayload(merged, nextBookingId)
-                        const saved = await upsertBooking({ ...payload, paymentIntent: pi })
-                        nextBookingId = saved.id
-                        await dispatchBooking(saved.id)
-                        marketplaceSynced = true
-                        bookNowSyncRetryRef.current = null
-                      } catch (syncErr) {
-                        const msg =
-                          syncErr instanceof Error
-                            ? syncErr.message
-                            : 'Could not save booking to Fetch servers.'
-                        setBookNowSyncError(msg)
-                        const liveAtPay = computePriceForState(bs, { allowRouteFallback: true })
-                        const merged: BookingState = {
-                          ...bs,
-                          paymentIntent: pi,
-                          selectedPaymentMethodId: pi.paymentMethodId,
-                          ...(liveAtPay.ok
-                            ? { pricing: liveAtPay.pricing, quoteBreakdown: liveAtPay.breakdown }
-                            : {}),
-                        }
-                        const payload = bookingStateToConfirmedUpsertPayload(merged, nextBookingId)
-                        bookNowSyncRetryRef.current = { payload, paymentIntent: pi }
-                        appendHomeActivity({
-                          title: 'Booking sync failed',
-                          subtitle: msg,
-                          jobType: jobType ?? undefined,
-                          priceMin: pricing.minPrice,
-                          priceMax: pricing.maxPrice,
-                        })
-                        appendHomeAlert({
-                          title: 'Payment went through — booking sync failed',
-                          body: `${msg} Use Retry save below.`,
-                        })
-                        refreshLocalFeeds()
-                      }
-                      startPostPaymentDriverFlow(
-                        {
-                          paymentIntent: pi,
-                          selectedPaymentMethodId: pi.paymentMethodId,
-                          bookingId: nextBookingId,
-                        },
-                        { serverLive: marketplaceSynced },
-                      )
+                      await finalizePaidBookingAfterCharge(pi, payAmount)
                     } catch (err) {
                       const msg =
                         err instanceof Error ? err.message : 'Payment could not be completed.'
@@ -4169,29 +4935,46 @@ export default function HomeView({
                     }
                   })()
                 }}
-                className="fetch-stage-primary-btn mt-3 w-full rounded-2xl px-3 py-2.5 text-center text-[13px] font-semibold transition-transform active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
+                className="fetch-stage-primary-btn w-full rounded-2xl px-3 py-2.5 text-center text-[13px] font-semibold transition-transform active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {bookNowBusy ? 'Processing payment…' : 'Book now'}
               </button>
-            </>
-          ) : showPostScan ? (
-            <>
-              <div className="flex items-start justify-between gap-2">
-                <h2 className="text-[14px] font-semibold leading-tight tracking-[-0.02em] text-fetch-charcoal">
-                  Items confirmed
-                </h2>
-                <button
-                  type="button"
-                  onClick={goBackToIntent}
-                  className="shrink-0 text-[11px] font-semibold text-fetch-muted underline decoration-fetch-muted/40 underline-offset-2"
-                >
-                  Start over
-                </button>
               </div>
-              <p className="mt-1.5 text-[12px] font-medium leading-snug text-fetch-muted/90">
-                Calculating your quote…
-              </p>
-            </>
+            </section>
+            </TripSheetCard>
+          ) : showPostScan ? (
+            <TripSheetCard
+              enabled={uberTripCard}
+              title="Items confirmed"
+              secondaryAction={{ label: 'Start over', onClick: goBackToIntent }}
+              helpAction={uberTripCard ? { onClick: openBrainFromHome } : null}
+            >
+              {!uberTripCard ? (
+                <section className="fetch-home-booking-step fetch-home-booking-step--stack w-full">
+                  <div className="fetch-home-booking-step__main flex min-h-0 flex-1 flex-col justify-center">
+                    <div className="flex items-start justify-between gap-2">
+                      <h2 className="text-[14px] font-semibold leading-tight tracking-[-0.02em] text-fetch-charcoal">
+                        Items confirmed
+                      </h2>
+                      <button
+                        type="button"
+                        onClick={goBackToIntent}
+                        className="shrink-0 text-[11px] font-semibold text-fetch-muted underline decoration-fetch-muted/40 underline-offset-2"
+                      >
+                        Start over
+                      </button>
+                    </div>
+                    <p className="mt-1.5 text-[12px] font-medium leading-snug text-fetch-muted/90">
+                      Calculating your quote…
+                    </p>
+                  </div>
+                </section>
+              ) : (
+                <p className="text-[12px] font-medium leading-snug text-fetch-muted/90">
+                  Calculating your quote…
+                </p>
+              )}
+            </TripSheetCard>
           ) : null}
           </>
         )}
@@ -4208,7 +4991,7 @@ export default function HomeView({
           ].join(' ')}
           style={{
             top: orbTopLeftOnNavMap
-              ? 'calc(max(0.5rem, env(safe-area-inset-top)) + 6.5rem + 0.35rem)'
+              ? 'calc(max(0.5rem, env(safe-area-inset-top)) + 4rem + 0.35rem)'
               : 'max(0.5rem, env(safe-area-inset-top))',
             bottom: orbChatStackBottom,
           }}
@@ -4291,45 +5074,80 @@ export default function HomeView({
                 </div>
               </div>
             ) : null}
-            <div
-              className="fetch-home-orb-vision-halo pointer-events-none flex h-[6.5rem] w-[6.5rem] items-center justify-center"
-              data-orb-idle={orbState === 'idle' && !isSpeechPlaying ? 'true' : undefined}
-            >
-              <FetchVoiceCommandFab
-                homeSheetDock
-                onboardingPulse={false}
-                expression={orbExpression}
-                orbState={orbState}
-                pulseNonce={0}
-                typingActive={false}
-                awakened={orbAwakened}
-                confirmationNonce={confirmNonce + voiceHoldPulseNonce}
-                mapAttention={orbMapAttention}
-                lookAtCard={Boolean(
-                  (orbChatTurns.length > 0 ||
-                    voiceHoldCaption ||
-                    orbEphemeralBubble) &&
-                    !isSpeechPlaying,
-                )}
-                glowColor={orbGlowColor}
-                orbAppearance={themeResolved === 'light' ? 'day' : 'night'}
-                onOpen={() => {
-                  bumpInteraction()
-                  setOrbAwakened(true)
-                  setSheetSnap('closed')
-                  if (
-                    typeof window !== 'undefined' &&
-                    window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches
-                  ) {
-                    setBrainSkipReveal(true)
-                    setHomeBrainFlow('brain')
-                    return
-                  }
-                  setBrainSkipReveal(false)
-                  setHomeBrainFlow('tunnel')
-                }}
+            {suppressHomeOrbForTrip ? (
+              <div
+                className={[
+                  'pointer-events-none shrink-0',
+                  orbTopLeftOnNavMap ? 'h-16 w-16' : 'h-[6.5rem] w-[6.5rem]',
+                ].join(' ')}
+                aria-hidden
               />
-            </div>
+            ) : showIntent && !orbTopLeftOnNavMap ? (
+              <div className="fetch-home-orb-dock fetch-home-orb-dock--intent-nudge pointer-events-none flex flex-col items-center">
+                <div
+                  className="fetch-home-orb-vision-halo pointer-events-none flex h-[6.5rem] w-[6.5rem] items-center justify-center"
+                  data-orb-idle={orbState === 'idle' && !isSpeechPlaying ? 'true' : undefined}
+                >
+                  <FetchVoiceCommandFab
+                    homeSheetDock
+                    onboardingPulse={false}
+                    expression={orbExpression}
+                    orbState={orbState}
+                    pulseNonce={0}
+                    typingActive={false}
+                    awakened={orbAwakened}
+                    confirmationNonce={confirmNonce + voiceHoldPulseNonce}
+                    mapAttention={orbMapAttention}
+                    lookAtCard={Boolean(
+                      (orbChatTurns.length > 0 ||
+                        voiceHoldCaption ||
+                        orbEphemeralBubble) &&
+                        !isSpeechPlaying,
+                    )}
+                    glowColor={orbGlowColor}
+                    orbAppearance={themeResolved === 'light' ? 'day' : 'night'}
+                    autonomous={orbDockAutonomous}
+                    suspendAutonomous={Boolean(orbBurstExpression)}
+                    onOpen={openBrainFromHome}
+                  />
+                </div>
+                <p className="fetch-home-orb-prompt-line pointer-events-none mt-3.5 max-w-[16rem] text-center text-[12px] font-medium leading-snug tracking-[-0.01em] text-fetch-charcoal/68">
+                  {HOME_INTENT_ORB_LINE}
+                </p>
+              </div>
+            ) : (
+              <div
+                className={[
+                  'fetch-home-orb-vision-halo pointer-events-none flex items-center justify-center',
+                  orbTopLeftOnNavMap ? 'h-16 w-16' : 'h-[6.5rem] w-[6.5rem]',
+                ].join(' ')}
+                data-orb-idle={orbState === 'idle' && !isSpeechPlaying ? 'true' : undefined}
+              >
+                <FetchVoiceCommandFab
+                  homeSheetDock
+                  homeSheetDockCompact={orbTopLeftOnNavMap}
+                  onboardingPulse={false}
+                  expression={orbExpression}
+                  orbState={orbState}
+                  pulseNonce={0}
+                  typingActive={false}
+                  awakened={orbAwakened}
+                  confirmationNonce={confirmNonce + voiceHoldPulseNonce}
+                  mapAttention={orbMapAttention}
+                  lookAtCard={Boolean(
+                    (orbChatTurns.length > 0 ||
+                      voiceHoldCaption ||
+                      orbEphemeralBubble) &&
+                      !isSpeechPlaying,
+                  )}
+                  glowColor={orbGlowColor}
+                  orbAppearance={themeResolved === 'light' ? 'day' : 'night'}
+                  autonomous={orbDockAutonomous}
+                  suspendAutonomous={Boolean(orbBurstExpression)}
+                  onOpen={openBrainFromHome}
+                />
+              </div>
+            )}
           </div>
         </div>
       ) : null}
@@ -4337,12 +5155,12 @@ export default function HomeView({
       {homeBrainFlow === 'clarity' || homeBrainFlow === 'brain' ? (
         <FetchBrainMemoryOverlay
           flowPhase={homeBrainFlow}
-          onClose={closeFetchBrain}
+          onClose={exitBrainChatToServiceSelector}
           theme={themeResolved}
           mind={fetchBrainMind}
           orbAppearance={themeResolved === 'light' ? 'day' : 'night'}
           brainReplyPending={brainAiPending || brainPlacesLoading}
-          glowRgb={orbGlowColor}
+          glowRgb={GLOW_BLUE}
           instantReveal={brainSkipReveal}
           onBrainUtterance={runBrainAiUtterance}
           onBrainListeningChange={onBrainListeningChange}
@@ -4371,6 +5189,8 @@ export default function HomeView({
             void runBrainAiUtterance(msg)
           }}
           onNewBrainChat={startNewBrainChat}
+          autoVoiceEpoch={brainAutoVoiceEpoch}
+          voiceRelistenEpoch={brainVoiceRelistenEpoch}
         />
       ) : null}
 

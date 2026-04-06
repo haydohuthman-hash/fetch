@@ -280,8 +280,8 @@ export function FetchBrainServiceIntakeSheet({
   }, [busy, runTransition, stack.length])
 
   const glassTint = isLight
-    ? 'border-white/[0.22] bg-white/[0.52]'
-    : 'border-white/[0.12] bg-[rgba(10,12,20,0.42)]'
+    ? 'border-white/[0.35] bg-white/[0.92]'
+    : 'border-white/[0.14] bg-[rgba(28,30,40,0.82)]'
 
   if (!step) return null
 

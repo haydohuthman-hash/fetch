@@ -15,6 +15,8 @@ export function FetchVoiceCommandFab({
   compact = false,
   /** Smaller dock + `homeDock` orb — home booking / sheet layout */
   homeSheetDock = false,
+  /** Maps tab: compact orb over the map (uses `homeDockCompact`) */
+  homeSheetDockCompact = false,
   orbState,
   pulseNonce = 0,
   typingActive = false,
@@ -27,12 +29,15 @@ export function FetchVoiceCommandFab({
   voiceLevel,
   expression,
   orbAppearance,
+  autonomous = false,
+  suspendAutonomous = false,
 }: {
   onOpen: () => void
   id?: string
   onboardingPulse?: boolean
   compact?: boolean
   homeSheetDock?: boolean
+  homeSheetDockCompact?: boolean
   orbState?: JarvisOrbState
   pulseNonce?: number
   typingActive?: boolean
@@ -45,15 +50,19 @@ export function FetchVoiceCommandFab({
   voiceLevel?: number
   expression?: FetchOrbExpression
   orbAppearance?: 'night' | 'day'
+  autonomous?: boolean
+  suspendAutonomous?: boolean
 }) {
   const { isSpeechPlaying, muted, playUiEvent } = useFetchVoice()
   const [pulseActive, setPulseActive] = useState(false)
   const speaking = isSpeechPlaying && !muted
   const dim = compact
     ? 'h-[3.25rem] w-[3.25rem]'
-    : homeSheetDock
-      ? 'h-[6.5rem] w-[6.5rem]'
-      : 'h-[9rem] w-[9rem]'
+    : homeSheetDock && homeSheetDockCompact
+      ? 'h-[4rem] w-[4rem]'
+      : homeSheetDock
+        ? 'h-[6.5rem] w-[6.5rem]'
+        : 'h-[9rem] w-[9rem]'
 
   const resolvedState: JarvisOrbState | undefined = (() => {
     if (orbState != null) return orbState
@@ -62,7 +71,7 @@ export function FetchVoiceCommandFab({
     return undefined
   })()
 
-  const resolvedActivity =
+  const resolvedActivityCore =
     orbState === 'listening'
       ? 0.72
       : orbState === 'processing'
@@ -79,6 +88,9 @@ export function FetchVoiceCommandFab({
                   ? 0.34
                   : 0.12
 
+  const resolvedActivity =
+    expression === 'listening' ? Math.max(resolvedActivityCore, 0.56) : resolvedActivityCore
+
   const speakingVisual =
     expression === 'speaking' ||
     expression === 'excited' ||
@@ -88,6 +100,8 @@ export function FetchVoiceCommandFab({
     orbState === 'processing' ||
     orbState === 'thinking' ||
     (!orbState && !expression && speaking)
+
+  const listeningVisual = expression === 'listening' && !speakingVisual
 
   const looksDormant =
     !speaking &&
@@ -121,6 +135,7 @@ export function FetchVoiceCommandFab({
         looksDormant ? 'fetch-voice-fab--ambient' : '',
         onboardingPulse ? 'fetch-voice-fab--onboarding' : '',
         speakingVisual ? 'fetch-voice-fab--speaking' : '',
+        listeningVisual ? 'fetch-voice-fab--listening' : '',
         pulseActive ? 'fetch-voice-fab--pulse' : '',
         typingActive ? 'fetch-voice-fab--typing' : '',
       ].join(' ')}
@@ -139,7 +154,17 @@ export function FetchVoiceCommandFab({
           lookDown={lookDown}
           glowColor={glowColor}
           orbAppearance={orbAppearance}
-          size={compact ? 'sm' : homeSheetDock ? 'homeDock' : 'dock'}
+          autonomous={autonomous}
+          suspendAutonomous={suspendAutonomous}
+          size={
+            compact
+              ? 'sm'
+              : homeSheetDock && homeSheetDockCompact
+                ? 'homeDockCompact'
+                : homeSheetDock
+                  ? 'homeDock'
+                  : 'dock'
+          }
           ariaLive={false}
         />
       </span>

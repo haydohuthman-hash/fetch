@@ -60,6 +60,10 @@ export type FetchHomeStepOneProps = {
   onDriverMapExit?: () => void
   /** Live trip: keep driver + destination in frame. */
   liveTrackingFit?: LiveTrackingMapFit | null
+  /** Bump when the user confirms pickup so the map replays lock-in fanfare even if coords unchanged. */
+  pickupLockInCelebrateKey?: number
+  /** Compact banner above the map when a booking was started from Fetch chat. */
+  chatBookingHintLabel?: string | null
 }
 
 /**
@@ -92,6 +96,8 @@ function FetchHomeStepOneInner({
   mapOverlayContext = 'home',
   onDriverMapExit,
   liveTrackingFit = null,
+  pickupLockInCelebrateKey = 0,
+  chatBookingHintLabel = null,
 }: FetchHomeStepOneProps) {
   const [map, setMap] = useState<google.maps.Map | null>(null)
   const mapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ?? ''
@@ -158,6 +164,7 @@ function FetchHomeStepOneInner({
                   driverToPickupPath={driverToPickupPath}
                   driverLivePosition={driverLivePosition}
                   liveTrackingFit={liveTrackingFit}
+                  pickupLockInCelebrateKey={pickupLockInCelebrateKey}
                 />
               </GoogleMapLayer>
             ) : (
@@ -183,6 +190,17 @@ function FetchHomeStepOneInner({
               >
                 {mapFollowUser ? 'Overview' : 'Follow me'}
               </button>
+            </div>
+          ) : null}
+          {chatBookingHintLabel ? (
+            <div
+              className="pointer-events-none absolute left-3 right-3 top-3 z-[41] flex justify-center px-1"
+              role="status"
+              aria-live="polite"
+            >
+              <p className="max-w-full truncate rounded-full border border-white/25 bg-black/45 px-3.5 py-1.5 text-center text-[11px] font-semibold text-white/95 shadow-lg backdrop-blur-md">
+                {chatBookingHintLabel}
+              </p>
             </div>
           ) : null}
           <MapTimeWeatherOverlay

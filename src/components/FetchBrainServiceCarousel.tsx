@@ -8,7 +8,6 @@ const TONE_RING: Record<BrainIntakeTone, string> = {
   teal: 'ring-teal-400/50',
   blue: 'ring-sky-400/50',
   orange: 'ring-orange-400/50',
-  purple: 'ring-violet-400/50',
   slate: 'ring-slate-400/45',
   rose: 'ring-rose-400/50',
 }

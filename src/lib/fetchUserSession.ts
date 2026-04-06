@@ -36,6 +36,28 @@ export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase()
 }
 
+/** After server login/register — keeps local greeting + AI context in sync with httpOnly cookie session. */
+export function applyServerUserProfile(user: { email: string; displayName: string }) {
+  const email = normalizeEmail(user.email)
+  if (!email) return
+  const displayName = user.displayName.trim() || email.split('@')[0] || 'there'
+  const reg = readRegistry()
+  const prev = reg[email]
+  const row: FetchUserRecord = {
+    email,
+    displayName,
+    phone: prev?.phone ?? '',
+    createdAt: prev?.createdAt ?? Date.now(),
+  }
+  reg[email] = row
+  writeRegistry(reg)
+  try {
+    window.localStorage.setItem(SESSION_EMAIL_KEY, email)
+  } catch {
+    /* ignore */
+  }
+}
+
 export function loadSession(): FetchUserRecord | null {
   try {
     const email = window.localStorage.getItem(SESSION_EMAIL_KEY)?.trim()
@@ -104,6 +126,9 @@ export function signOutUser() {
   } catch {
     /* ignore */
   }
+  void import('./fetchServerSession')
+    .then((m) => m.clearServerSessionCookie())
+    .catch(() => {})
 }
 
 export function updateUserProfile(patch: {

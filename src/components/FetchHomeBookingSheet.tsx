@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from 'react'
 
-/** closed = peek only · compact / half / full — default sheet uses content-hug + 50% + 90%; nav-map chrome uses 25% / 50% / 80% (scroll only at full). */
+/** closed = peek · compact = content-hug · half / full = fixed snap heights (CSS) */
 export type HomeBookingSheetSnap = 'closed' | 'compact' | 'half' | 'full'
 
 /** Booking step — drives sheet glass tint (presentation only). */
@@ -30,7 +30,8 @@ const SNAP_ORDER: HomeBookingSheetSnap[] = ['closed', 'compact', 'half', 'full']
 
 function nextSnap(current: HomeBookingSheetSnap, direction: 1 | -1): HomeBookingSheetSnap {
   const i = SNAP_ORDER.indexOf(current)
-  const j = Math.min(SNAP_ORDER.length - 1, Math.max(0, i + direction))
+  const idx = i >= 0 ? i : SNAP_ORDER.indexOf('compact')
+  const j = Math.min(SNAP_ORDER.length - 1, Math.max(0, idx + direction))
   return SNAP_ORDER[j] ?? current
 }
 
@@ -47,9 +48,10 @@ function canInitiateSheetDrag(
   if (el.closest('textarea, input, select, a, [data-sheet-no-drag]')) return false
   if (el.closest('[role="option"]')) return false
   if (el.closest('.fetch-home-booking-sheet__peek button')) return false
+  if (el.closest('.fetch-home-booking-sheet__shell-footer button')) return false
   if (el.closest('button[aria-label="Account"]')) return false
   if (el.closest('button') && !el.closest('.fetch-home-booking-sheet__handle')) return false
-  if (snap === 'full' && scrollEl?.contains(el)) return false
+  if ((snap === 'full' || snap === 'half') && scrollEl?.contains(el)) return false
   return true
 }
 
@@ -88,6 +90,19 @@ export type FetchHomeBookingSheetProps = {
    * Fetch wordmark, frosted top, and 25% / 50% / 80% snap heights.
    */
   navMapChrome?: boolean
+  /** Intent home: bottom nav replaces top header (Home / Nav / Account). */
+  hideExpandedHeaderChrome?: boolean
+  /** Home shell: flush horizontal/bottom edges; rounded top only. */
+  edgeToEdgeShell?: boolean
+  /** Fixed bottom bar (Home / Nav / Account) — shown for every snap when set. */
+  shellFooterNav?: ReactNode
+  /** e.g. mic — absolutely positioned under the handle, top-left of the sheet body. */
+  topLeftAccessory?: ReactNode
+  /**
+   * Wizard-style booking: when closed, hide the peek row (nav / home / account) so only the
+   * handle shows — avoids duplicate chrome with in-flow back actions.
+   */
+  suppressPeekBar?: boolean
   children: ReactNode
 }
 
@@ -234,6 +249,11 @@ export function FetchHomeBookingSheet({
   mapsPeekInsetRef,
   mapsCompactPeek = false,
   navMapChrome = false,
+  hideExpandedHeaderChrome = false,
+  edgeToEdgeShell = false,
+  shellFooterNav,
+  topLeftAccessory,
+  suppressPeekBar = false,
   children,
 }: FetchHomeBookingSheetProps) {
   const panelRef = useRef<HTMLDivElement>(null)
@@ -316,6 +336,23 @@ export function FetchHomeBookingSheet({
     showHomeShellTabs &&
     homeShellTab != null &&
     onHomeShellTabChange != null
+  const persistentShellFooter = Boolean(shellFooterNav) && shellToggleActive
+
+  const closedPeekMapsRow =
+    mapsCompactPeek && shellToggleActive && mapsPeekInsetRef != null
+  const closedPeekShellRow =
+    shellToggleActive && !mapsCompactPeek && !persistentShellFooter
+  /** Peek when there is no home shell tab strip (older booking-only chrome). */
+  const closedPeekLegacyPeek = !shellToggleActive && !mapsCompactPeek
+  const closedPeekAccountOnlyPeek =
+    !shellToggleActive && mapsCompactPeek && Boolean(onAccountsClick)
+  const showClosedPeek =
+    !expanded &&
+    !suppressPeekBar &&
+    (closedPeekMapsRow ||
+      closedPeekShellRow ||
+      closedPeekLegacyPeek ||
+      closedPeekAccountOnlyPeek)
 
   const onPanelPointerDownCapture = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -364,19 +401,20 @@ export function FetchHomeBookingSheet({
       const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
       const dt = Math.max(1, now - d.lastT)
       const vy = (e.clientY - d.lastY) / dt
+      const start = d.startSnap
 
       if (tap) {
-        if (d.startSnap === 'closed') onSnapChange('compact')
-        else if (d.startSnap === 'compact') onSnapChange('half')
-        else if (d.startSnap === 'half') onSnapChange('full')
+        if (start === 'closed') onSnapChange('compact')
+        else if (start === 'compact') onSnapChange('half')
+        else if (start === 'half') onSnapChange('full')
         else onSnapChange('half')
       } else if (Math.abs(vy) > 0.45) {
-        if (vy > 0) onSnapChange(nextSnap(d.startSnap, -1))
-        else onSnapChange(nextSnap(d.startSnap, 1))
+        if (vy > 0) onSnapChange(nextSnap(start, -1))
+        else onSnapChange(nextSnap(start, 1))
       } else if (dy > threshold) {
-        onSnapChange(nextSnap(d.startSnap, -1))
+        onSnapChange(nextSnap(start, -1))
       } else if (dy < -threshold) {
-        onSnapChange(nextSnap(d.startSnap, 1))
+        onSnapChange(nextSnap(start, 1))
       }
 
       clearDrag()
@@ -426,39 +464,67 @@ export function FetchHomeBookingSheet({
 
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 z-[50] flex justify-center px-3 pb-[max(calc(0.35rem+8px),env(safe-area-inset-bottom))]"
+      className={[
+        'pointer-events-none fixed inset-x-0 z-[50] flex justify-center',
+        edgeToEdgeShell
+          ? 'px-0 pb-0'
+          : 'px-3 pb-[max(calc(0.35rem+8px),env(safe-area-inset-bottom))]',
+      ].join(' ')}
       style={{ bottom: 'var(--fetch-vv-keyboard, 0px)' }}
     >
       <div
-        ref={panelRef}
-        data-snap={snap}
-        data-surface={surface}
-        data-nav-map-chrome={navMapChrome ? 'true' : undefined}
-        data-maps-compact-peek={mapsCompactPeek ? 'true' : undefined}
-        onPointerDownCapture={onPanelPointerDownCapture}
-        onPointerMove={onPanelPointerMove}
-        onPointerUp={onPanelPointerUp}
-        onPointerCancel={onPanelPointerCancel}
-        className={[
-          'fetch-home-booking-sheet pointer-events-auto relative flex w-full max-w-lg flex-col overflow-hidden rounded-[32px]',
-          cardVisible
-            ? 'fetch-home-booking-sheet--visible'
-            : 'fetch-home-booking-sheet--hidden',
-          orbAwakened ? 'fetch-home-booking-sheet--awake' : 'fetch-home-booking-sheet--dormant',
-          isSpeechPlaying ? 'fetch-home-booking-sheet--speaking' : '',
-          voiceHoldCaption ? 'fetch-home-booking-sheet--voice-hold' : '',
-          dragging ? 'fetch-home-booking-sheet--dragging' : '',
-        ].join(' ')}
-        style={
-          translateY
-            ? { transform: `translate3d(0, ${translateY}px, 0)` }
-            : undefined
-        }
-        role="region"
-        aria-label="Booking"
-        aria-hidden={!cardVisible}
+        className={['relative w-full', edgeToEdgeShell ? 'max-w-none' : 'max-w-lg'].join(
+          ' ',
+        )}
       >
-        {expanded && shellToggleActive ? (
+        <div
+          aria-hidden
+          className={[
+            'fetch-home-booking-sheet__voice-halo pointer-events-none',
+            isSpeechPlaying ? 'fetch-home-booking-sheet__voice-halo--on' : '',
+          ].join(' ')}
+        />
+        <div
+          ref={panelRef}
+          data-snap={snap}
+          data-surface={surface}
+          data-nav-map-chrome={navMapChrome ? 'true' : undefined}
+          data-maps-compact-peek={mapsCompactPeek ? 'true' : undefined}
+          data-shell-footer={shellFooterNav ? 'true' : undefined}
+          data-edge-shell={edgeToEdgeShell ? 'true' : undefined}
+          onPointerDownCapture={onPanelPointerDownCapture}
+          onPointerMove={onPanelPointerMove}
+          onPointerUp={onPanelPointerUp}
+          onPointerCancel={onPanelPointerCancel}
+          className={[
+            'fetch-home-booking-sheet pointer-events-auto relative z-[1] flex w-full flex-col overflow-hidden',
+            edgeToEdgeShell
+              ? 'rounded-b-none rounded-t-[32px]'
+              : 'max-w-lg rounded-[32px]',
+            cardVisible
+              ? 'fetch-home-booking-sheet--visible'
+              : 'fetch-home-booking-sheet--hidden',
+            orbAwakened ? 'fetch-home-booking-sheet--awake' : 'fetch-home-booking-sheet--dormant',
+            isSpeechPlaying ? 'fetch-home-booking-sheet--speaking' : '',
+            voiceHoldCaption ? 'fetch-home-booking-sheet--voice-hold' : '',
+            dragging ? 'fetch-home-booking-sheet--dragging' : '',
+          ].join(' ')}
+          style={
+            translateY
+              ? { transform: `translate3d(0, ${translateY}px, 0)` }
+              : undefined
+          }
+          role="region"
+          aria-label="Booking"
+          aria-hidden={!cardVisible}
+        >
+        <div className="fetch-home-booking-sheet__top-frost" aria-hidden />
+        {topLeftAccessory ? (
+          <div className="fetch-home-booking-sheet__top-left-slot pointer-events-auto absolute left-6 z-[4] top-[2.1rem] sm:left-7 sm:top-[2.25rem]">
+            {topLeftAccessory}
+          </div>
+        ) : null}
+        {expanded && shellToggleActive && !hideExpandedHeaderChrome ? (
           <div className="absolute left-4 top-2.5 z-[3] flex items-center gap-1.5">
             <ShellModeSwitchButton
               tab={homeShellTab!}
@@ -467,7 +533,7 @@ export function FetchHomeBookingSheet({
               navChrome={navMapChrome}
             />
           </div>
-        ) : expanded && onMapsIconClick ? (
+        ) : expanded && onMapsIconClick && !hideExpandedHeaderChrome ? (
           <div className="absolute left-4 top-2.5 z-[3] flex items-center gap-1.5">
             <button
               type="button"
@@ -485,7 +551,7 @@ export function FetchHomeBookingSheet({
             </button>
           </div>
         ) : null}
-        {onAccountsClick && expanded ? (
+        {onAccountsClick && expanded && !hideExpandedHeaderChrome ? (
           <button
             type="button"
             onClick={(e) => {
@@ -513,13 +579,11 @@ export function FetchHomeBookingSheet({
             className="fetch-home-booking-sheet__handle flex w-full flex-col items-center gap-1 rounded-t-[32px] pb-1 pt-0 outline-none ring-offset-2 ring-offset-transparent focus-visible:ring-2 focus-visible:ring-neutral-400/50 touch-pan-y"
             aria-label={
               snap === 'full'
-                ? 'Drag down to shrink sheet, or tap to step down one height'
+                ? 'Drag down to shrink sheet, or tap to step to half height'
                 : snap === 'half'
-                  ? navMapChrome
-                    ? 'Drag to resize sheet, or tap to expand to about eighty percent height'
-                    : 'Drag to resize sheet, or tap to expand to full height'
+                  ? 'Drag to resize sheet, or tap to expand to full height'
                   : snap === 'compact'
-                    ? 'Drag to resize sheet, or tap to expand to half screen'
+                    ? 'Drag to resize sheet, or tap to expand to full height'
                     : 'Drag up to expand sheet, or tap to open content'
             }
           >
@@ -527,77 +591,179 @@ export function FetchHomeBookingSheet({
           </button>
         </div>
 
-        {!expanded ? (
+        {showClosedPeek ? (
           <div
             className={[
-              'fetch-home-booking-sheet__peek flex shrink-0 items-center gap-2.5 px-5 pt-0 sm:gap-3 sm:px-7',
-              navMapChrome ? 'pb-1.5' : 'pb-2.5',
-              mapsCompactPeek ? 'fetch-home-booking-sheet__peek--maps-compact' : 'justify-between',
+              'fetch-home-booking-sheet__peek flex shrink-0 items-center px-3 pt-0 sm:px-4',
+              mapsCompactPeek ? 'fetch-home-booking-sheet__peek--maps-compact gap-2.5' : 'gap-0',
+              navMapChrome ? 'pb-1.5' : 'pb-2',
+              mapsCompactPeek ? '' : shellToggleActive ? 'justify-between' : 'justify-between gap-2.5',
             ].join(' ')}
           >
-            <div className="flex min-w-0 shrink-0 items-center gap-1.5">
-              {shellToggleActive ? (
+            {closedPeekMapsRow ? (
+              <>
                 <ShellModeSwitchButton
                   tab={homeShellTab!}
                   onChange={onHomeShellTabChange!}
                   navChrome={navMapChrome}
                 />
-              ) : onMapsIconClick ? (
+                <div
+                  ref={(el) => {
+                    mapsPeekInsetRef(el)
+                  }}
+                  className="fetch-home-maps-peek-inset min-h-11 min-w-0 flex-1 overflow-visible"
+                />
+                {onAccountsClick && !persistentShellFooter ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onAccountsClick()
+                    }}
+                    className={[
+                      'fetch-home-booking-sheet__account-btn fetch-home-sheet-chrome-btn flex shrink-0 items-center justify-center rounded-full transition-transform active:scale-[0.94] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/35',
+                      navMapChrome ? 'h-9 w-9' : 'h-11 w-11',
+                    ].join(' ')}
+                    aria-label="Account"
+                  >
+                    <AccountIcon />
+                  </button>
+                ) : null}
+              </>
+            ) : null}
+            {closedPeekShellRow ? (
+              homeShellTab === 'services' ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onPeekHomeClick()
+                    }}
+                    className={[
+                      'fetch-home-sheet-peek-home fetch-home-sheet-chrome-btn flex shrink-0 items-center justify-center rounded-full transition-transform active:scale-[0.94] ring-2 ring-cyan-400/25',
+                      navMapChrome ? 'h-9 w-9' : 'h-11 w-11',
+                    ].join(' ')}
+                    aria-label="Home"
+                    aria-current="page"
+                  >
+                    <HomeShellIcon
+                      className={navMapChrome ? 'h-4 w-4' : 'h-[18px] w-[18px]'}
+                      tight={navMapChrome}
+                    />
+                  </button>
+                  <ShellModeSwitchButton
+                    tab={homeShellTab}
+                    onChange={onHomeShellTabChange!}
+                    navChrome={navMapChrome}
+                  />
+                  {onAccountsClick ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onAccountsClick()
+                      }}
+                      className={[
+                        'fetch-home-booking-sheet__account-btn fetch-home-sheet-chrome-btn flex shrink-0 items-center justify-center rounded-full transition-transform active:scale-[0.94] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/35',
+                        navMapChrome ? 'h-9 w-9' : 'h-11 w-11',
+                      ].join(' ')}
+                      aria-label="Account"
+                    >
+                      <AccountIcon />
+                    </button>
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  <ShellModeSwitchButton
+                    tab={homeShellTab}
+                    onChange={onHomeShellTabChange!}
+                    navChrome={navMapChrome}
+                  />
+                  <div className="min-h-10 min-w-0 flex-1" aria-hidden />
+                  {onAccountsClick ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onAccountsClick()
+                      }}
+                      className={[
+                        'fetch-home-booking-sheet__account-btn fetch-home-sheet-chrome-btn flex shrink-0 items-center justify-center rounded-full transition-transform active:scale-[0.94] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/35',
+                        navMapChrome ? 'h-9 w-9' : 'h-11 w-11',
+                      ].join(' ')}
+                      aria-label="Account"
+                    >
+                      <AccountIcon />
+                    </button>
+                  ) : null}
+                </>
+              )
+            ) : closedPeekLegacyPeek ? (
+              <>
+                <div className="flex min-w-0 shrink-0 items-center gap-1.5">
+                  {onMapsIconClick ? (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onMapsIconClick()
+                      }}
+                      className={[
+                        'fetch-home-sheet-peek-map fetch-home-sheet-chrome-btn flex shrink-0 items-center justify-center rounded-full transition-transform active:scale-[0.94]',
+                        navMapChrome ? 'h-9 w-9' : 'h-11 w-11',
+                      ].join(' ')}
+                      aria-label="Navigation mode"
+                    >
+                      <MapFoldedIcon tight={navMapChrome} />
+                    </button>
+                  ) : null}
+                </div>
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation()
-                    onMapsIconClick()
+                    onPeekHomeClick()
                   }}
                   className={[
-                    'fetch-home-sheet-peek-map fetch-home-sheet-chrome-btn flex shrink-0 items-center justify-center rounded-full transition-transform active:scale-[0.94]',
+                    'fetch-home-sheet-peek-home fetch-home-sheet-chrome-btn flex shrink-0 items-center justify-center rounded-full transition-transform active:scale-[0.94]',
                     navMapChrome ? 'h-9 w-9' : 'h-11 w-11',
                   ].join(' ')}
-                  aria-label="Navigation mode"
+                  aria-label="Home"
                 >
-                  <MapFoldedIcon tight={navMapChrome} />
+                  <HomeShellIcon
+                    className={navMapChrome ? 'h-4 w-4' : 'h-[18px] w-[18px]'}
+                    tight={navMapChrome}
+                  />
                 </button>
-              ) : null}
-            </div>
-            {mapsCompactPeek && mapsPeekInsetRef ? (
-              <div
-                ref={(el) => {
-                  mapsPeekInsetRef(el)
-                }}
-                className="fetch-home-maps-peek-inset min-h-11 min-w-0 flex-1 overflow-visible"
-              />
-            ) : null}
-            {!mapsCompactPeek ? (
+                <div className="min-h-10 min-w-0 flex-1" aria-hidden />
+                {onAccountsClick ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onAccountsClick()
+                    }}
+                    className={[
+                      'fetch-home-booking-sheet__account-btn fetch-home-sheet-chrome-btn flex shrink-0 items-center justify-center rounded-full transition-transform active:scale-[0.94] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/35',
+                      navMapChrome ? 'h-9 w-9' : 'h-11 w-11',
+                    ].join(' ')}
+                    aria-label="Account"
+                  >
+                    <AccountIcon />
+                  </button>
+                ) : null}
+              </>
+            ) : closedPeekAccountOnlyPeek ? (
               <button
                 type="button"
                 onClick={(e) => {
                   e.stopPropagation()
-                  onPeekHomeClick()
+                  onAccountsClick?.()
                 }}
                 className={[
-                  'fetch-home-sheet-peek-home fetch-home-sheet-chrome-btn flex shrink-0 items-center justify-center rounded-full transition-transform active:scale-[0.94]',
-                  navMapChrome ? 'h-9 w-9' : 'h-11 w-11',
-                ].join(' ')}
-                aria-label="Home"
-              >
-                <HomeShellIcon
-                  className={navMapChrome ? 'h-4 w-4' : 'h-[18px] w-[18px]'}
-                  tight={navMapChrome}
-                />
-              </button>
-            ) : null}
-            {!mapsCompactPeek ? (
-              <div className="min-h-10 min-w-0 flex-1" aria-hidden />
-            ) : null}
-            {onAccountsClick ? (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onAccountsClick()
-                }}
-                className={[
-                  'fetch-home-booking-sheet__account-btn fetch-home-sheet-chrome-btn flex shrink-0 items-center justify-center rounded-full transition-transform active:scale-[0.94] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/35',
+                  'fetch-home-booking-sheet__account-btn fetch-home-sheet-chrome-btn ml-auto flex shrink-0 items-center justify-center rounded-full transition-transform active:scale-[0.94] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/35',
                   navMapChrome ? 'h-9 w-9' : 'h-11 w-11',
                 ].join(' ')}
                 aria-label="Account"
@@ -610,7 +776,7 @@ export function FetchHomeBookingSheet({
 
         <div
           className={[
-            'fetch-home-booking-sheet__body fetch-home-booking-sheet__body--compact flex min-h-0 flex-col px-4',
+            'fetch-home-booking-sheet__body fetch-home-booking-sheet__body--compact flex min-h-0 flex-col px-3',
             expanded
               ? snap === 'compact'
                 ? 'min-h-0 flex-none opacity-100'
@@ -622,13 +788,19 @@ export function FetchHomeBookingSheet({
           <div
             ref={scrollRef}
             className={[
-              'fetch-home-booking-sheet__scroll min-h-0 overflow-x-hidden overscroll-contain pb-2.5',
-              snap === 'compact' ? 'flex-none' : 'min-h-0 flex-1',
-              snap === 'full' ? 'overflow-y-auto touch-pan-y' : 'overflow-y-hidden',
+              'fetch-home-booking-sheet__scroll min-h-0 overflow-x-hidden overscroll-contain pb-1',
+              snap === 'compact' ? 'flex-none' : 'flex min-h-0 flex-1 flex-col',
+              snap === 'full' || snap === 'half' ? 'overflow-y-auto touch-pan-y' : 'overflow-y-hidden',
             ].join(' ')}
           >
             <div className="fetch-home-sheet-inner">{children}</div>
           </div>
+        </div>
+        {shellFooterNav ? (
+          <div className="fetch-home-booking-sheet__shell-footer pointer-events-auto shrink-0">
+            {shellFooterNav}
+          </div>
+        ) : null}
         </div>
       </div>
     </div>

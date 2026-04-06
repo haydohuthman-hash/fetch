@@ -10,9 +10,10 @@ import type { HomeBookingSheetSnap } from './FetchHomeBookingSheet'
 
 const SNAP_ORDER: HomeBookingSheetSnap[] = ['closed', 'compact', 'half', 'full']
 
-function nextSnap(current: HomeBookingSheetSnap, direction: 1 | -1): HomeBookingSheetSnap {
+function nextSnapDriver(current: HomeBookingSheetSnap, direction: 1 | -1): HomeBookingSheetSnap {
   const i = SNAP_ORDER.indexOf(current)
-  const j = Math.min(SNAP_ORDER.length - 1, Math.max(0, i + direction))
+  const idx = i >= 0 ? i : SNAP_ORDER.indexOf('compact')
+  const j = Math.min(SNAP_ORDER.length - 1, Math.max(0, idx + direction))
   return SNAP_ORDER[j] ?? current
 }
 
@@ -30,7 +31,7 @@ function canInitiateDriverSheetDrag(
   if (el.closest('[role="option"]')) return false
   if (el.closest('.fetch-home-booking-sheet__peek button')) return false
   if (el.closest('button') && !el.closest('.fetch-home-booking-sheet__handle')) return false
-  if (snap === 'full' && scrollEl?.contains(el)) return false
+  if ((snap === 'full' || snap === 'half') && scrollEl?.contains(el)) return false
   return true
 }
 
@@ -141,18 +142,20 @@ export function DriverJobsSheet({
       const dt = Math.max(1, now - d.lastT)
       const vy = (e.clientY - d.lastY) / dt
 
+      const start = d.startSnap
+
       if (tap) {
-        if (d.startSnap === 'closed') onSnapChange('compact')
-        else if (d.startSnap === 'compact') onSnapChange('half')
-        else if (d.startSnap === 'half') onSnapChange('full')
+        if (start === 'closed') onSnapChange('compact')
+        else if (start === 'compact') onSnapChange('half')
+        else if (start === 'half') onSnapChange('full')
         else onSnapChange('half')
       } else if (Math.abs(vy) > 0.45) {
-        if (vy > 0) onSnapChange(nextSnap(d.startSnap, -1))
-        else onSnapChange(nextSnap(d.startSnap, 1))
+        if (vy > 0) onSnapChange(nextSnapDriver(start, -1))
+        else onSnapChange(nextSnapDriver(start, 1))
       } else if (dy > threshold) {
-        onSnapChange(nextSnap(d.startSnap, -1))
+        onSnapChange(nextSnapDriver(start, -1))
       } else if (dy < -threshold) {
-        onSnapChange(nextSnap(d.startSnap, 1))
+        onSnapChange(nextSnapDriver(start, 1))
       }
 
       clearDrag()
@@ -238,7 +241,7 @@ export function DriverJobsSheet({
 
         <div
           className={[
-            'fetch-home-booking-sheet__body fetch-home-booking-sheet__body--compact flex min-h-0 flex-col px-4',
+            'fetch-home-booking-sheet__body fetch-home-booking-sheet__body--compact flex min-h-0 flex-col px-3',
             expanded
               ? snap === 'compact'
                 ? 'min-h-0 flex-none opacity-100'
@@ -250,9 +253,9 @@ export function DriverJobsSheet({
           <div
             ref={scrollRef}
             className={[
-              'fetch-home-booking-sheet__scroll min-h-0 overflow-x-hidden overscroll-contain pb-2.5',
+              'fetch-home-booking-sheet__scroll min-h-0 overflow-x-hidden overscroll-contain pb-1',
               snap === 'compact' ? 'flex-none' : 'min-h-0 flex-1',
-              snap === 'full' ? 'overflow-y-auto touch-pan-y' : 'overflow-y-hidden',
+              snap === 'full' || snap === 'half' ? 'overflow-y-auto touch-pan-y' : 'overflow-y-hidden',
             ].join(' ')}
           >
             <div className="fetch-home-sheet-inner">{children}</div>

@@ -29,8 +29,8 @@ export function FetchBrainFieldPanel({
 }: FetchBrainFieldPanelProps) {
   const isLight = theme === 'light'
   const glassTint = isLight
-    ? 'border-white/[0.22] bg-white/[0.48]'
-    : 'border-white/[0.12] bg-[rgba(10,12,20,0.38)]'
+    ? 'border-white/[0.35] bg-white/[0.92]'
+    : 'border-white/[0.14] bg-[rgba(28,30,40,0.82)]'
 
   return (
     <div

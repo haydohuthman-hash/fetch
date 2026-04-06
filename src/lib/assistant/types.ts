@@ -171,6 +171,12 @@ export type BookingPaymentIntent = {
   createdAt: number
   confirmedAt: number | null
   instrument?: BookingPaymentInstrument | null
+  bookingId?: string | null
+  metadata?: Record<string, unknown> | null
+  /** Demo checkout vs Stripe — dispatch may require webhook when `stripe`. */
+  provider?: 'demo' | 'stripe'
+  webhookConfirmedAt?: number | null
+  stripePaymentIntentId?: string | null
 }
 
 /** Customer post-job rating persisted on the booking record (marketplace). */
@@ -305,6 +311,8 @@ export type BookingState = {
   bookingStatus: BookingLifecycleStatus | null
   /** Populated when a live marketplace booking is matching or failed matching. */
   matchingMeta: BookingMatchingMeta | null
+  /** Server dispatch mode: open pool vs sequential offers. */
+  matchingMode: 'pool' | 'sequential' | null
   aiReview: BookingAiReview
   paymentIntent: BookingPaymentIntent | null
   selectedPaymentMethodId: string | null
@@ -408,6 +416,7 @@ export function createInitialBookingState(): BookingState {
     bookingId: null,
     bookingStatus: null,
     matchingMeta: null,
+    matchingMode: null,
     aiReview: {
       status: 'idle',
       summary: null,

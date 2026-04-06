@@ -290,5 +290,9 @@ export function createPaymentIntentRecord({
     lastError: null,
     createdAt: Date.now(),
     confirmedAt: null,
+    /** 'demo' | 'stripe' — Stripe requires webhook before dispatch when FETCH_REQUIRE_STRIPE_WEBHOOK=1 */
+    provider: 'demo',
+    webhookConfirmedAt: null,
+    stripePaymentIntentId: null,
   }
 }

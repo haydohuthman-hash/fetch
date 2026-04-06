@@ -72,6 +72,8 @@ type BookingMapReflectionProps = {
   droppedPinCoords?: google.maps.LatLngLiteral | null
   /** Fit map to driver + active leg when a live Directions polyline is showing. */
   liveTrackingFit?: LiveTrackingMapFit | null
+  /** Increment when the user confirms pickup so lock-in fanfare runs even if coords match the preview. */
+  pickupLockInCelebrateKey?: number
 }
 
 /**
@@ -97,6 +99,7 @@ export function BookingMapReflection({
   driverLivePosition = null,
   droppedPinCoords = null,
   liveTrackingFit = null,
+  pickupLockInCelebrateKey = 0,
 }: BookingMapReflectionProps) {
   const accentRgb = accentRgbProp ?? DEFAULT_ACCENT
   const accentHex = useMemo(
@@ -125,6 +128,12 @@ export function BookingMapReflection({
   const [pinDropRing2Radius, setPinDropRing2Radius] = useState(0)
   const [pinDropRing2Opacity, setPinDropRing2Opacity] = useState(0)
   const pinDropRingTimer = useRef<number | null>(null)
+
+  const [lockInGoldCenter, setLockInGoldCenter] = useState<google.maps.LatLngLiteral | null>(null)
+  const [lockInGoldRadius, setLockInGoldRadius] = useState(0)
+  const [lockInGoldStroke, setLockInGoldStroke] = useState(0)
+  const lockInGoldTimerRef = useRef<number | null>(null)
+  const [pickupBounceCelebrate, setPickupBounceCelebrate] = useState(false)
 
   const [searchPulseRadius, setSearchPulseRadius] = useState(0)
   const [searchPulseOpacity, setSearchPulseOpacity] = useState(0)
@@ -155,6 +164,7 @@ export function BookingMapReflection({
   const lastDriverRevealKeyRef = useRef<string | null>(null)
   const revealTimersRef = useRef<number[]>([])
   const lastPickupKeyRef = useRef<string | null>(null)
+  const lastLockInCelebrateKeyHandledRef = useRef(0)
   const lastDropoffKeyRef = useRef<string | null>(null)
   const exploreClustererRef = useRef<MarkerClusterer | null>(null)
   const exploreClusterMarkersRef = useRef<google.maps.Marker[]>([])
@@ -350,6 +360,32 @@ export function BookingMapReflection({
     }, 48)
   }
 
+  const runLockInGoldBurst = (center: google.maps.LatLngLiteral) => {
+    if (lockInGoldTimerRef.current != null) window.clearInterval(lockInGoldTimerRef.current)
+    setLockInGoldCenter(center)
+    setLockInGoldRadius(18)
+    setLockInGoldStroke(0.72)
+    const started = Date.now()
+    const DUR = 1320
+    lockInGoldTimerRef.current = window.setInterval(() => {
+      const elapsed = Date.now() - started
+      if (elapsed > DUR) {
+        setLockInGoldCenter(null)
+        setLockInGoldRadius(0)
+        setLockInGoldStroke(0)
+        if (lockInGoldTimerRef.current != null) {
+          window.clearInterval(lockInGoldTimerRef.current)
+          lockInGoldTimerRef.current = null
+        }
+        return
+      }
+      const t = elapsed / DUR
+      const ease = 1 - Math.pow(1 - t, 2.35)
+      setLockInGoldRadius(18 + ease * 360)
+      setLockInGoldStroke(0.72 * Math.pow(1 - t, 0.5))
+    }, 40)
+  }
+
   const runConversationPulse = (center: google.maps.LatLngLiteral) => {
     setConversationPulseCenter(center)
     setConversationPulseRadius(36)
@@ -373,6 +409,14 @@ export function BookingMapReflection({
     }, 48)
   }
 
+  const runLocationLockInFanfare = (center: google.maps.LatLngLiteral) => {
+    runConversationPulse(center)
+    runPinDropRing(center)
+    const t1 = window.setTimeout(() => runConversationPulse(center), 260)
+    const t2 = window.setTimeout(() => runLockInGoldBurst(center), 140)
+    revealTimersRef.current.push(t1, t2)
+  }
+
   useEffect(
     () => () => {
       if (routeAnimTimer.current != null) window.clearInterval(routeAnimTimer.current)
@@ -385,6 +429,8 @@ export function BookingMapReflection({
       if (searchActivityTimer.current != null) window.clearInterval(searchActivityTimer.current)
       if (driverRevealPulseTimer.current != null) window.clearInterval(driverRevealPulseTimer.current)
       if (driverMarkerIntroTimer.current != null) window.clearInterval(driverMarkerIntroTimer.current)
+      if (lockInGoldTimerRef.current != null) window.clearInterval(lockInGoldTimerRef.current)
+      lockInGoldTimerRef.current = null
       clearRevealTimers()
     },
     [],
@@ -587,6 +633,48 @@ export function BookingMapReflection({
     map,
     suspendCameraAutomation,
     navigationRouteActive,
+  ])
+
+  useEffect(() => {
+    if (pickupLockInCelebrateKey < 1) return
+    if (pickupLockInCelebrateKey <= lastLockInCelebrateKeyHandledRef.current) return
+    lastLockInCelebrateKeyHandledRef.current = pickupLockInCelebrateKey
+    if (!pickupPos) return
+
+    setShowPickupPin(true)
+    runLocationLockInFanfare(pickupPos)
+    setPickupBounceCelebrate(true)
+    const bounceEnd = window.setTimeout(() => setPickupBounceCelebrate(false), 1850)
+
+    const cameraZoom = window.setTimeout(() => {
+      if (!map || suspendCameraAutomation) return
+      map.panTo(pickupPos)
+      const z = map.getZoom() ?? 14
+      map.setZoom(Math.min(17.6, Math.max(z, 15) + 0.55))
+      try {
+        map.setTilt(56)
+      } catch {
+        /* vector only */
+      }
+      try {
+        map.setHeading(38)
+      } catch {
+        /* vector only */
+      }
+      const nudge = () => nudgeMapCenterTowardTop(map, 0.32)
+      requestAnimationFrame(() => requestAnimationFrame(nudge))
+    }, 120)
+
+    return () => {
+      window.clearTimeout(bounceEnd)
+      window.clearTimeout(cameraZoom)
+    }
+  }, [
+    pickupLockInCelebrateKey,
+    pickupPos?.lat,
+    pickupPos?.lng,
+    map,
+    suspendCameraAutomation,
   ])
 
   useEffect(() => {
@@ -974,7 +1062,11 @@ export function BookingMapReflection({
           position={pickupPos}
           label={{ text: 'A', color: '#ffffff', fontWeight: '700' }}
           animation={
-            navigationRouteActive ? undefined : google.maps.Animation.DROP
+            navigationRouteActive
+              ? undefined
+              : pickupBounceCelebrate
+                ? google.maps.Animation.BOUNCE
+                : google.maps.Animation.DROP
           }
           icon={markerIcon}
           zIndex={3}
@@ -1095,6 +1187,21 @@ export function BookingMapReflection({
             strokeWeight: 3.5,
             clickable: false,
             zIndex: 6,
+          }}
+        />
+      ) : null}
+      {lockInGoldCenter && lockInGoldStroke > 0 ? (
+        <Circle
+          center={lockInGoldCenter}
+          radius={lockInGoldRadius}
+          options={{
+            fillColor: 'transparent',
+            fillOpacity: 0,
+            strokeColor: '#f0b429',
+            strokeOpacity: lockInGoldStroke,
+            strokeWeight: 4,
+            clickable: false,
+            zIndex: 7,
           }}
         />
       ) : null}

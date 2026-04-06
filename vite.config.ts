@@ -2,6 +2,9 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
+const fetchDevApiPort = process.env.FETCH_DEV_API_PORT || '8787'
+const fetchDevVitePort = Number(process.env.FETCH_DEV_PORT || 5174)
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -29,10 +32,10 @@ export default defineConfig({
   },
   server: {
     host: true,
-    port: 5174,
+    port: fetchDevVitePort,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8787',
+        target: `http://127.0.0.1:${fetchDevApiPort}`,
         changeOrigin: true,
         secure: false,
       },
@@ -41,7 +44,7 @@ export default defineConfig({
   preview: {
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8787',
+        target: `http://127.0.0.1:${fetchDevApiPort}`,
         changeOrigin: true,
         secure: false,
       },

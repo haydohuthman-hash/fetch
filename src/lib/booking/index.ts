@@ -1,6 +1,8 @@
 export {
   createPaymentIntent,
   confirmPaymentIntent,
+  getPaymentIntentRecord,
+  waitForPaymentIntentServerConfirmed,
   dispatchBooking,
   postDriverPresence,
   fetchBooking,
@@ -14,9 +16,11 @@ export {
   submitCustomerBookingRating,
   patchMarketplaceOffer,
   reviewBookingDraft,
+  subscribeMarketplaceStream,
   upsertBooking,
   upsertMarketplaceOffer,
   type BookingDetailResponse,
+  type DispatchBookingOptions,
   type PatchBookingStatusBody,
   type DriverPresenceRecord,
 } from './api'
@@ -49,6 +53,14 @@ export {
   type LiveTrackingEndpoints,
   type LiveTrackingLegPhase,
 } from './liveTrackingLeg'
+export {
+  deriveTripSheetPhase,
+  mapStageForTripSheetPhase,
+  tripSheetPhasePrefersExpandedSnap,
+  tripSheetPhaseSuppressesHomeOrb,
+  type TripSheetPhase,
+  type TripSheetUiFlags,
+} from './tripSheetPhase'
 export {
   useLiveTripDirections,
   type LiveTripDirectionsState,

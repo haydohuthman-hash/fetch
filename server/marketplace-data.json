@@ -258,7 +258,7 @@
           "createdAt": 1775146614970
         }
       ],
-      "updatedAt": 1775381042702,
+      "updatedAt": 1775480870409,
       "createdAt": 1775146614970,
       "dispatchMeta": {
         "startedAt": 1775146657399
@@ -1824,7 +1824,7 @@
           "createdAt": 1775146398198
         }
       ],
-      "updatedAt": 1775381042702,
+      "updatedAt": 1775480870409,
       "createdAt": 1775146398198,
       "dispatchMeta": {
         "startedAt": 1775146515017
@@ -2009,7 +2009,7 @@
         "autoHelpers": 0
       },
       "dropoffAddressText": "88 Charlotte St, Brisbane City QLD",
-      "updatedAt": 1775381042702,
+      "updatedAt": 1775480870409,
       "createdAt": 1775145215194,
       "dispatchMeta": {
         "startedAt": 1775145215227
@@ -2232,6 +2232,81 @@
   "media": [],
   "paymentIntents": [
     {
+      "id": "pi_1775480870252_atujty",
+      "bookingId": null,
+      "metadata": null,
+      "status": "succeeded",
+      "amount": 528,
+      "currency": "AUD",
+      "paymentMethodId": "pm_seed_visa",
+      "clientSecret": "secret_1775480870252_xmude4_client_secret",
+      "lastError": null,
+      "createdAt": 1775480870252,
+      "confirmedAt": 1775480870409,
+      "provider": "demo",
+      "webhookConfirmedAt": 1775480870409,
+      "stripePaymentIntentId": null,
+      "instrument": {
+        "paymentMethodId": "pm_seed_visa",
+        "brand": "Visa",
+        "number": "4242424242424242",
+        "last4": "4242",
+        "expiryMonth": 8,
+        "expiryYear": 2028,
+        "cvcProvided": true
+      }
+    },
+    {
+      "id": "pi_1775477572798_xgzi1l",
+      "bookingId": null,
+      "metadata": null,
+      "status": "succeeded",
+      "amount": 5684,
+      "currency": "AUD",
+      "paymentMethodId": "pm_seed_visa",
+      "clientSecret": "secret_1775477572798_cyz2xi_client_secret",
+      "lastError": null,
+      "createdAt": 1775477572798,
+      "confirmedAt": 1775477572869,
+      "provider": "demo",
+      "webhookConfirmedAt": 1775477572869,
+      "stripePaymentIntentId": null,
+      "instrument": {
+        "paymentMethodId": "pm_seed_visa",
+        "brand": "Visa",
+        "number": "4242424242424242",
+        "last4": "4242",
+        "expiryMonth": 8,
+        "expiryYear": 2028,
+        "cvcProvided": true
+      }
+    },
+    {
+      "id": "pi_1775474676802_ejs3fy",
+      "bookingId": null,
+      "metadata": null,
+      "status": "succeeded",
+      "amount": 228,
+      "currency": "AUD",
+      "paymentMethodId": "pm_seed_visa",
+      "clientSecret": "secret_1775474676802_i5cklq_client_secret",
+      "lastError": null,
+      "createdAt": 1775474676802,
+      "confirmedAt": 1775474676895,
+      "provider": "demo",
+      "webhookConfirmedAt": 1775474676895,
+      "stripePaymentIntentId": null,
+      "instrument": {
+        "paymentMethodId": "pm_seed_visa",
+        "brand": "Visa",
+        "number": "4242424242424242",
+        "last4": "4242",
+        "expiryMonth": 8,
+        "expiryYear": 2028,
+        "cvcProvided": true
+      }
+    },
+    {
       "id": "pi_1775381042672_14hpwa",
       "bookingId": null,
       "status": "succeeded",
@@ -2309,5 +2384,6 @@
       "createdAt": 1775145215113,
       "confirmedAt": 1775145215210
     }
-  ]
+  ],
+  "driverPresence": []
 }

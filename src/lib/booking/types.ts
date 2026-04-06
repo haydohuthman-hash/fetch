@@ -130,6 +130,12 @@ export type BookingRecord = {
    * the driver dashboard drives lifecycle via PATCH status.
    */
   driverControlled?: boolean
+  /** How dispatch runs: drivers claim from pool vs server sequential offers. */
+  matchingMode?: 'pool' | 'sequential' | null
+  /** Set on upsert when customer is signed in — filters GET /bookings when header sent. */
+  customerEmail?: string | null
+  /** Postgres-backed account id when `FETCH_AUTH_USERS_DB=1`; server sets from session only. */
+  customerUserId?: string | null
   timeline: BookingTimelineEntry[]
   createdAt: number
   updatedAt: number
@@ -215,6 +221,7 @@ export function bookingRecordToStatePatch(record: BookingRecord): Partial<Bookin
     bookingId: record.id,
     bookingStatus: record.status,
     matchingMeta: record.matchingMeta ?? null,
+    matchingMode: record.matchingMode ?? null,
     jobType: record.jobType,
     flowStep: record.flowStep ?? 'intent',
     serviceMode: record.serviceMode,

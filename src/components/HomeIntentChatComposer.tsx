@@ -9,12 +9,16 @@ import {
   type KeyboardEvent,
 } from 'react'
 import {
+  CHAT_ERROR_ANTHROPIC_NOT_CONFIGURED,
+  CHAT_ERROR_LLM_REQUEST_FAILED,
   CHAT_ERROR_NETWORK,
   CHAT_ERROR_OPENAI_NOT_CONFIGURED,
-  postFetchAiChat,
+  CHAT_ERROR_OPENAI_REQUEST_FAILED,
+  postFetchAiChatStream,
   type FetchAiChatMessage as ApiFetchAiChatMessage,
   type FetchAiChatNavigation,
 } from '../lib/fetchAiChat'
+import type { FetchAiBookingPatch } from '../lib/fetchAiBookingPatch'
 import {
   createPerfRunId,
   fetchPerfIsEnabled,
@@ -72,6 +76,7 @@ export function HomeIntentChatComposer({
   variant = 'default',
   appendOrbChatTurn,
   onChatNavigation,
+  onBookingPatch,
   onListeningChange,
   onPlaceSuggestionsOpenChange,
   showGuestAccountHint = false,
@@ -84,6 +89,8 @@ export function HomeIntentChatComposer({
   appendOrbChatTurn: (role: 'user' | 'assistant', text: string) => void
   /** Live route from server (Google Directions + traffic) — drives map + minimal nav sheet. */
   onChatNavigation?: (nav: FetchAiChatNavigation | null) => void
+  /** Structured booking hints from the same chat turn (client geocodes addresses). */
+  onBookingPatch?: (patch: FetchAiBookingPatch | null) => void
   /** STT mic active — optional (e.g. neural brain “listening” mode). */
   onListeningChange?: (listening: boolean) => void
   /** Legacy: predictions removed; parent always receives `false`. */
@@ -127,6 +134,8 @@ export function HomeIntentChatComposer({
   const homeAiChatInFlightRef = useRef(false)
   const convRef = useRef<HomeChatMessage[]>([])
   const [chatPending, setChatPending] = useState(false)
+  /** Incremental assistant text while SSE tokens arrive (cleared after the turn completes). */
+  const [streamAssistantText, setStreamAssistantText] = useState('')
   const [placeholderIndex, setPlaceholderIndex] = useState(0)
 
   const placeholderHints = useMemo(
@@ -229,11 +238,12 @@ export function HomeIntentChatComposer({
       const ac = new AbortController()
       chatAbortRef.current = ac
       setChatPending(true)
+      setStreamAssistantText('')
 
       try {
         const geo = chatGeoRef.current
         const mem = buildFetchUserMemoryContext()
-        const { reply, navigation, perfTiming } = await postFetchAiChat(
+        const { reply, navigation, bookingPatch, perfTiming } = await postFetchAiChatStream(
           messagesForApi as ApiFetchAiChatMessage[],
           {
             signal: ac.signal,
@@ -244,8 +254,14 @@ export function HomeIntentChatComposer({
               ...(mem ? { userMemory: mem } : {}),
             },
             perfRunId,
+            onToken: (t) => {
+              setStreamAssistantText((s) => s + t)
+            },
           },
         )
+        if (bookingPatch) {
+          onBookingPatch?.(bookingPatch)
+        }
         if (navigation?.active) {
           onChatNavigation?.(navigation)
           if (perfRunId) {
@@ -259,6 +275,7 @@ export function HomeIntentChatComposer({
           fetchPerfSetServerTiming(perfRunId, perfTiming)
         }
         if (ac.signal.aborted) return
+        setStreamAssistantText('')
         const assistantMsg: HomeChatMessage = {
           role: 'assistant' as const,
           content: reply,
@@ -276,15 +293,24 @@ export function HomeIntentChatComposer({
         const code = e instanceof Error ? e.message : ''
 
         let errLine: string
-        if (code === CHAT_ERROR_OPENAI_NOT_CONFIGURED) {
+        if (
+          code === CHAT_ERROR_OPENAI_NOT_CONFIGURED ||
+          code === CHAT_ERROR_ANTHROPIC_NOT_CONFIGURED
+        ) {
           errLine =
-            'The assistant is not fully set up yet. The server needs an Open A I key for chat.'
+            'The assistant is not fully set up yet. The server needs a configured chat model API key.'
+        } else if (
+          code === CHAT_ERROR_OPENAI_REQUEST_FAILED ||
+          code === CHAT_ERROR_LLM_REQUEST_FAILED
+        ) {
+          errLine = 'The chat service had a problem. Please try again in a moment.'
         } else if (code === CHAT_ERROR_NETWORK) {
           errLine =
             "I can't reach the Fetch server. On your machine, run npm run server in another terminal, then try again."
         } else {
           errLine = 'Sorry, something went wrong with that reply. Please try again.'
         }
+        setStreamAssistantText('')
         appendOrbChatTurn('assistant', errLine)
         setChatPending(false)
         void speakLine(errLine, {
@@ -308,7 +334,7 @@ export function HomeIntentChatComposer({
         homeAiChatInFlightRef.current = false
       }
     },
-    [speakLine, playUiEvent, appendOrbChatTurn, onChatNavigation],
+    [speakLine, playUiEvent, appendOrbChatTurn, onChatNavigation, onBookingPatch],
   )
 
   const onComposerPhotosSelected = useCallback(
@@ -726,6 +752,17 @@ export function HomeIntentChatComposer({
           >
             Allow location to route from where you are. Type an address and tap the go arrow to
             navigate.
+          </p>
+        ) : null}
+        {streamAssistantText.trim().length > 0 ? (
+          <p
+            className={[
+              'fetch-home-intent-stream-preview px-3 pt-1 pb-0.5 text-[12px] font-medium leading-snug [text-wrap:pretty]',
+              variant === 'intentLanding' ? 'text-slate-600' : 'text-white/75',
+            ].join(' ')}
+            aria-live="polite"
+          >
+            {streamAssistantText}
           </p>
         ) : null}
         <div

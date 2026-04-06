@@ -42,7 +42,10 @@ export type {
 } from '../lib/orb/fetchOrbExpressions'
 export { expressionForFlowMoment } from '../lib/orb/fetchOrbExpressions'
 
-const SIZE_CLASS: Record<'sm' | 'md' | 'lg' | 'xl' | 'xxl' | 'fab' | 'dock' | 'homeDock', string> = {
+const SIZE_CLASS: Record<
+  'sm' | 'md' | 'lg' | 'xl' | 'xxl' | 'fab' | 'dock' | 'homeDock' | 'homeDockCompact',
+  string
+> = {
   sm: 'h-[3.1rem] w-[3.1rem]',
   md: 'h-[4.2rem] w-[4.2rem]',
   lg: 'h-[6.1rem] w-[6.1rem]',
@@ -53,6 +56,8 @@ const SIZE_CLASS: Record<'sm' | 'md' | 'lg' | 'xl' | 'xxl' | 'fab' | 'dock' | 'h
   dock: 'h-[9rem] w-[9rem]',
   /** Home + bottom sheet — slightly smaller than dock */
   homeDock: 'h-[6.5rem] w-[6.5rem]',
+  /** Maps tab: orb over map, smaller footprint */
+  homeDockCompact: 'h-[4rem] w-[4rem]',
 }
 
 /** @deprecated Prefer FetchOrbExpression + fetchOrbExpressions */
@@ -694,6 +699,12 @@ export function JarvisNeuralOrb({
   const suspendAutonomousRef = useRef(suspendAutonomous)
   autonomousEnabledRef.current = autonomous
   suspendAutonomousRef.current = suspendAutonomous
+  const reduceMotionRef = useRef(false)
+  useEffect(() => {
+    reduceMotionRef.current =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true
+  }, [])
   const waveVisualRef = useRef(0)
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -741,12 +752,17 @@ export function JarvisNeuralOrb({
   const effectiveExpression: FetchOrbExpression =
     expressionProp ?? expressionFromLegacyState(state, speaking)
 
+  const autonomousIdleState =
+    state === 'idle' || state === 'aware' || state === undefined
+  const autonomousBaseExpression =
+    effectiveExpression === 'awake' || effectiveExpression === 'idle'
+
   const mergedExpression: FetchOrbExpression =
     autonomous &&
     !suspendAutonomous &&
     !speaking &&
-    state === 'idle' &&
-    (effectiveExpression === 'awake' || effectiveExpression === 'idle')
+    autonomousIdleState &&
+    autonomousBaseExpression
       ? autoMood
       : effectiveExpression
 
@@ -855,7 +871,7 @@ export function JarvisNeuralOrb({
     const ro = new ResizeObserver(resize)
     ro.observe(host)
 
-    const homeMagicalDock = size === 'homeDock'
+    const homeMagicalDock = size === 'homeDock' || size === 'homeDockCompact'
 
     const render = (now: number) => {
       const speak = speakingRef.current
@@ -870,11 +886,15 @@ export function JarvisNeuralOrb({
         autonomousEnabledRef.current &&
         !suspendAutonomousRef.current &&
         !speak &&
-        st === 'idle' &&
+        (st === 'idle' || st === 'aware' || st === undefined) &&
         (userExpr === 'awake' || userExpr === 'idle')
       const expr: FetchOrbExpression = autoOn ? autoMoodRef.current : userExpr
       const targetT = resolveOrbExpressionTargets(expr)
-      smoothRef.current = stepOrbFaceTargets(smoothRef.current, targetT, 0.11)
+      let lerpU = 0.11
+      if (reduceMotionRef.current) lerpU = 0.16
+      else if (expr === 'surprised' || expr === 'excited') lerpU = 0.2
+      else if (expr === 'sleepy' || expr === 'content') lerpU = 0.075
+      smoothRef.current = stepOrbFaceTargets(smoothRef.current, targetT, lerpU)
       const vis = smoothRef.current
 
       if (confirmPulseRef.current > 0.002) {
@@ -914,7 +934,7 @@ export function JarvisNeuralOrb({
       if (expr === 'sleepy') {
         liftPx += Math.sin(t * 0.52) * 3.6 + Math.sin(t * 0.19) * 1.5
       }
-      if (autoOn) {
+      if (autoOn && !reduceMotionRef.current) {
         liftPx += Math.sin(t * 2.12) * 5.2 + Math.sin(t * 0.88) * 2.9
       }
 
@@ -1177,7 +1197,8 @@ export function JarvisNeuralOrb({
         Math.sin(t * 0.72) * R * 0.018 + Math.sin(t * 0.28) * R * 0.009
       const microDriftY =
         Math.sin(t * 0.55 + 1.2) * R * 0.008 + Math.sin(t * 0.22) * R * 0.005
-      const autoSwayX = autoOn ? Math.sin(t * 1.08) * R * 0.045 : 0
+      const autoSwayX =
+        autoOn && !reduceMotionRef.current ? Math.sin(t * 1.08) * R * 0.045 : 0
       const faceCx = cx + swayX + autoSwayX
       const ldMul = lookDownRef.current ? Math.max(0.5, lookDownDepthRef.current) : 0
       const lookUpY = lookAtCardRef.current
@@ -1193,12 +1214,27 @@ export function JarvisNeuralOrb({
 
       const listenBoost = expr === 'listening' ? 1 + vMic * 0.08 + act * 0.03 : 1
       const spread = R * BASE_SPREAD * vis.eyeSpreadMul
-      const eyeY = cy + R * vis.eyeYMul + my + lookUpY + microDriftY
 
-      const halfWL =
-        R * BASE_HW * vis.eyeScaleW * (1 - vis.asymmetry) * listenBoost
-      const halfWR =
-        R * BASE_HW * vis.eyeScaleW * (1 + vis.asymmetry) * listenBoost
+      let emotionEyeYOffset = 0
+      let emotionAsymDelta = 0
+      if (!reduceMotionRef.current) {
+        if (expr === 'playful' || expr === 'excited') {
+          emotionEyeYOffset = Math.sin(t * 3.1) * R * 0.014
+          emotionAsymDelta = Math.sin(t * 2.35) * 0.05
+        } else if (expr === 'listening') {
+          emotionEyeYOffset = Math.sin(t * 2.25) * R * 0.009
+          emotionAsymDelta = Math.sin(t * 1.85) * 0.028
+        } else if (expr === 'thinking' || expr === 'searching') {
+          emotionEyeYOffset = Math.sin(t * 0.95) * R * 0.011
+        }
+      }
+
+      const eyeY =
+        cy + R * vis.eyeYMul + my + lookUpY + microDriftY + emotionEyeYOffset
+
+      const asymEff = Math.max(-0.24, Math.min(0.24, vis.asymmetry + emotionAsymDelta))
+      const halfWL = R * BASE_HW * vis.eyeScaleW * (1 - asymEff) * listenBoost
+      const halfWR = R * BASE_HW * vis.eyeScaleW * (1 + asymEff) * listenBoost
       const halfH = R * BASE_HH * vis.eyeScaleH * listenBoost
 
       const tilt = vis.tiltY * R
@@ -1336,7 +1372,14 @@ export function JarvisNeuralOrb({
     <div
       className={[
         'relative flex flex-col items-center',
-        autonomous && surface === 'faceOnly' ? 'fetch-jarvis-autonomous-host' : '',
+        autonomous &&
+        !suspendAutonomous &&
+        (surface === 'faceOnly' ||
+          size === 'homeDock' ||
+          size === 'homeDockCompact' ||
+          size === 'fab')
+          ? 'fetch-jarvis-autonomous-host'
+          : '',
         className,
       ]
         .filter(Boolean)

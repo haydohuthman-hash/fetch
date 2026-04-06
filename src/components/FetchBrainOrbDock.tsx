@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react'
 import {
   JarvisNeuralOrb,
+  useFetchOrbVoiceLevel,
   type FetchOrbExpression,
   type JarvisOrbState,
 } from './JarvisNeuralOrb'
@@ -37,14 +38,16 @@ export function FetchBrainOrbDock({ mind, glowRgb, orbAppearance }: FetchBrainOr
   const speaking = isSpeechPlaying && !muted
   const orbState = mindToOrbState(mind)
   const activity = mindToActivity(mind, speaking)
+  const micOpen = mind === 'listening'
+  const voiceLevel = useFetchOrbVoiceLevel(micOpen)
   const expression: FetchOrbExpression =
     mind === 'speaking' || speaking
       ? 'speaking'
       : mind === 'listening'
-        ? 'curious'
+        ? 'listening'
         : mind === 'thinking'
           ? 'focused'
-          : 'idle'
+          : 'awake'
 
   const shellStyle = {
     '--orb-glow': `${glowRgb.r}, ${glowRgb.g}, ${glowRgb.b}`,
@@ -62,7 +65,7 @@ export function FetchBrainOrbDock({ mind, glowRgb, orbAppearance }: FetchBrainOr
             state={orbState}
             speaking={speaking}
             activity={activity}
-            voiceLevel={0}
+            voiceLevel={voiceLevel}
             awakened
             confirmationNonce={0}
             mapAttention="none"
@@ -72,6 +75,7 @@ export function FetchBrainOrbDock({ mind, glowRgb, orbAppearance }: FetchBrainOr
             glowColor={glowRgb}
             orbAppearance={orbAppearance}
             size="fab"
+            autonomous={mind === 'idle' && !speaking}
             ariaLive={false}
           />
         </div>

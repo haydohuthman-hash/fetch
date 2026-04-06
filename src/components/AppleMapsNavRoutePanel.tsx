@@ -61,7 +61,7 @@ export function AppleMapsNavRoutePanel({
 
   return (
     <div
-      className="fetch-apple-nav-route-panel flex flex-col gap-0 rounded-[28px] bg-white text-neutral-900 shadow-[0_12px_48px_rgba(0,0,0,0.18)] ring-1 ring-black/[0.06]"
+      className="fetch-apple-nav-route-panel fetch-apple-nav-route-panel--sheet flex flex-col gap-0 rounded-[28px] bg-white text-neutral-900 shadow-[0_12px_48px_rgba(0,0,0,0.18)] ring-1 ring-black/[0.06]"
       data-sheet-no-drag
     >
       <div className="flex justify-center pt-2.5 pb-1" aria-hidden>
@@ -77,7 +77,7 @@ export function AppleMapsNavRoutePanel({
           <button
             type="button"
             onClick={onFromMyLocation}
-            className="mt-1.5 text-left text-[15px] font-semibold text-[#007AFF] transition-opacity hover:opacity-80 active:opacity-70"
+            className="mt-1.5 text-left text-[15px] font-semibold text-neutral-900 transition-opacity hover:opacity-80 active:opacity-70"
           >
             From My Location
           </button>

@@ -64,6 +64,16 @@ function App() {
     void driverChunk()
   }, [])
 
+  useEffect(() => {
+    if (import.meta.env.VITE_FETCH_AUTH_USERS_DB !== '1') return
+    void (async () => {
+      const { fetchAuthMe } = await import('./lib/fetchServerAuth')
+      const { applyServerUserProfile } = await import('./lib/fetchUserSession')
+      const me = await fetchAuthMe()
+      if (me) applyServerUserProfile(me)
+    })()
+  }, [])
+
   const goAccountFromHome = useCallback(() => {
     setPhase(loadSession() ? 'account' : 'auth')
   }, [])
@@ -83,12 +93,14 @@ function App() {
   }, [])
 
   const handleSplashComplete = useCallback(() => {
-    if (fetchAppSplashHandoffDone) return
-    fetchAppSplashHandoffDone = true
-    fetchAppBootstrapExitDone = false
-    setHomeMapBootReady(false)
-    setHomeBootstrapOpen(true)
-    setPhase('home')
+    if (!fetchAppSplashHandoffDone) {
+      fetchAppSplashHandoffDone = true
+      fetchAppBootstrapExitDone = false
+      setHomeMapBootReady(false)
+      setHomeBootstrapOpen(true)
+    }
+    // Always leave splash if we are still on it (guards Strict Mode / duplicate callbacks).
+    setPhase((p) => (p === 'splash' ? 'home' : p))
   }, [])
 
   useEffect(() => {

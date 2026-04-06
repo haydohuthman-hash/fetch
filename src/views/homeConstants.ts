@@ -6,28 +6,38 @@ export const INTRO_COPY = 'Fetch activated. What can I do for you today?'
 
 /** Default line above the dock orb on the intent step (orb guide). */
 export const INTENT_ORB_PROMPT =
-  'What do you need done today? Tap an option below or ask me anything.'
+  'Tap Fetch to chat, a service to book a driver, or Nav for directions.'
 
-/** Cycles in the intent chat composer placeholder to show what Fetch can do. */
-export const INTENT_COMPOSER_PLACEHOLDER_HINTS: readonly string[] = [
-  'Junk, move, deliver…',
-  '“Drive to…” + traffic',
-  'Photo + ask',
-  'Pickup → drop-off',
-  'Pricing help',
-  'Extra hands?',
-  'Bond clean?',
-  'Tap wave to talk',
+/** Subtle line under the home dock orb. */
+export const HOME_INTENT_ORB_LINE = 'Tap or speak for help'
+
+/**
+ * Local explore prompts — rotate after the first “full booking” placeholder in the composer.
+ */
+export const INTENT_COMPOSER_DISCOVERY_PLACEHOLDER_HINTS: readonly string[] = [
+  'What\'s a good restaurant near me?',
+  'What\'s a good park near me?',
+  'Nice café nearby?',
+  'Best coffee near me?',
+  'Kid-friendly park close by?',
+  'Quiet spot to work nearby?',
+  'Scenic walk or lookout near me?',
 ]
 
-/** Step-1 inline field: short one-line hints (rotate; avoid wrap in pill). */
+/**
+ * Default (non–intent-landing) composer: first line = full service / booking surface; rest = local asks.
+ */
+export const INTENT_COMPOSER_PLACEHOLDER_HINTS: readonly string[] = [
+  'Book moving, junk, delivery, heavy item, helpers, or cleaning — pick-up & drop-off, photos, mic, or drive + traffic…',
+  ...INTENT_COMPOSER_DISCOVERY_PLACEHOLDER_HINTS,
+]
+
+/**
+ * Intent step (below service cards): first line ties to cards + full capabilities; rest = discovery-style asks.
+ */
 export const INTENT_COMPOSER_INTENT_LANDING_HINTS: readonly string[] = [
-  'Tap + upload — say what to do…',
-  'From where → to where?',
-  'Job + pick-up + drop-off…',
-  'e.g. junk: carport → tip',
-  'Pics + task + both addresses…',
-  'Mic: what, from, to…',
+  'Tap a service card or type a job: move, junk, deliver, heavy item, help, clean — addresses, photos, mic, pricing…',
+  ...INTENT_COMPOSER_DISCOVERY_PLACEHOLDER_HINTS,
 ]
 
 /** @deprecated First line of INTENT_COMPOSER_INTENT_LANDING_HINTS; kept for older imports. */
@@ -79,7 +89,7 @@ export const LANDING_PRIMARY_SERVICES = [
     id: 'helper',
     label: 'Helper',
     jobType: 'helper' as const,
-    tone: 'purple' as const,
+    tone: 'slate' as const,
     fetchPersonalityExample: 'Hayden, what do you need an extra pair of hands for?',
   },
 ] as const

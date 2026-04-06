@@ -86,11 +86,20 @@ function syncPaymentIntentToBooking(state, booking) {
   if (intent) booking.paymentIntent = { ...intent }
 }
 
+function paymentConfirmedForDispatch(booking) {
+  const pi = booking?.paymentIntent
+  if (!pi || pi.status !== 'succeeded') return false
+  if (process.env.FETCH_REQUIRE_STRIPE_WEBHOOK === '1' && pi.provider === 'stripe') {
+    return Boolean(pi.webhookConfirmedAt)
+  }
+  return true
+}
+
 function canDispatchBooking(booking) {
   return (
     Boolean(booking) &&
     DISPATCHABLE_STATUSES.has(booking.status) &&
-    booking.paymentIntent?.status === 'succeeded'
+    paymentConfirmedForDispatch(booking)
   )
 }
 
@@ -123,11 +132,25 @@ function applyBookingLifecycle(state, booking, now) {
   // Live matching + driver-controlled jobs no longer use timed demo progression here.
 }
 
-export function createMarketplaceStore(dataFile) {
+/**
+ * @param {string | { dataFile?: string, load?: () => Promise<unknown>, save?: (state: object, json: string) => Promise<void>, onAfterWrite?: () => void }} arg
+ * Legacy: createMarketplaceStore('/path/to.json')
+ */
+export function createMarketplaceStore(arg) {
+  const opts = typeof arg === 'string' ? { dataFile: arg } : arg ?? {}
+  const { dataFile, load, save, onAfterWrite } = opts
+
   async function readState() {
     try {
-      const raw = await fs.readFile(dataFile, 'utf8')
-      const parsed = JSON.parse(raw)
+      let parsed
+      if (typeof load === 'function') {
+        parsed = await load()
+      } else if (dataFile) {
+        const raw = await fs.readFile(dataFile, 'utf8')
+        parsed = JSON.parse(raw)
+      } else {
+        return cloneEmptyState()
+      }
       const state = normalizeState(parsed)
       materializeState(state)
       return state
@@ -137,7 +160,17 @@ export function createMarketplaceStore(dataFile) {
   }
 
   async function writeState(state) {
-    await fs.writeFile(dataFile, JSON.stringify(state, null, 2), 'utf8')
+    const json = JSON.stringify(state, null, 2)
+    if (typeof save === 'function') {
+      await save(state, json)
+    } else if (dataFile) {
+      await fs.writeFile(dataFile, json, 'utf8')
+    }
+    try {
+      onAfterWrite?.()
+    } catch {
+      /* ignore subscriber errors */
+    }
   }
 
   function materializeState(state, now = Date.now()) {
@@ -188,6 +221,24 @@ export function createMarketplaceStore(dataFile) {
         payload.customerRating !== undefined
           ? payload.customerRating
           : existing?.customerRating ?? null,
+      customerEmail:
+        payload.customerEmail !== undefined
+          ? typeof payload.customerEmail === 'string'
+            ? payload.customerEmail.trim().toLowerCase() || null
+            : null
+          : existing?.customerEmail ?? null,
+      customerUserId:
+        payload.customerUserId !== undefined
+          ? typeof payload.customerUserId === 'string'
+            ? payload.customerUserId.trim() || null
+            : null
+          : existing?.customerUserId ?? null,
+      matchingMode:
+        payload.matchingMode !== undefined
+          ? payload.matchingMode === 'sequential' || payload.matchingMode === 'pool'
+            ? payload.matchingMode
+            : existing?.matchingMode ?? null
+          : existing?.matchingMode ?? null,
       matchingMeta:
         payload.matchingMeta !== undefined ? payload.matchingMeta : existing?.matchingMeta ?? null,
       status: payload.status ?? existing?.status ?? 'draft',
@@ -234,7 +285,17 @@ export function createMarketplaceStore(dataFile) {
     return next
   }
 
-  function startDispatch(state, bookingId) {
+  function startDispatch(state, bookingId, options = {}) {
+    const envMode =
+      typeof process.env.FETCH_DEFAULT_MATCHING_MODE === 'string' &&
+      process.env.FETCH_DEFAULT_MATCHING_MODE.trim().toLowerCase() === 'sequential'
+        ? 'sequential'
+        : 'pool'
+    const matchingMode =
+      options.matchingMode === 'sequential' || options.matchingMode === 'pool'
+        ? options.matchingMode
+        : envMode
+
     const booking = state.bookings.find((entry) => entry.id === bookingId)
     if (!booking) return { booking: null, error: 'booking_not_found' }
     if (isActivelyMatching(booking)) {
@@ -250,25 +311,61 @@ export function createMarketplaceStore(dataFile) {
     booking.updatedAt = startedAt
     booking.matchedDriver = null
     booking.assignedDriverId = null
-    // Real flow: driver app drives accept + lifecycle; matching-engine offer waves stay off (see matching-engine.js).
+    booking.matchingMode = matchingMode
+    // Pool: open board; drivers claim from dashboard (matching-engine skipped).
+    // Sequential: server ranks online drivers and issues timed offers (matching-engine.js).
+    const usePool = matchingMode === 'pool'
+    booking.driverControlled = usePool
+    booking.matchingMeta = null
+    const title = 'Finding a driver'
+    const timelineDesc = usePool
+      ? 'Nearby drivers can see your job and accept when ready.'
+      : 'We are contacting drivers one at a time, starting with the closest match.'
+    const notifMsg = usePool
+      ? 'Drivers in your area can claim this job from their app.'
+      : 'Offers are sent to drivers in order until someone accepts.'
+    ensureTimelineEntry(booking, 'pending_match', title, timelineDesc, startedAt)
+    ensureNotification(state, booking.id, 'pending_match', title, notifMsg, startedAt)
+    materializeState(state, startedAt)
+    return { booking, error: null }
+  }
+
+  /**
+   * Idempotent driver assignment: first accept wins; same driver retry returns ok.
+   */
+  function atomicAcceptMatch(state, bookingId, driverId, matchedDriver) {
+    const id = typeof driverId === 'string' ? driverId.trim() : ''
+    if (!id || !matchedDriver || typeof matchedDriver !== 'object') {
+      return { booking: null, error: 'invalid_payload' }
+    }
+    const booking = state.bookings.find((entry) => entry.id === bookingId)
+    if (!booking) return { booking: null, error: 'booking_not_found' }
+    if (booking.status === 'matched' && booking.assignedDriverId === id) {
+      materializeState(state, Date.now())
+      return { booking, error: null }
+    }
+    if (booking.status === 'matched' && booking.assignedDriverId && booking.assignedDriverId !== id) {
+      return { booking: null, error: 'already_assigned' }
+    }
+    if (booking.status !== 'pending_match' && booking.status !== 'dispatching') {
+      return { booking: null, error: 'not_matching' }
+    }
+    if (booking.assignedDriverId && booking.assignedDriverId !== id) {
+      return { booking: null, error: 'already_assigned' }
+    }
+    const now = Date.now()
+    booking.status = 'matched'
+    booking.matchedDriver = matchedDriver
+    booking.assignedDriverId = id
     booking.driverControlled = true
     booking.matchingMeta = null
-    ensureTimelineEntry(
-      booking,
-      'pending_match',
-      'Finding a driver',
-      'Matching you with the best available driver nearby.',
-      startedAt,
-    )
-    ensureNotification(
-      state,
-      booking.id,
-      'pending_match',
-      'Finding a driver',
-      'We are contacting drivers near you.',
-      startedAt,
-    )
-    materializeState(state, startedAt)
+    booking.updatedAt = now
+    for (const o of ensureArray(state.offers)) {
+      if (o.bookingId !== booking.id || o.status !== 'pending') continue
+      o.status = 'expired'
+      o.updatedAt = now
+    }
+    materializeState(state, now)
     return { booking, error: null }
   }
 
@@ -281,6 +378,7 @@ export function createMarketplaceStore(dataFile) {
     upsertBooking,
     markNotificationRead,
     startDispatch,
+    atomicAcceptMatch,
     upsertDriverPresence,
   }
 }

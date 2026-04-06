@@ -20,6 +20,10 @@ interface ImportMetaEnv {
   readonly VITE_VOICE_API_BASE?: string
   /** Set to `1` to log `[FetchPerf]` timings (see `fetchPerf.ts`). Or use localStorage `fetchPerfLogs=1`. */
   readonly VITE_FETCH_PERF_LOGS?: string
+  /**
+   * When `1`, Account screen uses `POST /api/auth/register` and `/login` (requires server `FETCH_AUTH_USERS_DB=1` + Postgres).
+   */
+  readonly VITE_FETCH_AUTH_USERS_DB?: string
 }
 
 interface ImportMeta {

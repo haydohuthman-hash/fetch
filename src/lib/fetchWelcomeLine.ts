@@ -130,8 +130,8 @@ export async function buildHomeWelcomeLine(options: HomeWelcomeOptions): Promise
       `Hi ${firstName}! ${greeting}.`,
       when,
       weatherLine,
-      `Great to see you again — I'm Fetch, and I'm here to make today easier.`,
-      `What would you like to get done? You can tap a service or just ask me out loud.`,
+      `Great to see you again — I'm Fetch, here to make today easier.`,
+      `Tap me to chat, choose a service to book and get a driver, or tap Nav for maps and directions.`,
     ].join(' ')
   }
 
@@ -140,7 +140,6 @@ export async function buildHomeWelcomeLine(options: HomeWelcomeOptions): Promise
     when,
     weatherLine,
     `I'm Fetch — thanks for stopping by.`,
-    `Whether it's a move, a pickup, junk removal, or anything on your list, we'll sort it together.`,
-    `Choose something below or tell me what you need; I'm listening.`,
+    `Tap me to chat, pick a service to book and match a driver, or open Nav for turn-by-turn directions.`,
   ].join(' ')
 }

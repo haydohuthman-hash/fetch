@@ -1268,6 +1268,16 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 }
 
 /* Fetch AI orb — particle sphere with layered glow and state motion */
+@keyframes fetch-voice-fab-home-listen {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.024);
+  }
+}
+
 @keyframes fetch-jarvis-neural-float {
   0%,
   100% {
@@ -1349,6 +1359,26 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   box-shadow:
     0 14px 28px -10px rgba(0, 0, 0, 0.45),
     0 6px 16px -6px rgba(0, 0, 0, 0.32);
+}
+
+.fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere[data-fetch-orb-expression='excited'] {
+  box-shadow:
+    0 18px 36px -10px rgba(0, 0, 0, 0.5),
+    0 8px 20px -8px rgba(0, 0, 0, 0.38),
+    0 0 28px -6px rgba(var(--orb-glow), 0.24);
+}
+
+.fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere[data-fetch-orb-expression='speaking'] {
+  box-shadow:
+    0 18px 38px -10px rgba(0, 0, 0, 0.52),
+    0 8px 22px -8px rgba(0, 0, 0, 0.4),
+    0 0 32px -5px rgba(var(--orb-glow), 0.3);
+}
+
+.fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere[data-fetch-orb-expression='happy'] {
+  box-shadow:
+    0 16px 32px -10px rgba(0, 0, 0, 0.46),
+    0 0 22px -6px rgba(var(--orb-glow), 0.18);
 }
 
 .fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere[data-orb-appearance='day']::after,
@@ -1876,6 +1906,26 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .fetch-jarvis-autonomous-host {
+    animation: none;
+  }
+
+  .fetch-jarvis-neural-sphere,
+  .fetch-jarvis-neural-sphere--idle,
+  .fetch-jarvis-neural-sphere--engaged,
+  .fetch-jarvis-neural-sphere--listening,
+  .fetch-jarvis-neural-sphere--processing,
+  .fetch-jarvis-neural-sphere--responding,
+  .fetch-jarvis-neural-sphere--speaking,
+  .fetch-jarvis-neural-sphere--completed {
+    animation: none !important;
+  }
+
+  .fetch-jarvis-neural-surface__spin,
+  .fetch-jarvis-neural-surface__sheen {
+    animation: none !important;
+  }
+
   .fetch-jarvis-neural-sphere--engaged {
     animation: none;
   }
@@ -1887,6 +1937,10 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   .fetch-jarvis-neural-sphere--responding .fetch-jarvis-orb-face__mouth,
   .fetch-jarvis-neural-sphere--speaking .fetch-jarvis-orb-face__mouth {
     animation: none;
+  }
+
+  .fetch-home-vision .fetch-voice-fab--jarvis-solo.fetch-voice-fab--listening {
+    animation: none !important;
   }
 }
 
@@ -2620,6 +2674,11 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
     fetch-fab-premium-pulse-jarvis 280ms cubic-bezier(0.24, 0.9, 0.32, 1);
 }
 
+.fetch-home-vision .fetch-voice-fab--jarvis-solo.fetch-voice-fab--listening:not(.fetch-voice-fab--speaking) {
+  box-shadow: none;
+  animation: fetch-voice-fab-home-listen 1.85s ease-in-out infinite;
+}
+
 .fetch-home-vision .fetch-voice-fab--jarvis-solo.fetch-voice-fab--typing {
   box-shadow: none;
   animation:
@@ -2791,20 +2850,20 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   }
 }
 
-/* Jarvis sheet orb: pulse animates glow only (inset rim stays fitted; no spread-ring flash). */
+/* Jarvis sheet orb: pulse uses depth shadow only (no coloured under-glow). */
 @keyframes fetch-fab-premium-pulse-jarvis {
   0%,
   100% {
     box-shadow:
-      inset 0 0 0 1px rgba(var(--orb-glow), 0.4),
-      0 0 18px -4px rgba(var(--orb-glow), 0.28),
-      0 10px 32px rgba(0, 0, 0, 0.38);
+      inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+      0 14px 34px rgba(0, 0, 0, 0.4),
+      0 6px 14px rgba(0, 0, 0, 0.24);
   }
   45% {
     box-shadow:
-      inset 0 0 0 1px rgba(var(--orb-glow), 0.55),
-      0 0 28px -2px rgba(var(--orb-glow), 0.42),
-      0 12px 38px rgba(0, 0, 0, 0.42);
+      inset 0 0 0 1px rgba(255, 255, 255, 0.2),
+      0 18px 42px rgba(0, 0, 0, 0.46),
+      0 8px 18px rgba(0, 0, 0, 0.28);
   }
 }
 
@@ -2923,7 +2982,7 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 
 /* Tunnel animation must not re-center the orb when docked top-left */
 .fetch-home-orb-sheet-follow--nav-map-top-left.fetch-home-orb-tunnel-drop {
-  transform: translateY(36px);
+  transform: translateY(22px);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -2990,23 +3049,15 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   letter-spacing: -0.015em;
 }
 
-/* Home sheet CTAs — deep base, glassy highlight, violet rim (premium) */
+/* Home sheet CTAs — black (no blue / violet wash) */
 .fetch-home-vision .fetch-stage-primary-btn {
   color: rgba(255, 255, 255, 0.98);
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
-  background: linear-gradient(
-    165deg,
-    rgba(var(--orb-glow), 0.42) 0%,
-    rgba(52, 28, 108, 0.9) 32%,
-    rgba(14, 10, 26, 0.99) 68%,
-    rgba(5, 4, 12, 1) 100%
-  );
-  border: 1px solid rgba(255, 255, 255, 0.11);
+  text-shadow: none;
+  background: linear-gradient(180deg, #2c2c2c 0%, #0d0d0d 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.14) inset,
-    0 0 0 1px rgba(var(--orb-glow), 0.18) inset,
-    0 14px 44px rgba(0, 0, 0, 0.58),
-    0 0 52px rgba(var(--orb-glow), 0.16);
+    0 1px 0 rgba(255, 255, 255, 0.12) inset,
+    0 12px 36px rgba(0, 0, 0, 0.55);
   transition:
     box-shadow 0.22s ease,
     border-color 0.22s ease,
@@ -3017,18 +3068,15 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   filter: none;
   border-color: rgba(255, 255, 255, 0.14);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.17) inset,
-    0 0 0 1px rgba(var(--orb-glow), 0.26) inset,
-    0 18px 52px rgba(0, 0, 0, 0.52),
-    0 0 64px rgba(var(--orb-glow), 0.24);
+    0 1px 0 rgba(255, 255, 255, 0.15) inset,
+    0 14px 40px rgba(0, 0, 0, 0.5);
 }
 
 .fetch-home-vision .fetch-stage-primary-btn:active {
   filter: none;
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.1) inset,
-    0 0 0 1px rgba(var(--orb-glow), 0.12) inset,
-    0 8px 28px rgba(0, 0, 0, 0.55);
+    0 1px 0 rgba(255, 255, 255, 0.08) inset,
+    0 6px 22px rgba(0, 0, 0, 0.55);
 }
 
 .fetch-home-vision .fetch-stage-primary-btn:disabled {
@@ -3038,28 +3086,22 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 
 .fetch-home-vision .fetch-stage-chip-selected {
   color: rgba(255, 255, 255, 0.98);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-  background: linear-gradient(
-    165deg,
-    rgba(var(--orb-glow), 0.48) 0%,
-    rgba(42, 24, 88, 0.9) 38%,
-    rgba(10, 8, 20, 0.98) 100%
-  );
+  text-shadow: none;
+  background: linear-gradient(180deg, #3a3a3a 0%, #141414 100%);
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.11) inset,
-    0 10px 36px rgba(0, 0, 0, 0.48),
-    0 0 40px rgba(var(--orb-glow), 0.18);
+    0 1px 0 rgba(255, 255, 255, 0.1) inset,
+    0 8px 28px rgba(0, 0, 0, 0.45);
 }
 
 /* Secondary / ghost actions on home sheet */
 .fetch-home-vision .fetch-home-secondary-btn {
-  background: linear-gradient(180deg, rgba(20, 18, 32, 0.98) 0%, rgba(7, 6, 14, 1) 100%);
-  border: 1px solid rgba(var(--orb-glow), 0.16);
-  color: rgba(232, 234, 237, 0.9);
+  background: linear-gradient(180deg, rgba(38, 38, 38, 0.98) 0%, rgba(16, 16, 16, 1) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(248, 250, 252, 0.92);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.05) inset,
-    0 10px 28px rgba(0, 0, 0, 0.42);
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 8px 24px rgba(0, 0, 0, 0.4);
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease,
@@ -3067,11 +3109,10 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 }
 
 .fetch-home-vision .fetch-home-secondary-btn:hover {
-  border-color: rgba(var(--orb-glow), 0.32);
+  border-color: rgba(255, 255, 255, 0.18);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.07) inset,
-    0 12px 34px rgba(0, 0, 0, 0.48),
-    0 0 22px rgba(var(--orb-glow), 0.14);
+    0 1px 0 rgba(255, 255, 255, 0.08) inset,
+    0 10px 28px rgba(0, 0, 0, 0.46);
 }
 
 .fetch-home-vision .fetch-home-secondary-btn:disabled {
@@ -3299,7 +3340,7 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   }
 }
 
-/* Service carousel — ~3.2 cards visible, snap, no scrollbar (premium horizontal scroll) */
+/* Service carousel — ~4.1 cards visible, snap, no scrollbar (premium horizontal scroll) */
 .fetch-home-service-carousel-clip {
   container-type: inline-size;
   width: 100%;
@@ -3329,8 +3370,8 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   display: flex;
   flex-flow: row nowrap;
   align-items: stretch;
-  gap: 0.625rem;
-  padding: 0.15rem 0 0.4rem;
+  gap: 0.5rem;
+  padding: 0 0 0.2rem;
   width: max-content;
 }
 
@@ -3350,30 +3391,27 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   justify-content: center;
   gap: 0.38rem;
   padding: 0.62rem 0.42rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.625rem;
   margin: 0;
   -webkit-appearance: none;
   appearance: none;
   cursor: pointer;
   color: inherit;
-  background: rgba(255, 255, 255, 0.055);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.05) inset,
-    0 1px 2px rgba(0, 0, 0, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: none;
 }
 
 @supports (width: 1cqi) {
   .fetch-home-service-carousel-clip .fetch-home-service-segment {
-    flex-basis: max(5.35rem, calc((100cqi - 3 * 0.625rem) / 3.2));
+    flex-basis: max(5.35rem, calc((100cqi - 3 * 0.5rem) / 4.1));
   }
 }
 
 .fetch-home-service-segment--selected {
-  border-color: rgba(255, 255, 255, 0.16);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.07) inset,
-    0 0 0 1px rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.09);
+  box-shadow: none;
   opacity: 1;
 }
 
@@ -3410,25 +3448,18 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 @media (prefers-reduced-motion: no-preference) {
   .fetch-home-service-segment {
     transition:
-      transform 0.2s cubic-bezier(0.22, 0.88, 0.24, 1),
-      box-shadow 0.2s ease,
-      border-color 0.2s ease,
-      background-color 0.2s ease;
+      border-color 0.15s ease,
+      background-color 0.15s ease,
+      opacity 0.15s ease;
   }
 
   .fetch-home-service-segment:hover {
-    transform: translateY(-1px);
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.07) inset,
-      0 8px 22px rgba(0, 0, 0, 0.14);
-    border-color: rgba(255, 255, 255, 0.14);
+    border-color: rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.085);
   }
 
   .fetch-home-service-segment:active {
-    transform: scale(0.98) translateY(0);
-    box-shadow:
-      0 1px 0 rgba(255, 255, 255, 0.04) inset,
-      0 2px 8px rgba(0, 0, 0, 0.12);
+    opacity: 0.92;
   }
 }
 
@@ -3510,8 +3541,34 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   height: 0;
 }
 
+/* Booking wizard steps — consistent full-width column inside sheet body */
+.fetch-home-booking-step {
+  max-width: 100%;
+}
+
+/* Tighter vertical rhythm inside booking steps (reduces dead space below titles) */
+.fetch-home-vision .fetch-home-booking-sheet .fetch-home-booking-step .mt-1\.5 {
+  margin-top: 0.25rem !important;
+}
+.fetch-home-vision .fetch-home-booking-sheet .fetch-home-booking-step .mt-2 {
+  margin-top: 0.375rem !important;
+}
+.fetch-home-vision .fetch-home-booking-sheet .fetch-home-booking-step .mt-2\.5 {
+  margin-top: 0.5rem !important;
+}
+.fetch-home-vision .fetch-home-booking-sheet .fetch-home-booking-step .mt-3 {
+  margin-top: 0.625rem !important;
+}
+.fetch-home-vision .fetch-home-booking-sheet .fetch-home-booking-step .gap-2 {
+  gap: 0.375rem !important;
+}
+.fetch-home-vision .fetch-home-booking-sheet .fetch-home-booking-step .gap-1\.5 {
+  gap: 0.3rem !important;
+}
+
 /* Google Places suggestions — dark panel (dropdown is portaled to body) */
 .pac-container {
+  z-index: 10060 !important;
   margin-top: 4px !important;
   border-radius: 14px !important;
   background: #0a0912 !important;
@@ -3580,12 +3637,147 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
     transparent 100%
   );
   pointer-events: none;
+  z-index: 3;
+}
+
+/* Neutral lift behind sheet top while Fetch speaks (no blue wash) */
+.fetch-home-booking-sheet__voice-halo {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  z-index: 0;
+  height: 48px;
+  margin-bottom: -8px;
+  border-radius: 0;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(15, 23, 42, 0.06) 55%,
+    rgba(15, 23, 42, 0.03) 100%
+  );
+  opacity: 0;
+  transform: translate3d(0, 6px, 0);
+  transition:
+    opacity 0.35s ease,
+    transform 0.45s cubic-bezier(0.22, 0.88, 0.32, 1);
+}
+
+.fetch-home-booking-sheet__voice-halo--on {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fetch-home-booking-sheet__voice-halo {
+    transition: opacity 0.2s ease;
+    transform: none;
+  }
+
+  .fetch-home-booking-sheet__voice-halo--on {
+    transform: none;
+  }
+}
+
+.fetch-orb-ground-glow-layer--home {
+  display: none;
+}
+
+/* Glassy transparent sheet top fading into the body */
+.fetch-home-booking-sheet__top-frost {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 2;
+  height: min(42%, 7.5rem);
+  max-height: 9.5rem;
+  pointer-events: none;
+  border-radius: inherit;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.62) 0%,
+    rgba(255, 255, 255, 0.22) 48%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  mask-image: linear-gradient(180deg, black 0%, black 55%, transparent 100%);
+  -webkit-mask-image: linear-gradient(180deg, black 0%, black 55%, transparent 100%);
+}
+
+/* Brain shortcut mic: horizontal center of first service card; higher than handle row. */
+.fetch-home-booking-sheet[data-edge-shell='true'] .fetch-home-booking-sheet__top-left-slot {
+  left: calc(
+    max(0.65rem, env(safe-area-inset-left, 0px)) + clamp(2.675rem, 13.5vw, 3.5rem) - 1.325rem
+  );
+  right: auto;
+  top: 2.1rem;
+}
+
+@media (min-width: 640px) {
+  .fetch-home-booking-sheet[data-edge-shell='true'] .fetch-home-booking-sheet__top-left-slot {
+    top: 2.2rem;
+  }
+}
+
+.fetch-home-vision .fetch-home-booking-sheet__shell-footer {
+  padding-bottom: max(0.35rem, env(safe-area-inset-bottom, 0px));
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  border-top: 1px solid rgba(255, 255, 255, 0.38);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.2) 0%, rgba(248, 250, 252, 0.55) 100%);
+}
+
+.fetch-home-booking-sheet__shell-footer .fetch-home-intent-bottom-nav {
+  margin: 0;
+  width: 100%;
+  max-width: none;
+  border-radius: 0;
 }
 
 /* Snap height ↔ subtle grey tier */
 .fetch-home-booking-sheet[data-snap='closed'] {
   --sheet-bg-top: #ffffff;
   --sheet-bg-bottom: #f6f7f9;
+}
+
+/* Services (etc.) closed peek — glass over map; maps tab uses nav chrome below */
+.fetch-home-vision .fetch-home-booking-sheet[data-snap='closed']:not([data-nav-map-chrome='true']) {
+  background-color: rgba(255, 255, 255, 0.45);
+  background-image: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.78) 0%,
+    rgba(252, 253, 255, 0.5) 42%,
+    rgba(244, 247, 252, 0.42) 100%
+  );
+  box-shadow:
+    0 -12px 44px rgba(15, 23, 42, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.fetch-home-vision .fetch-home-booking-sheet[data-snap='closed']:not([data-nav-map-chrome='true'])::before {
+  opacity: 0.85;
+}
+
+.fetch-home-vision .fetch-home-booking-sheet[data-snap='closed']:not([data-nav-map-chrome='true'])
+  .fetch-home-sheet-chrome-btn,
+.fetch-home-vision .fetch-home-booking-sheet[data-snap='closed']:not([data-nav-map-chrome='true'])
+  .fetch-home-sheet-peek-map,
+.fetch-home-vision .fetch-home-booking-sheet[data-snap='closed']:not([data-nav-map-chrome='true'])
+  .fetch-home-booking-sheet__account-btn {
+  background: rgba(255, 255, 255, 0.78);
+  border-color: rgba(255, 255, 255, 0.65);
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.fetch-home-vision .fetch-home-booking-sheet[data-snap='closed']:not([data-nav-map-chrome='true'])
+  .fetch-home-sheet-chrome-btn:hover,
+.fetch-home-vision .fetch-home-booking-sheet[data-snap='closed']:not([data-nav-map-chrome='true'])
+  .fetch-home-sheet-peek-map:hover,
+.fetch-home-vision .fetch-home-booking-sheet[data-snap='closed']:not([data-nav-map-chrome='true'])
+  .fetch-home-booking-sheet__account-btn:hover {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(255, 255, 255, 0.85);
 }
 
 .fetch-home-booking-sheet[data-snap='compact'] {
@@ -3650,6 +3842,33 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   padding: 0.25rem 0 0.35rem;
   border-radius: 0;
   background: transparent;
+}
+
+/* Maps closed peek: upgraded search capsule only (no backdrop blur) */
+.fetch-home-vision .fetch-maps-explore-search-shell--peek {
+  padding: 0.4rem 0.5rem 0.5rem;
+  border-radius: 1.1rem;
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  background: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.94) 0%,
+    rgba(248, 250, 252, 0.9) 100%
+  );
+  box-shadow:
+    0 6px 22px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.fetch-home-vision .fetch-apple-nav-route-panel--sheet {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.98) 0%,
+    rgba(248, 250, 252, 1) 100%
+  );
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  box-shadow:
+    0 -12px 40px rgba(15, 23, 42, 0.08),
+    0 0 0 1px rgba(15, 23, 42, 0.03) inset;
 }
 
 .fetch-home-vision .fetch-home-sheet-inner {
@@ -3994,12 +4213,21 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 }
 
 /*
-  Snap stages: closed = peek · compact = hug content (default max ~62dvh) · half = 50% · full = 90% (scroll).
-  Nav-map chrome (data-nav-map-chrome): compact ~25dvh · half 50% · full 80% (scroll) + frosted top.
+  Snap stages: closed = peek · compact = content-hug (max ~58dvh) · half ~48dvh · full ~88dvh.
+  Nav-map chrome: compact tighter peek; half/full ~72dvh.
 */
 .fetch-home-booking-sheet[data-snap='closed'] {
   height: auto;
   max-height: min(7rem, 28dvh);
+}
+
+/* Bottom shell nav (Home / Nav / Account): closed sheet must fit handle + peek row + footer */
+.fetch-home-booking-sheet[data-snap='closed'][data-shell-footer='true'] {
+  max-height: min(16rem, 62dvh);
+}
+
+.fetch-home-booking-sheet[data-snap='closed'][data-shell-footer='true'][data-maps-compact-peek='true'] {
+  max-height: min(17.5rem, 66dvh);
 }
 
 .fetch-home-booking-sheet[data-snap='compact'] {
@@ -4017,22 +4245,22 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   max-height: min(88dvh, 40rem);
 }
 
-/* Maps tab + active route/nav strip only (see HomeView homeSheetNavMapChrome). */
+/* Maps tab (HomeView homeSheetNavMapChrome) — stronger glass over map at every snap */
 .fetch-home-booking-sheet[data-nav-map-chrome='true'] {
-  background-color: transparent;
+  background-color: rgba(255, 255, 255, 0.2);
   background-image: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.14) 0%,
-    rgba(255, 255, 255, 0.42) 14%,
-    rgba(252, 252, 253, 0.72) 38%,
-    rgba(248, 250, 252, 0.9) 68%,
-    rgba(244, 246, 249, 0.96) 100%
+    rgba(255, 255, 255, 0.22) 0%,
+    rgba(255, 255, 255, 0.5) 18%,
+    rgba(252, 253, 255, 0.78) 45%,
+    rgba(248, 250, 252, 0.92) 72%,
+    rgba(241, 245, 249, 0.96) 100%
   );
-  backdrop-filter: blur(20px) saturate(1.12);
-  -webkit-backdrop-filter: blur(20px) saturate(1.12);
   box-shadow:
-    0 -14px 48px rgba(15, 23, 42, 0.07),
-    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+    0 -16px 52px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.62),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.24);
+  border: 1px solid rgba(255, 255, 255, 0.38);
 }
 
 .fetch-home-booking-sheet[data-nav-map-chrome='true']::before {
@@ -4042,18 +4270,34 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 .fetch-home-booking-sheet[data-nav-map-chrome='true'] .fetch-home-sheet-chrome-btn,
 .fetch-home-booking-sheet[data-nav-map-chrome='true'] .fetch-home-sheet-peek-map,
 .fetch-home-booking-sheet[data-nav-map-chrome='true'] .fetch-home-booking-sheet__account-btn {
-  background: rgba(241, 245, 249, 0.72);
-  border-color: rgba(226, 232, 240, 0.85);
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(255, 255, 255, 0.55);
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.65);
 }
 
 .fetch-home-booking-sheet[data-nav-map-chrome='true'] .fetch-home-sheet-chrome-btn:hover,
 .fetch-home-booking-sheet[data-nav-map-chrome='true'] .fetch-home-sheet-peek-map:hover,
 .fetch-home-booking-sheet[data-nav-map-chrome='true'] .fetch-home-booking-sheet__account-btn:hover {
-  background: rgba(232, 238, 245, 0.88);
+  background: rgba(255, 255, 255, 0.58);
+  border-color: rgba(255, 255, 255, 0.72);
 }
 
 .fetch-home-booking-sheet[data-nav-map-chrome='true'][data-snap='closed'] {
   max-height: 6rem;
+}
+
+/* Closed + address inset needs more headroom than default nav closed */
+.fetch-home-booking-sheet[data-nav-map-chrome='true'][data-snap='closed'][data-maps-compact-peek='true'] {
+  max-height: min(9.5rem, 34dvh);
+}
+
+/* Nav maps + bottom shell: closed must stay tall enough for handle + peek + footer */
+.fetch-home-booking-sheet[data-nav-map-chrome='true'][data-snap='closed'][data-shell-footer='true'] {
+  max-height: min(17.5rem, 66dvh);
+}
+
+.fetch-home-booking-sheet[data-nav-map-chrome='true'][data-snap='closed'][data-shell-footer='true'][data-maps-compact-peek='true'] {
+  max-height: min(17.5rem, 66dvh);
 }
 
 .fetch-home-booking-sheet[data-nav-map-chrome='true'][data-snap='compact'] {
@@ -4061,8 +4305,8 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 }
 
 .fetch-home-booking-sheet[data-nav-map-chrome='true'][data-snap='half'] {
-  height: min(44dvh, 32rem);
-  max-height: min(44dvh, 32rem);
+  height: min(72dvh, 38rem);
+  max-height: min(72dvh, 38rem);
 }
 
 .fetch-home-booking-sheet[data-nav-map-chrome='true'][data-snap='full'] {
@@ -4083,20 +4327,19 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   visibility: visible;
 }
 
-.fetch-home-booking-sheet--speaking {
-  background-image:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, transparent 42%),
-    linear-gradient(180deg, #1e1c28 0%, #13121a 100%);
-  box-shadow:
-    0 -2px 16px rgba(0, 0, 0, 0.32),
-    0 0 0 1px rgba(255, 255, 255, 0.055) inset,
-    inset 0 1.5px 0 rgba(255, 255, 255, 0.08);
-}
+/* TTS: `.fetch-home-booking-sheet--speaking` intentionally does not alter sheet chrome (orb halo only). */
 
-/* Halo wrapper: shadow comes from the sphere only (bottom-weighted box-shadow). */
+/* Dock orb: no blue pool underfoot — neutral drop shadow + tighter top highlight from --orb-glow */
 .fetch-home-vision .fetch-home-orb-vision-halo[data-orb-idle='true'],
 .fetch-home-vision .fetch-home-orb-vision-halo:not([data-orb-idle='true']) {
   filter: none;
+  border-radius: 50%;
+  box-shadow:
+    0 20px 40px rgba(0, 0, 0, 0.36),
+    0 10px 22px rgba(0, 0, 0, 0.22),
+    0 4px 10px rgba(0, 0, 0, 0.14),
+    0 -6px 18px -4px rgba(var(--orb-glow), 0.85),
+    0 -2px 8px -2px rgba(255, 255, 255, 0.35);
 }
 
 @keyframes fetch-home-orb-bubble-rise {
@@ -4226,6 +4469,209 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   .fetch-home-orb-chat-bubble {
     animation: fetch-home-orb-chat-bubble-in 0.34s cubic-bezier(0.22, 0.88, 0.32, 1) both;
   }
+}
+
+/* Home intent sheet — earth-horizon top curve (all snaps; edge shell flushes bottom to screen) */
+.fetch-home-vision .fetch-home-booking-sheet[data-surface='intent'] {
+  border-radius: 46% 46% 26px 26px / 17% 17% 26px 26px;
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  box-shadow:
+    0 -18px 56px rgba(15, 23, 42, 0.09),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.fetch-home-vision .fetch-home-booking-sheet[data-surface='intent'][data-edge-shell='true'] {
+  border-radius: 46% 46% 0 0 / 17% 17% 0 0;
+  border-bottom: none;
+}
+
+/* Maps edge shell: horizon curve only when closed */
+.fetch-home-vision .fetch-home-booking-sheet[data-surface='maps'][data-edge-shell='true'][data-snap='closed'] {
+  border-radius: 42% 42% 0 0 / 15% 15% 0 0;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  box-shadow:
+    0 -18px 56px rgba(15, 23, 42, 0.085),
+    inset 0 1px 0 rgba(255, 255, 255, 0.62);
+  border-bottom: none;
+}
+
+.fetch-home-vision .fetch-home-booking-sheet[data-surface='maps'][data-edge-shell='true']:not([data-snap='closed']) {
+  border-radius: 32px 32px 0 0;
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  box-shadow:
+    0 -12px 40px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  border-bottom: none;
+}
+
+.fetch-home-vision .fetch-home-booking-sheet[data-surface='maps'][data-edge-shell='true'] .fetch-home-booking-sheet__handle {
+  border-radius: inherit;
+}
+
+.fetch-home-vision .fetch-home-booking-sheet[data-surface='maps'][data-edge-shell='true'] .fetch-home-booking-sheet__body--compact {
+  padding-left: 0.65rem;
+  padding-right: 0.65rem;
+}
+
+.fetch-home-vision .fetch-home-booking-sheet[data-surface='intent'] .fetch-home-booking-sheet__handle {
+  border-radius: inherit;
+}
+
+.fetch-home-landing--intent-tight .fetch-home-landing-section--intent {
+  gap: 0;
+  padding-top: 0;
+}
+
+.fetch-home-landing--intent-tight .fetch-home-service-rail-row {
+  gap: 0;
+}
+
+.fetch-home-intent-carousel-stack {
+  container-type: inline-size;
+  width: 100%;
+  min-width: 0;
+}
+
+/* Mic centered in the open band above the service cards */
+.fetch-home-intent-mic-strip {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 3.1rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0.4rem 0 0.5rem;
+}
+
+.fetch-home-orb-dock--intent-nudge {
+  transform: translateY(0.95rem);
+}
+
+.fetch-home-intent-mic-btn {
+  display: flex;
+  height: 2.65rem;
+  width: 2.65rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.45);
+  color: rgba(15, 23, 42, 0.78);
+  cursor: pointer;
+  box-shadow:
+    0 6px 18px rgba(15, 23, 42, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  transition:
+    transform 0.14s ease,
+    box-shadow 0.18s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fetch-home-intent-mic-btn:hover {
+  box-shadow:
+    0 8px 22px rgba(15, 23, 42, 0.09),
+    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+}
+
+.fetch-home-intent-mic-btn:active {
+  transform: scale(0.96);
+}
+
+.fetch-home-intent-mic-btn:focus-visible {
+  outline: 2px solid rgba(56, 189, 248, 0.45);
+  outline-offset: 2px;
+}
+
+/* Full-width bottom bar — home / maps / account */
+.fetch-home-intent-bottom-nav {
+  display: flex;
+  width: 100%;
+  align-items: stretch;
+  justify-content: space-between;
+  margin-top: 0;
+  padding: 0.55rem max(0.65rem, env(safe-area-inset-left, 0px)) 0.5rem
+    max(0.65rem, env(safe-area-inset-right, 0px));
+  border-radius: 0;
+  border: none;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(18px) saturate(1.12);
+  -webkit-backdrop-filter: blur(18px) saturate(1.12);
+}
+
+.fetch-home-intent-bottom-nav__divider {
+  width: 1px;
+  align-self: center;
+  height: 1.5rem;
+  flex-shrink: 0;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(15, 23, 42, 0.1) 35%,
+    rgba(15, 23, 42, 0.1) 65%,
+    transparent 100%
+  );
+}
+
+.fetch-home-intent-bottom-nav__icon {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: 0.4rem 0.35rem;
+  border: none;
+  border-radius: 0.75rem;
+  background: transparent;
+  color: rgba(15, 23, 42, 0.38);
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    background 0.18s ease,
+    transform 0.14s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.fetch-home-intent-bottom-nav__icon:hover {
+  color: rgba(15, 23, 42, 0.55);
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.fetch-home-intent-bottom-nav__icon:active {
+  transform: scale(0.96);
+}
+
+.fetch-home-intent-bottom-nav__icon--active {
+  color: #0a0a0a;
+  background: transparent;
+}
+
+.fetch-home-intent-bottom-nav__icon--active:hover {
+  background: transparent;
+  color: #0a0a0a;
+}
+
+.fetch-home-intent-bottom-nav__icon:focus-visible {
+  outline: 2px solid rgba(15, 23, 42, 0.22);
+  outline-offset: 2px;
+}
+
+.fetch-home-orb-dock {
+  margin-bottom: 0.15rem;
+}
+
+.fetch-home-vision .fetch-home-booking-sheet[data-surface='intent'] .fetch-home-booking-sheet__body--compact {
+  /* Extra top room: orb sits lower (`fetch-home-orb-dock--intent-nudge`) */
+  padding-top: calc(6.5rem * 0.45 + 1.6rem);
+  padding-left: 0.65rem;
+  padding-right: 0.65rem;
+  padding-bottom: 0;
+}
+
+.fetch-home-vision .fetch-home-booking-sheet[data-surface='intent'] .fetch-home-booking-sheet__scroll {
+  padding-bottom: 0.35rem;
 }
 
 /* Intent landing — compact so half sheet fits without inner scroll */
@@ -4746,19 +5192,16 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   }
 }
 
+/* Voice-hold: no sheet dimming pulse — keep normal chrome while Fetch thinks/speaks. */
 @media (prefers-reduced-motion: no-preference) {
   .fetch-home-booking-sheet--voice-hold {
-    animation: fetch-home-sheet-voice-hold-min 2.4s ease-in-out infinite;
+    animation: none;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .fetch-home-booking-sheet--voice-hold {
     animation: none;
-    box-shadow:
-      0 -2px 14px rgba(0, 0, 0, 0.28),
-      0 0 0 1px rgba(255, 255, 255, 0.04) inset,
-      inset 0 1.5px 0 rgba(255, 255, 255, 0.09);
   }
 }
 
@@ -4768,6 +5211,40 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 
 .fetch-home-sheet-inner {
   transition: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Hug content (e.g. address confirm) — avoids a tall empty band in the sheet */
+.fetch-home-sheet-inner:not(:has(.fetch-home-booking-step--stack)) {
+  flex: 0 0 auto;
+}
+
+/* Stacked wizard steps need the inner to fill the scroll area so footers pin correctly */
+.fetch-home-sheet-inner:has(.fetch-home-booking-step--stack) {
+  flex: 1;
+  min-height: 100%;
+}
+
+/* Wizard steps: scrollable body + primary actions pinned to sheet bottom */
+.fetch-home-booking-step.fetch-home-booking-step--stack {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.fetch-home-booking-step__main {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.fetch-home-booking-step__footer {
+  flex-shrink: 0;
+  padding-top: 0.75rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -5578,27 +6055,70 @@ html[data-fetch-theme='light'] .fetch-home-orb-tunnel-vignette {
     inset 0 1px 0 rgba(255, 255, 255, 0.65);
 }
 
+.fetch-brain-assistant-chrome-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  align-self: flex-start;
+  max-width: min(85%, 22rem);
+  width: fit-content;
+}
+
+.fetch-brain-assistant-chrome-stack .fetch-brain-assistant-chrome {
+  max-width: 100%;
+}
+
+.fetch-brain-assistant-chrome-stack--eyes {
+  position: relative;
+  z-index: 12;
+}
+
 .fetch-brain-assistant-chrome {
   display: flex;
   max-width: min(85%, 22rem);
   flex-wrap: nowrap;
-  align-items: center;
+  align-items: flex-start;
   gap: 0;
   padding-top: 0.2rem;
   padding-left: 0;
 }
 
-.fetch-splash-eyes.fetch-brain-msg-eyes-anchor {
-  position: absolute;
-  left: 0.1rem;
-  top: 100%;
-  margin-top: 0.08rem;
+.fetch-brain-assistant-chrome__votes-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.fetch-brain-assistant-chrome__votes {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0;
+}
+
+.fetch-splash-eyes.fetch-brain-chrome-eyes-anchor {
+  position: relative;
+  align-self: flex-start;
+  margin-top: 0.12rem;
+  margin-left: 0.06rem;
   transform: scale(0.19);
-  margin-left: 0;
-  margin-right: 0;
-  margin-bottom: 0;
+  transform-origin: left top;
   opacity: 0.93;
   pointer-events: none;
+}
+
+.fetch-splash-eyes.fetch-brain-chrome-eyes-anchor--complete {
+  margin-top: 0.38rem;
+}
+
+.fetch-brain-pending-eyes-row {
+  align-items: flex-start;
+  margin-top: 0.15rem;
+}
+
+.fetch-brain-pending-eyes-slot {
+  padding-left: 0.12rem;
 }
 
 .fetch-brain-assistant-action {
@@ -5809,7 +6329,7 @@ html[data-fetch-theme='light'] .fetch-home-orb-tunnel-vignette {
   height: min(36vh, 270px);
   background: radial-gradient(
     ellipse 72% 52% at 46% 100%,
-    rgba(129, 140, 246, 0.32) 0%,
+    rgba(14, 165, 233, 0.3) 0%,
     rgba(56, 189, 248, 0.14) 48%,
     transparent 70%
   );
@@ -5842,7 +6362,7 @@ html[data-fetch-theme='light'] .fetch-home-orb-tunnel-vignette {
 .fetch-brain-shell--light .fetch-brain-field-blue-glow--mid {
   background: radial-gradient(
     ellipse 72% 52% at 46% 100%,
-    rgba(99, 102, 241, 0.22) 0%,
+    rgba(2, 132, 199, 0.22) 0%,
     rgba(56, 189, 248, 0.1) 50%,
     transparent 72%
   );
@@ -6206,10 +6726,6 @@ html[data-fetch-theme='light'] .fetch-home-orb-tunnel-vignette {
 
 .fetch-brain-assistant-bubble-slot .fetch-brain-msg {
   max-width: 100%;
-}
-
-.fetch-brain-assistant-bubble-slot--eyes-front {
-  z-index: 12;
 }
 
 .fetch-brain-shell--dark .fetch-brain-msg-row--assistant + .fetch-brain-msg-row--assistant {
@@ -7289,7 +7805,7 @@ html[data-fetch-theme='dark'] .fetch-bootstrap-skel-chev {
 }
 
 .fetch-bootstrap-skel-service-card {
-  width: calc((100% - 3 * 0.625rem) / 3.2);
+  width: calc((100% - 3 * 0.625rem) / 4.1);
   min-width: 5.15rem;
   border: 1px solid rgba(148, 163, 184, 0.2);
   background: rgba(241, 245, 249, 0.88);

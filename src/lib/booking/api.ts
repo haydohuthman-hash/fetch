@@ -15,14 +15,21 @@ import type {
 } from './types'
 
 import { getFetchApiBaseUrl } from '../fetchApiBase'
+import { marketplaceActorHeaders, type MarketplaceApiAuthRole } from './marketplaceApiAuth'
 
 const API_ROOT = getFetchApiBaseUrl()
 
-async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+async function requestJson<T>(
+  path: string,
+  init?: RequestInit,
+  marketplaceAuth: MarketplaceApiAuthRole = 'none',
+): Promise<T> {
   const response = await fetch(`${API_ROOT}${path}`, {
+    credentials: 'include',
     ...init,
     headers: {
-      'Content-Type': 'application/json',
+      ...(init?.method === 'GET' || init?.method === 'HEAD' ? {} : { 'Content-Type': 'application/json' }),
+      ...marketplaceActorHeaders(marketplaceAuth),
       ...(init?.headers ?? {}),
     },
   })
@@ -92,20 +99,74 @@ export async function confirmPaymentIntent(
   return payload.paymentIntent
 }
 
+export async function getPaymentIntentRecord(paymentIntentId: string): Promise<BookingPaymentIntent> {
+  const payload = await requestJson<{ paymentIntent: BookingPaymentIntent }>(
+    `/api/payments/intents/${encodeURIComponent(paymentIntentId)}`,
+    { method: 'GET' },
+    'none',
+  )
+  return payload.paymentIntent
+}
+
+function sleepMs(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms))
+}
+
+/** Poll until demo confirm or Stripe webhook updates server state. */
+export async function waitForPaymentIntentServerConfirmed(
+  paymentIntentId: string,
+  options?: { timeoutMs?: number },
+): Promise<BookingPaymentIntent> {
+  const timeoutMs = options?.timeoutMs ?? 90_000
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const pi = await getPaymentIntentRecord(paymentIntentId)
+    if (pi.status === 'succeeded') {
+      if (pi.provider !== 'stripe' || pi.webhookConfirmedAt != null) {
+        return pi
+      }
+    }
+    if (pi.status === 'failed') {
+      throw new Error(pi.lastError || 'Payment failed')
+    }
+    await sleepMs(450)
+  }
+  throw new Error(
+    'Timed out waiting for the server to confirm payment. For Stripe, forward webhooks to /api/payments/webhook (e.g. stripe listen).',
+  )
+}
+
 export async function upsertBooking(record: Partial<BookingRecord> & { id: string }): Promise<BookingRecord> {
-  const payload = await requestJson<{ booking: BookingRecord }>('/api/marketplace/bookings', {
-    method: 'POST',
-    body: JSON.stringify(record),
-  })
+  const payload = await requestJson<{ booking: BookingRecord }>(
+    '/api/marketplace/bookings',
+    {
+      method: 'POST',
+      body: JSON.stringify(record),
+    },
+    'customer',
+  )
   return payload.booking
 }
 
-export async function dispatchBooking(bookingId: string): Promise<BookingRecord> {
+export type DispatchBookingOptions = {
+  matchingMode?: 'pool' | 'sequential'
+}
+
+export async function dispatchBooking(
+  bookingId: string,
+  options?: DispatchBookingOptions,
+): Promise<BookingRecord> {
+  const body =
+    options?.matchingMode === 'sequential' || options?.matchingMode === 'pool'
+      ? JSON.stringify({ matchingMode: options.matchingMode })
+      : undefined
   const payload = await requestJson<{ booking: BookingRecord }>(
     `/api/marketplace/bookings/${bookingId}/dispatch`,
     {
       method: 'POST',
+      ...(body ? { body } : {}),
     },
+    'customer',
   )
   return payload.booking
 }
@@ -129,10 +190,14 @@ export async function postDriverPresence(body: {
   rating?: number | null
   completedJobs?: number | null
 }): Promise<DriverPresenceRecord> {
-  const payload = await requestJson<{ presence: DriverPresenceRecord }>('/api/marketplace/drivers/presence', {
-    method: 'POST',
-    body: JSON.stringify(body),
-  })
+  const payload = await requestJson<{ presence: DriverPresenceRecord }>(
+    '/api/marketplace/drivers/presence',
+    {
+      method: 'POST',
+      body: JSON.stringify(body),
+    },
+    'driver',
+  )
   return payload.presence
 }
 
@@ -142,7 +207,11 @@ export async function fetchBookings(): Promise<BookingRecord[]> {
 }
 
 export async function fetchBooking(bookingId: string): Promise<BookingRecord> {
-  const payload = await requestJson<{ booking: BookingRecord }>(`/api/marketplace/bookings/${bookingId}`)
+  const payload = await requestJson<{ booking: BookingRecord }>(
+    `/api/marketplace/bookings/${bookingId}`,
+    undefined,
+    'customer',
+  )
   return payload.booking
 }
 
@@ -154,7 +223,7 @@ export type BookingDetailResponse = {
 }
 
 export async function fetchBookingDetail(bookingId: string): Promise<BookingDetailResponse> {
-  return requestJson<BookingDetailResponse>(`/api/marketplace/bookings/${bookingId}`)
+  return requestJson<BookingDetailResponse>(`/api/marketplace/bookings/${bookingId}`, undefined, 'none')
 }
 
 export type PatchBookingStatusBody = {
@@ -174,6 +243,7 @@ export async function patchBookingStatus(
       method: 'PATCH',
       body: JSON.stringify(body),
     },
+    'driver',
   )
   return payload.booking
 }
@@ -188,6 +258,7 @@ export async function submitCustomerBookingRating(
       method: 'PATCH',
       body: JSON.stringify(body),
     },
+    'customer',
   )
   return payload.booking
 }
@@ -209,6 +280,7 @@ export async function patchBookingDriverLocation(
       method: 'PATCH',
       body: JSON.stringify(body),
     },
+    'driver',
   )
   return payload.booking
 }
@@ -220,10 +292,14 @@ export async function fetchOffers(bookingId?: string): Promise<MarketplaceOffer[
 }
 
 export async function upsertMarketplaceOffer(offer: MarketplaceOffer): Promise<MarketplaceOffer> {
-  const payload = await requestJson<{ offer: MarketplaceOffer }>('/api/marketplace/offers', {
-    method: 'POST',
-    body: JSON.stringify(offer),
-  })
+  const payload = await requestJson<{ offer: MarketplaceOffer }>(
+    '/api/marketplace/offers',
+    {
+      method: 'POST',
+      body: JSON.stringify(offer),
+    },
+    'driver',
+  )
   return payload.offer
 }
 
@@ -231,11 +307,73 @@ export async function patchMarketplaceOffer(
   offerId: string,
   body: { status?: MarketplaceOfferStatus },
 ): Promise<MarketplaceOffer> {
-  const payload = await requestJson<{ offer: MarketplaceOffer }>(`/api/marketplace/offers/${offerId}`, {
-    method: 'PATCH',
-    body: JSON.stringify(body),
-  })
+  const payload = await requestJson<{ offer: MarketplaceOffer }>(
+    `/api/marketplace/offers/${offerId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    },
+    'driver',
+  )
   return payload.offer
+}
+
+/** Subscribe to marketplace writes (same origin as API). Returns unsubscribe. */
+export function subscribeMarketplaceStream(onEvent: () => void): () => void {
+  if (typeof window === 'undefined' || typeof EventSource === 'undefined') {
+    return () => {}
+  }
+  const base = `${API_ROOT}/api/marketplace/stream`
+  let lastEventId = ''
+  let es: EventSource | null = null
+  let attempt = 0
+  let closed = false
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+
+  const backoffMs = () => Math.min(30_000, 1000 * 2 ** Math.min(attempt, 5))
+
+  const teardownEs = () => {
+    if (es) {
+      es.close()
+      es = null
+    }
+  }
+
+  const clearTimer = () => {
+    if (reconnectTimer != null) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+  }
+
+  const connect = () => {
+    if (closed) return
+    clearTimer()
+    teardownEs()
+    const q = lastEventId ? `?lastEventId=${encodeURIComponent(lastEventId)}` : ''
+    es = new EventSource(`${base}${q}`)
+    es.addEventListener('marketplace', (ev) => {
+      attempt = 0
+      if (ev.lastEventId) lastEventId = ev.lastEventId
+      onEvent()
+    })
+    es.addEventListener('ping', (ev) => {
+      if (ev.lastEventId) lastEventId = ev.lastEventId
+    })
+    es.onerror = () => {
+      if (closed) return
+      attempt += 1
+      teardownEs()
+      reconnectTimer = window.setTimeout(connect, backoffMs())
+    }
+  }
+
+  connect()
+  return () => {
+    closed = true
+    clearTimer()
+    teardownEs()
+  }
 }
 
 export async function fetchNotifications(): Promise<BookingNotificationRecord[]> {

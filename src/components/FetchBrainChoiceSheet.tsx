@@ -25,8 +25,8 @@ export function FetchBrainChoiceSheet({
   const formId = useId()
   const [draft, setDraft] = useState('')
   const glassTint = isLight
-    ? 'border-white/[0.22] bg-white/[0.5]'
-    : 'border-white/[0.12] bg-[rgba(10,12,20,0.4)]'
+    ? 'border-white/[0.35] bg-white/[0.92]'
+    : 'border-white/[0.14] bg-[rgba(28,30,40,0.82)]'
 
   const send = useCallback(
     (text: string) => {

@@ -17,7 +17,9 @@ import {
   patchBookingDriverLocation,
   patchBookingStatus,
   postDriverPresence,
+  subscribeMarketplaceStream,
 } from '../lib/booking/api'
+import { useFetchVoice } from '../voice/FetchVoiceContext'
 import type { BookingRecord } from '../lib/booking/types'
 import {
   acceptDispatchOffer,
@@ -41,6 +43,7 @@ import {
   summarizeDriverEarnings,
   toDriverJobViewModel,
 } from '../lib/driver'
+import { syncDriverSessionCookie } from '../lib/fetchServerSession'
 import { formatArrivalClockFromEtaSeconds } from '../lib/homeDirections'
 import { useFetchTheme } from '../theme/FetchThemeContext'
 
@@ -49,9 +52,17 @@ export type DriverDashboardViewProps = {
 }
 
 const DRIVER_GPS_FRESH_MS = 45_000
-const POLL_MS = 12_000
+const POLL_MS = 5000
 const OFFER_WINDOW_MS = 120_000
 const OFFER_WINDOW_SEC = Math.round(OFFER_WINDOW_MS / 1000)
+
+function offerTotalWindowSec(booking: BookingRecord | null, fallbackSec: number): number {
+  const t = booking?.matchingMeta?.offerTimeoutMs
+  if (typeof t === 'number' && Number.isFinite(t) && t > 0) {
+    return Math.max(1, Math.ceil(t / 1000))
+  }
+  return fallbackSec
+}
 
 function OfferCountdownRing({ secondsLeft, totalSeconds }: { secondsLeft: number; totalSeconds: number }) {
   const uid = useId().replace(/:/g, '')
@@ -103,6 +114,7 @@ function statusPill(status: string) {
 
 export function DriverDashboardView({ onBack }: DriverDashboardViewProps) {
   const { resolved: theme } = useFetchTheme()
+  const { playUiEvent } = useFetchVoice()
   const [driverIdInput, setDriverIdInput] = useState(() => getDriverId())
   const [bookings, setBookings] = useState<BookingRecord[]>([])
   const [offers, setOffers] = useState<Awaited<ReturnType<typeof fetchOffers>>>([])
@@ -121,6 +133,10 @@ export function DriverDashboardView({ onBack }: DriverDashboardViewProps) {
   const liveGpsRef = useRef<google.maps.LatLngLiteral | null>(null)
 
   const myDriverId = getDriverId()
+
+  useEffect(() => {
+    void syncDriverSessionCookie(myDriverId)
+  }, [myDriverId])
 
   useEffect(() => {
     liveGpsRef.current = liveGps
@@ -168,9 +184,13 @@ export function DriverDashboardView({ onBack }: DriverDashboardViewProps) {
     const id = window.setInterval(() => {
       if (document.visibilityState === 'visible') void refresh()
     }, POLL_MS)
+    const unsubStream = subscribeMarketplaceStream(() => {
+      if (document.visibilityState === 'visible') void refresh()
+    })
     return () => {
       document.removeEventListener('visibilitychange', onVis)
       window.clearInterval(id)
+      unsubStream()
     }
   }, [refresh])
 
@@ -182,6 +202,16 @@ export function DriverDashboardView({ onBack }: DriverDashboardViewProps) {
     () => (driverOnline ? available : []),
     [driverOnline, available],
   )
+
+  const prevAvailCountRef = useRef(-1)
+  useEffect(() => {
+    const n = driverOnline ? availableWhenOnline.length : 0
+    if (prevAvailCountRef.current >= 0 && n > prevAvailCountRef.current) {
+      playUiEvent('card_reveal')
+    }
+    prevAvailCountRef.current = n
+  }, [driverOnline, availableWhenOnline.length, playUiEvent])
+
   const earnings = useMemo(
     () => summarizeDriverEarnings(bookings, myDriverId),
     [bookings, myDriverId],
@@ -381,6 +411,7 @@ export function DriverDashboardView({ onBack }: DriverDashboardViewProps) {
   const applyDriverId = () => {
     setDriverIdForDemo(driverIdInput.trim() || getDriverId())
     setDriverIdInput(getDriverId())
+    void syncDriverSessionCookie(getDriverId())
     void refresh()
   }
 
@@ -437,6 +468,11 @@ export function DriverDashboardView({ onBack }: DriverDashboardViewProps) {
 
   const primaryOfferDeadlineMs = useMemo(
     () => offerExpiryDeadlineMs(primaryOfferBooking, OFFER_WINDOW_MS),
+    [primaryOfferBooking],
+  )
+
+  const primaryOfferTotalSec = useMemo(
+    () => offerTotalWindowSec(primaryOfferBooking, OFFER_WINDOW_SEC),
     [primaryOfferBooking],
   )
 
@@ -597,8 +633,8 @@ export function DriverDashboardView({ onBack }: DriverDashboardViewProps) {
           >
             <div className="flex items-start gap-3">
               <OfferCountdownRing
-                secondsLeft={primaryOfferSecondsLeft ?? OFFER_WINDOW_SEC}
-                totalSeconds={OFFER_WINDOW_SEC}
+                secondsLeft={primaryOfferSecondsLeft ?? primaryOfferTotalSec}
+                totalSeconds={primaryOfferTotalSec}
               />
               <div className="min-w-0 flex-1">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-violet-200/80">
@@ -812,9 +848,14 @@ export function DriverDashboardView({ onBack }: DriverDashboardViewProps) {
                     ) : null}
                   </dl>
 
-                  {detail?.booking.driverControlled ? (
+                  {detail?.booking.matchingMode === 'pool' || detail?.booking.matchingMode == null ? (
                     <p className="mt-3 text-[11px] leading-snug text-emerald-200/80">
-                      Driver-controlled lifecycle: demo dispatch timers are off for this booking.
+                      Open pool job — first driver to accept gets it. Advance statuses from here once assigned.
+                    </p>
+                  ) : null}
+                  {detail?.booking.matchingMode === 'sequential' && detail?.booking.driverControlled ? (
+                    <p className="mt-3 text-[11px] leading-snug text-emerald-200/80">
+                      Sequential matching with timed offers. You drive en route → completed from this app.
                     </p>
                   ) : null}
 

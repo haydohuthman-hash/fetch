@@ -2,7 +2,7 @@
  * Neural-field entry: mini service cards open a branching Q&A; answers compile into a first user message.
  */
 
-export type BrainIntakeTone = 'green' | 'teal' | 'blue' | 'orange' | 'purple' | 'slate' | 'rose'
+export type BrainIntakeTone = 'green' | 'teal' | 'blue' | 'orange' | 'slate' | 'rose'
 
 export type BrainIntakeOption = {
   id: string
@@ -145,7 +145,7 @@ export const BRAIN_SERVICE_INTAKE_FLOWS: BrainServiceIntakeFlow[] = [
     id: 'helper',
     carouselLabel: 'Helper',
     carouselHint: 'Labour & tasks',
-    tone: 'purple',
+    tone: 'blue',
     startStepId: 'task',
     steps: {
       task: {

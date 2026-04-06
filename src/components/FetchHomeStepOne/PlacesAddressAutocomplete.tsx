@@ -65,6 +65,7 @@ export function PlacesAddressAutocomplete({
     const ac = new google.maps.places.Autocomplete(input, {
       fields: ['formatted_address', 'geometry', 'name', 'place_id', 'address_components'],
       componentRestrictions: { country: 'au' },
+      types: ['address'],
     })
     const listener = ac.addListener('place_changed', () => {
       if (fetchPerfIsEnabled()) {

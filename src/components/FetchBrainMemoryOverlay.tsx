@@ -17,7 +17,7 @@ import { FetchBrainCortexDirectory } from './FetchBrainCortexDirectory'
 import { FetchBrainChoiceSheet, type FetchBrainChoiceSheetModel } from './FetchBrainChoiceSheet'
 import { FetchBrainFieldPanel } from './FetchBrainFieldPanel'
 import { FetchBrainOrbDock } from './FetchBrainOrbDock'
-import { FetchSplashEyes } from './FetchSplashEyes'
+import { FetchSplashEyes, type FetchSplashEyesMode } from './FetchSplashEyes'
 import { useFetchVoice } from '../voice/FetchVoiceContext'
 import { primeVoicePlaybackFromUserGesture } from '../voice/fetchVoice'
 import { voiceFlowSttError } from '../voice/voiceFlowDebug'
@@ -74,6 +74,10 @@ export type FetchBrainMemoryOverlayProps = {
   onServiceIntakeComplete?: (compiledMessage: string) => void
   /** Clear thread + storage; overlay clears composer and intake sheet when invoked. */
   onNewBrainChat?: () => void
+  /** Home mic/orb: start STT once the brain surface is active (voice-first booking). */
+  autoVoiceEpoch?: number
+  /** Booking voice: after assistant TTS, open mic again (no bump when a choice sheet is shown). */
+  voiceRelistenEpoch?: number
 }
 
 const BRAIN_LISTEN_MS = 8000
@@ -113,6 +117,8 @@ export function FetchBrainMemoryOverlay({
   onAssistantChatFeedback,
   onServiceIntakeComplete,
   onNewBrainChat,
+  autoVoiceEpoch = 0,
+  voiceRelistenEpoch = 0,
 }: FetchBrainMemoryOverlayProps) {
   const [brainDraft, setBrainDraft] = useState('')
   const [intakeFlowId, setIntakeFlowId] = useState<string | null>(null)
@@ -170,75 +176,6 @@ export function FetchBrainMemoryOverlay({
       onAssistantChatFeedback?.({ turnId, rating, text })
     },
     [onAssistantChatFeedback],
-  )
-
-  const renderAssistantTurnChrome = useCallback(
-    (turnId: string, text: string) => {
-      const r = assistantReaction[turnId]
-      return (
-        <div className="fetch-brain-assistant-chrome">
-          <button
-            type="button"
-            className={[
-              'fetch-brain-assistant-action fetch-brain-assistant-action--ghost',
-              r === 'up' ? 'fetch-brain-assistant-action--active-up' : '',
-            ]
-              .filter(Boolean)
-              .join(' ')}
-            aria-label="Thumbs up"
-            onClick={() => onAssistantThumb(turnId, 1, text)}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <path
-                d="M7 22V11M2 13v8a2 2 0 0 0 2 2h3M15 9l-2-5a2 2 0 0 0-2-1H9v11h8.5a2 2 0 0 0 1.93-1.48l1.27-6A2 2 0 0 0 18.7 7H15"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className={[
-              'fetch-brain-assistant-action fetch-brain-assistant-action--ghost',
-              r === 'down' ? 'fetch-brain-assistant-action--active-down' : '',
-            ]
-              .filter(Boolean)
-              .join(' ')}
-            aria-label="Thumbs down"
-            onClick={() => onAssistantThumb(turnId, -1, text)}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <path
-                d="M17 2v11M22 11V3a2 2 0 0 0-2-2h-3M9 15l2 5a2 2 0 0 0 2 1h2V10H6.5a2 2 0 0 0-1.93 1.48l-1.27 6A2 2 0 0 0 5.3 17H9"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className="fetch-brain-assistant-action fetch-brain-assistant-action--ghost"
-            aria-label="Copy reply"
-            onClick={() => void copyAssistantLine(text)}
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2" />
-              <path
-                d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
-        </div>
-      )
-    },
-    [assistantReaction, copyAssistantLine, onAssistantThumb],
   )
 
   const clearListenTimer = useCallback(() => {
@@ -427,6 +364,42 @@ export function FetchBrainMemoryOverlay({
     stopListening,
   ])
 
+  const startListeningRef = useRef(startListening)
+  useEffect(() => {
+    startListeningRef.current = startListening
+  }, [startListening])
+
+  useEffect(() => {
+    if (flowPhase !== 'brain' || autoVoiceEpoch <= 0) return
+    const t = window.setTimeout(() => {
+      startListeningRef.current()
+    }, 420)
+    return () => window.clearTimeout(t)
+  }, [flowPhase, autoVoiceEpoch])
+
+  useEffect(() => {
+    if (flowPhase !== 'brain' || voiceRelistenEpoch <= 0) return
+    if (
+      choiceSheet != null ||
+      fieldPlaces != null ||
+      intakeFlowId != null ||
+      brainReplyPending
+    ) {
+      return
+    }
+    const t = window.setTimeout(() => {
+      startListeningRef.current()
+    }, 380)
+    return () => window.clearTimeout(t)
+  }, [
+    flowPhase,
+    voiceRelistenEpoch,
+    choiceSheet,
+    fieldPlaces,
+    intakeFlowId,
+    brainReplyPending,
+  ])
+
   const splitActive = Boolean(visualSrc)
 
   const onBrainPhotoInputChange = useCallback(
@@ -478,6 +451,7 @@ export function FetchBrainMemoryOverlay({
 
   const shellStyle = {
     '--brain-glow': `${glowRgb.r}, ${glowRgb.g}, ${glowRgb.b}`,
+    '--brain-thinking-glow': `${glowRgb.r}, ${glowRgb.g}, ${glowRgb.b}`,
   } as CSSProperties
 
   const visualDescId = 'fetch-brain-visual-caption'
@@ -496,6 +470,11 @@ export function FetchBrainMemoryOverlay({
     [sortedBrainChat.length, lastAssistantTurnIndex, lastAssistantLine, bottomPanelOpen],
   )
 
+  const brainEyesEligible = useMemo(() => {
+    if (brainReplyPending && sortedBrainChat.length > 0) return true
+    return hasLastAssistantUi
+  }, [brainReplyPending, sortedBrainChat.length, hasLastAssistantUi])
+
   const [brainEyesPhase, setBrainEyesPhase] = useState<BrainEyesPhase>('hidden')
   const thinkingActive = brainReplyPending || mind === 'thinking'
 
@@ -511,9 +490,123 @@ export function FetchBrainMemoryOverlay({
     setBrainEyesPhase('open')
   }, [])
 
-  const showBrainEyes = hasLastAssistantUi && brainEyesPhase !== 'hidden'
-  const brainEyesSplashMode =
-    brainEyesPhase === 'thinking' ? 'thinking' : brainEyesPhase === 'settle' ? 'settle' : 'open'
+  const showBrainEyes = brainEyesEligible && brainEyesPhase !== 'hidden'
+
+  const brainEyesSplashMode = useMemo((): FetchSplashEyesMode => {
+    if (brainReplyPending) return 'blinking'
+    if (brainEyesPhase === 'thinking') return 'thinking'
+    if (brainEyesPhase === 'settle') return 'settle'
+    return 'open'
+  }, [brainReplyPending, brainEyesPhase])
+
+  const lastChatTurn = sortedBrainChat[sortedBrainChat.length - 1]
+  const showPendingReplyEyes =
+    brainReplyPending && sortedBrainChat.length > 0 && lastChatTurn?.role === 'user' && showBrainEyes
+
+  const renderAssistantTurnChrome = useCallback(
+    (turnId: string, text: string, withEyes = false) => {
+      const r = assistantReaction[turnId]
+      return (
+        <div
+          className={[
+            'fetch-brain-assistant-chrome-stack',
+            withEyes && showBrainEyes ? 'fetch-brain-assistant-chrome-stack--eyes' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+        >
+          <div className="fetch-brain-assistant-chrome">
+            <div className="fetch-brain-assistant-chrome__votes-block">
+              <div className="fetch-brain-assistant-chrome__votes">
+                <button
+                  type="button"
+                  className={[
+                    'fetch-brain-assistant-action fetch-brain-assistant-action--ghost',
+                    r === 'up' ? 'fetch-brain-assistant-action--active-up' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  aria-label="Thumbs up"
+                  onClick={() => onAssistantThumb(turnId, 1, text)}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <path
+                      d="M7 22V11M2 13v8a2 2 0 0 0 2 2h3M15 9l-2-5a2 2 0 0 0-2-1H9v11h8.5a2 2 0 0 0 1.93-1.48l1.27-6A2 2 0 0 0 18.7 7H15"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className={[
+                    'fetch-brain-assistant-action fetch-brain-assistant-action--ghost',
+                    r === 'down' ? 'fetch-brain-assistant-action--active-down' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                  aria-label="Thumbs down"
+                  onClick={() => onAssistantThumb(turnId, -1, text)}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <path
+                      d="M17 2v11M22 11V3a2 2 0 0 0-2-2h-3M9 15l2 5a2 2 0 0 0 2 1h2V10H6.5a2 2 0 0 0-1.93 1.48l-1.27 6A2 2 0 0 0 5.3 17H9"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+              </div>
+              {withEyes && showBrainEyes ? (
+                <FetchSplashEyes
+                  mode={brainEyesSplashMode}
+                  onSettleComplete={brainEyesPhase === 'settle' ? onBrainEyesSettle : undefined}
+                  className={[
+                    'fetch-brain-chrome-eyes-anchor',
+                    !brainReplyPending && brainEyesPhase === 'open'
+                      ? 'fetch-brain-chrome-eyes-anchor--complete'
+                      : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
+                />
+              ) : null}
+            </div>
+            <button
+              type="button"
+              className="fetch-brain-assistant-action fetch-brain-assistant-action--ghost"
+              aria-label="Copy reply"
+              onClick={() => void copyAssistantLine(text)}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="2" />
+                <path
+                  d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )
+    },
+    [
+      assistantReaction,
+      brainEyesPhase,
+      brainEyesSplashMode,
+      brainReplyPending,
+      copyAssistantLine,
+      onAssistantThumb,
+      onBrainEyesSettle,
+      showBrainEyes,
+    ],
+  )
 
   const showServiceCarousel =
     Boolean(onServiceIntakeComplete) &&
@@ -647,7 +740,7 @@ export function FetchBrainMemoryOverlay({
                 type="button"
                 onClick={onClose}
                 className="fetch-brain-chat-header__icon-btn"
-                aria-label="Close and return home"
+                aria-label="Back to service selection"
               >
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
                   <path
@@ -777,14 +870,7 @@ export function FetchBrainMemoryOverlay({
                     </p>
                     {lastAssistantLine && !bottomPanelOpen ? (
                       <div className="fetch-brain-msg-row fetch-brain-msg-row--assistant">
-                        <div
-                          className={[
-                            'fetch-brain-assistant-bubble-slot',
-                            showBrainEyes ? 'fetch-brain-assistant-bubble-slot--eyes-front' : '',
-                          ]
-                            .filter(Boolean)
-                            .join(' ')}
-                        >
+                        <div className="fetch-brain-assistant-bubble-slot">
                           <div
                             className={[
                               'fetch-brain-msg fetch-brain-msg--assistant',
@@ -795,17 +881,12 @@ export function FetchBrainMemoryOverlay({
                           >
                             <p className="fetch-brain-msg__text">{lastAssistantLine}</p>
                           </div>
-                          {showBrainEyes ? (
-                            <FetchSplashEyes
-                              mode={brainEyesSplashMode}
-                              onSettleComplete={
-                                brainEyesPhase === 'settle' ? onBrainEyesSettle : undefined
-                              }
-                              className="fetch-brain-msg-eyes-anchor"
-                            />
-                          ) : null}
                         </div>
-                        {renderAssistantTurnChrome(PREVIEW_ASSISTANT_TURN_ID, lastAssistantLine)}
+                        {renderAssistantTurnChrome(
+                          PREVIEW_ASSISTANT_TURN_ID,
+                          lastAssistantLine,
+                          showBrainEyes && !brainReplyPending,
+                        )}
                       </div>
                     ) : null}
                   </div>
@@ -819,16 +900,7 @@ export function FetchBrainMemoryOverlay({
                       ].join(' ')}
                     >
                       {turn.role === 'assistant' ? (
-                        <div
-                          className={[
-                            'fetch-brain-assistant-bubble-slot',
-                            showBrainEyes && index === lastAssistantTurnIndex
-                              ? 'fetch-brain-assistant-bubble-slot--eyes-front'
-                              : '',
-                          ]
-                            .filter(Boolean)
-                            .join(' ')}
-                        >
+                        <div className="fetch-brain-assistant-bubble-slot">
                           <div
                             className={[
                               'fetch-brain-msg fetch-brain-msg--assistant',
@@ -841,15 +913,6 @@ export function FetchBrainMemoryOverlay({
                           >
                             <p className="fetch-brain-msg__text">{turn.text}</p>
                           </div>
-                          {showBrainEyes && index === lastAssistantTurnIndex ? (
-                            <FetchSplashEyes
-                              mode={brainEyesSplashMode}
-                              onSettleComplete={
-                                brainEyesPhase === 'settle' ? onBrainEyesSettle : undefined
-                              }
-                              className="fetch-brain-msg-eyes-anchor"
-                            />
-                          ) : null}
                         </div>
                       ) : (
                         <div
@@ -861,11 +924,24 @@ export function FetchBrainMemoryOverlay({
                         </div>
                       )}
                       {turn.role === 'assistant'
-                        ? renderAssistantTurnChrome(turn.id, turn.text)
+                        ? renderAssistantTurnChrome(
+                            turn.id,
+                            turn.text,
+                            showBrainEyes &&
+                              index === lastAssistantTurnIndex &&
+                              !brainReplyPending,
+                          )
                         : null}
                     </div>
                   ))
                 )}
+                {showPendingReplyEyes ? (
+                  <div className="fetch-brain-msg-row fetch-brain-msg-row--assistant fetch-brain-pending-eyes-row">
+                    <div className="fetch-brain-pending-eyes-slot">
+                      <FetchSplashEyes mode="blinking" className="fetch-brain-chrome-eyes-anchor" />
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
@@ -873,16 +949,18 @@ export function FetchBrainMemoryOverlay({
 
         <div className="fetch-brain-composer-anchor pb-[max(0.35rem,env(safe-area-inset-bottom))]">
             {showServiceCarousel ? (
-              <FetchBrainServiceCarousel
-                theme={theme}
-                glowRgb={glowRgb}
-                flows={BRAIN_SERVICE_INTAKE_FLOWS}
-                onPickFlow={(id) => {
-                  const ae = document.activeElement
-                  if (ae instanceof HTMLElement) intakeReturnFocusRef.current = ae
-                  setIntakeFlowId(id)
-                }}
-              />
+              <>
+                <FetchBrainServiceCarousel
+                  theme={theme}
+                  glowRgb={glowRgb}
+                  flows={BRAIN_SERVICE_INTAKE_FLOWS}
+                  onPickFlow={(id) => {
+                    const ae = document.activeElement
+                    if (ae instanceof HTMLElement) intakeReturnFocusRef.current = ae
+                    setIntakeFlowId(id)
+                  }}
+                />
+              </>
             ) : null}
             <div className="fetch-brain-composer">
               <form
