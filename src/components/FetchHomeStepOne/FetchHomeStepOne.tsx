@@ -76,6 +76,8 @@ export type FetchHomeStepOneProps = {
    * Search lives in the sheet peek (MapsExploreSheet portal).
    */
   mapExploreMinimalChrome?: boolean
+  /** Maps tab: square top edge on map viewport (no rounded card lip). */
+  squareMapTopCorners?: boolean
 }
 
 /**
@@ -112,6 +114,7 @@ function FetchHomeStepOneInner({
   chatBookingHintLabel = null,
   mapHeaderAddressEntry = null,
   mapExploreMinimalChrome = false,
+  squareMapTopCorners = false,
 }: FetchHomeStepOneProps) {
   const [map, setMap] = useState<google.maps.Map | null>(null)
   const mapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ?? ''
@@ -141,6 +144,17 @@ function FetchHomeStepOneInner({
     mapOverlayContext === 'home' && mapHeaderAddressEntry != null
 
   const lightMapShell = theme === 'light'
+  const mapViewportSquareTop = mapExploreMinimalChrome || squareMapTopCorners
+
+  const mapHeaderChromeH = mapExploreMinimalChrome
+    ? 'env(safe-area-inset-top, 0px)'
+    : 'calc(env(safe-area-inset-top, 0px) + 3.5rem)'
+  /** Nav / ETA strip: clears floating search when present (search sits on map below header). */
+  const mapNavChromeTop = mapExploreMinimalChrome
+    ? 'max(0.375rem, env(safe-area-inset-top, 0px))'
+    : mapHeaderEntryActive
+      ? 'calc(env(safe-area-inset-top, 0px) + 3.5rem + 0.45rem + 2.875rem + 0.5rem)'
+      : 'calc(env(safe-area-inset-top, 0px) + 3.5rem + 0.375rem)'
 
   return (
     <div
@@ -163,18 +177,15 @@ function FetchHomeStepOneInner({
         role="presentation"
         style={
           {
-            ['--fetch-map-header-h' as string]: mapExploreMinimalChrome
-              ? 'env(safe-area-inset-top, 0px)'
-              : mapHeaderEntryActive
-                ? 'calc(env(safe-area-inset-top, 0px) + 6.75rem)'
-                : 'calc(env(safe-area-inset-top, 0px) + 3.5rem)',
+            ['--fetch-map-header-h' as string]: mapHeaderChromeH,
+            ['--fetch-map-nav-chrome-top' as string]: mapNavChromeTop,
           } as CSSProperties
         }
       >
         <div
           className={[
             'fetch-home-map-viewport relative z-0 mt-[var(--fetch-map-header-h)] min-h-0 flex-1',
-            mapExploreMinimalChrome
+            mapViewportSquareTop
               ? 'overflow-hidden rounded-t-none bg-white shadow-none ring-0'
               : mapboxToken
                 ? lightMapShell
@@ -187,7 +198,7 @@ function FetchHomeStepOneInner({
           <div
             className={[
               'absolute inset-0 z-0 min-h-full w-full overflow-hidden',
-              mapExploreMinimalChrome ? 'rounded-t-none' : 'rounded-t-[1.375rem]',
+              mapViewportSquareTop ? 'rounded-t-none' : 'rounded-t-[1.375rem]',
             ].join(' ')}
             role="presentation"
             aria-label="Job map preview"

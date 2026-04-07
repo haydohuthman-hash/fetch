@@ -10,19 +10,18 @@ import {
  * Derives which booking sheet / orb sections are visible from `BookingState.flowStep`
  * and related readiness helpers (used by HomeView orchestration).
  */
-export function computeHomeBookingFlowFlags(
-  bookingState: BookingState,
-  pendingConfirm: unknown,
-) {
-  const showConfirm = Boolean(pendingConfirm)
+export function computeHomeBookingFlowFlags(bookingState: BookingState) {
   const flowStep = bookingState.flowStep
   const jobType = bookingState.jobType
 
-  const showIntent = !showConfirm && (!jobType || flowStep === 'intent')
-  const showPickup = !showConfirm && Boolean(jobType && flowStep === 'pickup')
-  const showDropoff = !showConfirm && Boolean(jobType && flowStep === 'dropoff')
+  const showDualAddresses = Boolean(
+    jobType && requiresDropoff(jobType) && (flowStep === 'pickup' || flowStep === 'dropoff'),
+  )
+  const showIntent = !jobType || flowStep === 'intent'
+  const showPickup = Boolean(jobType && flowStep === 'pickup' && !showDualAddresses)
+  const showDropoff = Boolean(jobType && flowStep === 'dropoff' && !showDualAddresses)
   const postAddress =
-    !showConfirm && Boolean(jobType) && !showIntent && !showPickup && !showDropoff
+    Boolean(jobType) && !showIntent && !showPickup && !showDropoff && !showDualAddresses
   const laborJob = jobType === 'helper' || jobType === 'cleaning'
   const showLaborDetails =
     postAddress &&
@@ -42,7 +41,8 @@ export function computeHomeBookingFlowFlags(
     !showLaborDetails
 
   return {
-    showConfirm,
+    showConfirm: false,
+    showDualAddresses,
     showIntent,
     showPickup,
     showDropoff,

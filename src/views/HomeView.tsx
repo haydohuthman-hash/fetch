@@ -31,22 +31,19 @@ import {
 import { FetchStripePaymentElement } from '../components/FetchStripePaymentElement'
 import { FetchVoiceCommandFab } from '../components/FetchVoiceCommandFab'
 import { AppleMapsNavRoutePanel } from '../components/AppleMapsNavRoutePanel'
-import { MapExploreToolbar } from '../components/MapExploreToolbar'
-import { MapsExploreSheet } from '../components/MapsExploreSheet'
 import { MysteryAdventurePanel } from '../components/MysteryAdventurePanel'
 import { FetchWonderPickerSheet } from '../components/FetchWonderPickerSheet'
 import { FetchStreetViewOverlay } from '../components/FetchStreetViewOverlay'
 import { HomeServiceInfoSheet } from '../components/HomeServiceInfoSheet'
-import { HomeServicePromoCarousel } from '../components/HomeServicePromoCarousel'
+import { HomeShellBuySellPage } from '../components/HomeShellBuySellPage'
 import { HomeShellMarketplacePage } from '../components/HomeShellMarketplacePage'
 import { BookingCompletionSummary } from '../components/booking/BookingCompletionSummary'
 import { TripSheetCard } from '../components/booking/TripSheetCard'
 import { TripDriverStatusStrip } from '../components/booking/TripDriverStatusStrip'
 import { TripPriceEstimateStrip } from '../components/booking/TripPriceEstimateStrip'
 import {
-  AccountNavIconFilled,
+  BuySellNavIconFilled,
   FetchEyesHomeIcon,
-  MapsNavIconFilled,
   MarketplaceNavIconFilled,
 } from '../components/icons/HomeShellNavIcons'
 import { HomeServiceTypeIllustration } from '../components/icons/HomeServiceTypeIllustrations'
@@ -381,7 +378,6 @@ export default function HomeView({
   )
   const [chatBookingHintSource, setChatBookingHintSource] =
     useState<ChatBookingHintSource | null>(null)
-  const [mapsExploreAddressExpanded, setMapsExploreAddressExpanded] = useState(false)
   const [bookingAddressSuggestOpen, setBookingAddressSuggestOpen] = useState(false)
   const [explorePois, setExplorePois] = useState<ExploreMapPoi[]>([])
   const [userDroppedPin, setUserDroppedPin] = useState<google.maps.LatLngLiteral | null>(
@@ -403,9 +399,8 @@ export default function HomeView({
   const [streetViewPosition, setStreetViewPosition] =
     useState<google.maps.LatLngLiteral | null>(null)
   const mapPlacesSvcRef = useRef<google.maps.places.PlacesService | null>(null)
-  const [mapsPeekHost, setMapsPeekHost] = useState<HTMLDivElement | null>(null)
   const mapsPeekInsetRef = useCallback((el: HTMLDivElement | null) => {
-    setMapsPeekHost((prev) => (prev === el ? prev : el))
+    void el
   }, [])
   const [, setIntentAddressEntryActive] = useState(false)
   const [idleRemindLong, setIdleRemindLong] = useState(false)
@@ -413,13 +408,6 @@ export default function HomeView({
   /** Arms dog ears for the 1m reminder; ears render only while that line is actually speaking. */
   const [reminderLineEarsArmed, setReminderLineEarsArmed] = useState(false)
   const [wasSleepy, setWasSleepy] = useState(false)
-  const [pendingConfirm, setPendingConfirm] = useState<{
-    field: 'pickup' | 'dropoff'
-    address: string
-    coords: { lat: number; lng: number }
-    suburb?: string
-    place: ResolvedPlace
-  } | null>(null)
   const [scanFiles, setScanFiles] = useState<File[]>([])
   const [scanThumbs, setScanThumbs] = useState<string[]>([])
   const [scanning, setScanning] = useState(false)
@@ -728,7 +716,9 @@ export default function HomeView({
 
   useEffect(() => {
     if (
-      (!chatNavRoute && !homeMapExploreMode && homeShellTab !== 'maps') ||
+      homeShellTab === 'marketplace' ||
+      homeShellTab === 'buySell' ||
+      (!chatNavRoute && !homeMapExploreMode) ||
       typeof navigator === 'undefined' ||
       !navigator.geolocation
     )
@@ -960,23 +950,11 @@ export default function HomeView({
     if (chatNavRoute) {
       return { lat: chatNavRoute.originLat, lng: chatNavRoute.originLng }
     }
-    const pc =
-      bookingState.pickupCoords ??
-      (pendingConfirm?.field === 'pickup' ? pendingConfirm.coords : null)
-    if (pc) return pc
-    const dc =
-      bookingState.dropoffCoords ??
-      (pendingConfirm?.field === 'dropoff' ? pendingConfirm.coords : null)
-    if (dc) return dc
+    if (bookingState.pickupCoords) return bookingState.pickupCoords
+    if (bookingState.dropoffCoords) return bookingState.dropoffCoords
     if (userMapLocation) return userMapLocation
     return BRISBANE_CENTER
-  }, [
-    chatNavRoute,
-    bookingState.pickupCoords,
-    bookingState.dropoffCoords,
-    pendingConfirm,
-    userMapLocation,
-  ])
+  }, [chatNavRoute, bookingState.pickupCoords, bookingState.dropoffCoords, userMapLocation])
 
   /** Brain tunnel: prefer device “you are here”, then booking/nav, then city default. */
   const brainTunnelPanTarget = useMemo(() => {
@@ -1661,9 +1639,11 @@ export default function HomeView({
     lastSpokenStepRef.current = key
     const personality = pendingServicePersonalityRef.current
     pendingServicePersonalityRef.current = null
-    const q = bookingState.currentQuestion ?? 'Where are we picking up from?'
-    const line =
-      personality?.trim() ? `${personality.trim()} ${q}` : q
+    const needsDrop = requiresDropoff(jobType)
+    const q = needsDrop
+      ? (bookingState.currentQuestion ?? 'Add pickup and drop-off on the card.')
+      : (bookingState.currentQuestion ?? 'Where are we picking up from?')
+    const line = personality?.trim() ? `${personality.trim()} ${q}` : q
     speakLine(line, {
       debounceKey: 'fetch_home_pickup_prompt',
       debounceMs: 0,
@@ -1673,6 +1653,7 @@ export default function HomeView({
 
   useEffect(() => {
     if (!jobType || flowStep !== 'dropoff') return
+    if (requiresDropoff(jobType)) return
     const key = `dropoff:${jobType}`
     if (lastSpokenStepRef.current === key) return
     lastSpokenStepRef.current = key
@@ -1765,7 +1746,7 @@ export default function HomeView({
   }, [mapsJsReady])
 
   useEffect(() => {
-    if (homeShellTab !== 'maps') {
+    if (homeShellTab === 'marketplace' || homeShellTab === 'buySell') {
       setUserDroppedPin(null)
       setMysteryPanel({ mode: 'closed' })
       setStreetViewPosition(null)
@@ -1851,77 +1832,20 @@ export default function HomeView({
 
   const onPickupResolved = useCallback(
     (place: ResolvedPlace) => {
+      if (fetchPerfIsEnabled()) {
+        fetchPerfMark(undefined, '1_user_action', {
+          action: 'confirm_pin_address',
+          field: 'pickup',
+        })
+      }
       playUiEvent('pin_drop')
-      setPendingConfirm({
+      applyAddressSelection('pickup', {
         field: 'pickup',
-        address: place.formattedAddress,
+        formattedAddress: place.formattedAddress,
+        placeId: place.placeId,
         coords: place.coords,
-        suburb: place.suburb,
-        place,
+        name: place.name,
       })
-      const line = suburbCommentaryLine(place.suburb)
-      if (line) {
-        speakLine(line, {
-          debounceKey: 'suburb_pickup',
-          debounceMs: 0,
-          withVoiceHold: true,
-        })
-      } else {
-        speakLine('Is this the right spot?', {
-          debounceKey: 'confirm_pickup',
-          debounceMs: 0,
-          withVoiceHold: true,
-        })
-      }
-    },
-    [speakLine, playUiEvent],
-  )
-
-  const onDropoffResolved = useCallback(
-    (place: ResolvedPlace) => {
-      playUiEvent('pin_drop')
-      setPendingConfirm({
-        field: 'dropoff',
-        address: place.formattedAddress,
-        coords: place.coords,
-        suburb: place.suburb,
-        place,
-      })
-      const line = suburbCommentaryLine(place.suburb)
-      if (line) {
-        speakLine(line, {
-          debounceKey: 'suburb_dropoff',
-          debounceMs: 0,
-          withVoiceHold: true,
-        })
-      } else {
-        speakLine('Drop-off here?', {
-          debounceKey: 'confirm_dropoff',
-          debounceMs: 0,
-          withVoiceHold: true,
-        })
-      }
-    },
-    [speakLine, playUiEvent],
-  )
-
-  const confirmPendingAddress = useCallback(() => {
-    if (!pendingConfirm) return
-    if (fetchPerfIsEnabled()) {
-      fetchPerfMark(undefined, '1_user_action', {
-        action: 'confirm_pin_address',
-        field: pendingConfirm.field,
-      })
-    }
-    const { field, place } = pendingConfirm
-    applyAddressSelection(field, {
-      field,
-      formattedAddress: place.formattedAddress,
-      placeId: place.placeId,
-      coords: place.coords,
-      name: place.name,
-    })
-    if (field === 'pickup') {
       try {
         sessionStorage.setItem(
           'fetch.recentPickup',
@@ -1936,32 +1860,46 @@ export default function HomeView({
       } catch {
         /* ignore quota / private mode */
       }
-    }
-    setPendingConfirm(null)
-    if (field === 'pickup') {
       setPickupLockInCelebrateKey((k) => k + 1)
-      playUiEvent('pin_drop')
-      speakLine(
-        "Locked in — you're pinned on the map. I've got drivers active in your area; we're in great shape.",
-        {
-          debounceKey: 'address_confirmed',
+      const line = suburbCommentaryLine(place.suburb)
+      if (line) {
+        speakLine(line, {
+          debounceKey: 'suburb_pickup',
           debounceMs: 0,
           withVoiceHold: true,
-        },
-      )
-    } else {
-      playUiEvent('success')
-      speakLine('Drop-off confirmed.', {
-        debounceKey: 'address_confirmed',
-        debounceMs: 0,
-        withVoiceHold: true,
-      })
-    }
-  }, [pendingConfirm, applyAddressSelection, playUiEvent, speakLine])
+        })
+      }
+    },
+    [applyAddressSelection, playUiEvent, speakLine],
+  )
 
-  const cancelPendingAddress = useCallback(() => {
-    setPendingConfirm(null)
-  }, [])
+  const onDropoffResolved = useCallback(
+    (place: ResolvedPlace) => {
+      if (fetchPerfIsEnabled()) {
+        fetchPerfMark(undefined, '1_user_action', {
+          action: 'confirm_pin_address',
+          field: 'dropoff',
+        })
+      }
+      playUiEvent('success')
+      applyAddressSelection('dropoff', {
+        field: 'dropoff',
+        formattedAddress: place.formattedAddress,
+        placeId: place.placeId,
+        coords: place.coords,
+        name: place.name,
+      })
+      const line = suburbCommentaryLine(place.suburb)
+      if (line) {
+        speakLine(line, {
+          debounceKey: 'suburb_dropoff',
+          debounceMs: 0,
+          withVoiceHold: true,
+        })
+      }
+    },
+    [applyAddressSelection, playUiEvent, speakLine],
+  )
 
   /** Prevents double auto-advance to scanner; reset when user rewinds addresses or starts over. */
   const routeAutoScanKeyRef = useRef('')
@@ -2643,6 +2581,7 @@ export default function HomeView({
             withVoiceHold: true,
           })
           playUiEvent('error')
+          setSheetSnap('half')
           return
         }
         pushRecentNavDestination({
@@ -2684,6 +2623,7 @@ export default function HomeView({
       bumpInteraction,
       playUiEvent,
       speakLine,
+      setSheetSnap,
     ],
   )
 
@@ -2741,48 +2681,17 @@ export default function HomeView({
 
   const onMapsIconClick = useCallback(() => {
     bumpInteraction()
-    setHomeShellTab('maps')
-    if (chatNavRoute) {
-      setHomeMapExploreMode(false)
-      setMapAttention('navigation')
-      setMapFollowUser(true)
-      setSheetSnap('half')
-      return
-    }
-    const bookingNavStripActive =
-      flowStep === 'route' &&
-      (bookingState.route?.path?.length ?? 0) >= 2 &&
-      bookingState.durationSeconds != null
-    if (bookingNavStripActive) {
-      setHomeMapExploreMode(false)
-      setMapAttention('route')
-      setMapFollowUser(userMapLocation != null)
-      setSheetSnap('closed')
-      return
-    }
-    setHomeMapExploreMode(true)
-    setMapFollowUser(userMapLocation != null)
-    setSheetSnap('closed')
-  }, [
-    bumpInteraction,
-    chatNavRoute,
-    flowStep,
-    bookingState.route?.path,
-    bookingState.durationSeconds,
-    userMapLocation,
-  ])
+    setHomeMapExploreMode(false)
+    setHomeShellTab('marketplace')
+  }, [bumpInteraction])
 
   const onHomeShellTabChange = useCallback(
     (tab: HomeShellTab) => {
       bumpInteraction()
       setHomeShellTab(tab)
-      if (tab === 'maps') {
-        if (!chatNavRoute) {
-          setHomeMapExploreMode(true)
-          setSheetSnap('closed')
-        } else {
-          setSheetSnap('half')
-        }
+      if (tab === 'marketplace' || tab === 'buySell') {
+        if (!chatNavRoute) setHomeMapExploreMode(false)
+        setSheetSnap('closed')
       } else {
         if (!chatNavRoute) setHomeMapExploreMode(false)
         setSheetSnap((s) => (s === 'closed' ? 'compact' : s))
@@ -2820,61 +2729,6 @@ export default function HomeView({
     if ((z ?? 0) < 14) m.setZoom(14)
   }, [])
 
-  const openMapStreetView = useCallback(() => {
-    bumpInteraction()
-    const m = homeMapRef.current
-    let lat: number | undefined
-    let lng: number | undefined
-    if (m) {
-      const c = m.getCenter()
-      if (c) {
-        lat = c.lat()
-        lng = c.lng()
-      }
-    }
-    if (
-      lat == null ||
-      lng == null ||
-      !Number.isFinite(lat) ||
-      !Number.isFinite(lng)
-    ) {
-      if (userMapLocation) {
-        lat = userMapLocation.lat
-        lng = userMapLocation.lng
-      }
-    }
-    if (lat == null || lng == null) {
-      void speakLine('Pan the map or turn on location to open Street View.', {
-        debounceKey: 'map_sv_no_pos',
-        debounceMs: 2200,
-      })
-      playUiEvent('error')
-      return
-    }
-    setStreetViewPosition({ lat, lng })
-  }, [bumpInteraction, playUiEvent, speakLine, userMapLocation])
-
-  const dropPinAtMapCenter = useCallback(() => {
-    bumpInteraction()
-    playUiEvent('pin_drop')
-    const m = homeMapRef.current
-    if (m) {
-      const c = m.getCenter()
-      if (c) {
-        setUserDroppedPin({ lat: c.lat(), lng: c.lng() })
-        return
-      }
-    }
-    if (userMapLocation) {
-      setUserDroppedPin({ lat: userMapLocation.lat, lng: userMapLocation.lng })
-      return
-    }
-    void speakLine('Pan the map to choose where to drop the pin.', {
-      debounceKey: 'map_pin_need_center',
-      debounceMs: 2000,
-    })
-  }, [bumpInteraction, playUiEvent, speakLine, userMapLocation])
-
   const handleMysteryAdventure = useCallback(async () => {
     const loc = userMapLocation
     const svc = mapPlacesSvcRef.current
@@ -2886,7 +2740,8 @@ export default function HomeView({
       playUiEvent('error')
       return
     }
-    setHomeShellTab('maps')
+    setHomeShellTab('services')
+    setHomeMapExploreMode(true)
     setSheetSnap('compact')
     bumpInteraction()
     playUiEvent('success')
@@ -2973,7 +2828,8 @@ export default function HomeView({
       playUiEvent('error')
       return
     }
-    setHomeShellTab('maps')
+    setHomeShellTab('services')
+    setHomeMapExploreMode(true)
     setSheetSnap('compact')
     bumpInteraction()
     playUiEvent('success')
@@ -3073,8 +2929,7 @@ export default function HomeView({
   /** Map header search line — open neural chat with keyboard focus (no tunnel). */
   const openChatFromMapHeader = useCallback(() => {
     bumpInteraction()
-    setPendingConfirm(null)
-    if (homeShellTab === 'maps' || homeShellTab === 'marketplace') {
+    if (homeShellTab === 'marketplace' || homeShellTab === 'buySell') {
       setHomeShellTab('services')
     }
     setIntentAddressEntryActive(false)
@@ -3088,7 +2943,7 @@ export default function HomeView({
     setBrainSkipReveal(true)
     setHomeBrainFlow('brain')
     setBrainComposerFocusNonce((n) => n + 1)
-  }, [bumpInteraction, homeShellTab, setPendingConfirm, setHomeShellTab, setSheetSnap])
+  }, [bumpInteraction, homeShellTab, setHomeShellTab, setSheetSnap])
 
   const routePathFromState =
     bookingState.route?.path?.map((c) => ({ lat: c.lat, lng: c.lng })) ?? null
@@ -3225,7 +3080,7 @@ export default function HomeView({
         liveRegionKey: `bk-${bookingState.durationSeconds}-${stepIdx}-${(nextTurn ?? '').slice(0, 40)}-${navUserCoarseKey}`,
       }
     }
-    if (homeMapExploreMode && homeShellTab !== 'maps') {
+    if (homeMapExploreMode) {
       return {
         layout: 'explore' as const,
         nextTurn: null,
@@ -3436,33 +3291,33 @@ export default function HomeView({
   }, [bookingState.bookingStatus, bookingState.bookingId, speakLine])
 
   const navStripActive = mapNavStrip != null
-  /** Maps tab: glassy sheet chrome, compact snaps, orb docked top-left over the map. */
-  const homeSheetNavMapChrome = homeShellTab === 'maps'
-  const orbTopLeftOnNavMap = homeShellTab === 'maps'
-  /** Closed sheet on Maps: minimal map chrome, no orb/toolbar, home-like peek search. */
-  const mapsClosedExplorePeek =
-    homeShellTab === 'maps' && chatNavRoute == null && sheetSnap === 'closed'
+  const homeSheetNavMapChrome = false
+  const mapsOrbDockOnSheetTop = false
+  const mapExploreMinimalChrome = false
+  const orbTopLeftOnNavMap = false
 
   useEffect(() => {
-    if (homeSheetNavMapChrome) setHomeOrbBottomPx(null)
-  }, [homeSheetNavMapChrome])
+    if (homeSheetNavMapChrome && !mapsOrbDockOnSheetTop) setHomeOrbBottomPx(null)
+  }, [homeSheetNavMapChrome, mapsOrbDockOnSheetTop])
 
   useEffect(() => {
     if (!navStripActive && !homeMapExploreMode) setMapFollowUser(false)
   }, [navStripActive, homeMapExploreMode])
 
   useEffect(() => {
-    if (sheetSnap !== 'closed' && homeShellTab !== 'maps') setHomeMapExploreMode(false)
+    if (
+      sheetSnap !== 'closed' &&
+      (homeShellTab === 'marketplace' || homeShellTab === 'buySell')
+    )
+      setHomeMapExploreMode(false)
   }, [sheetSnap, homeShellTab])
 
   useEffect(() => {
-    if (homeShellTab !== 'maps') setExplorePois([])
+    if (homeShellTab === 'marketplace' || homeShellTab === 'buySell') setExplorePois([])
   }, [homeShellTab])
 
   const orbMapAttention =
-    chatNavRoute != null || homeMapExploreMode || homeShellTab === 'maps'
-      ? 'navigation'
-      : mapAttention
+    chatNavRoute != null || homeMapExploreMode ? 'navigation' : mapAttention
 
   const orbState = (() => {
     if (isSpeechPlaying) return 'speaking' as const
@@ -3540,15 +3395,20 @@ export default function HomeView({
     } as CSSProperties
   }, [orbGlowColor, homeBrainFlow])
 
-  const inputClass =
-    'fetch-stage-text-input fetch-home-address-input fetch-home-stage-field-input mt-1.5 w-full rounded-full border px-3.5 py-3 ring-0'
+  /** Flat rectangles — no heavy card/pill border (step-2 address + labor details). */
+  const bookingFlatFieldClass =
+    'fetch-stage-text-input fetch-home-address-input fetch-home-address-input--flat fetch-home-stage-field-input mt-0 w-full rounded-xl px-3.5 py-3 ring-0'
 
-  const showConfirm = Boolean(pendingConfirm)
-  const showIntent = !showConfirm && (!jobType || flowStep === 'intent')
-  const showPickup = !showConfirm && Boolean(jobType && flowStep === 'pickup')
-  const showDropoff = !showConfirm && Boolean(jobType && flowStep === 'dropoff')
+  const inputClass = `${bookingFlatFieldClass} mt-1.5`
+
+  const showDualAddresses = Boolean(
+    jobType && requiresDropoff(jobType) && (flowStep === 'pickup' || flowStep === 'dropoff'),
+  )
+  const showIntent = !jobType || flowStep === 'intent'
+  const showPickup = Boolean(jobType && flowStep === 'pickup' && !showDualAddresses)
+  const showDropoff = Boolean(jobType && flowStep === 'dropoff' && !showDualAddresses)
   const postAddress =
-    !showConfirm && Boolean(jobType) && !showIntent && !showPickup && !showDropoff
+    Boolean(jobType) && !showIntent && !showPickup && !showDropoff && !showDualAddresses
   const laborJob = jobType === 'helper' || jobType === 'cleaning'
   const showLaborDetails =
     postAddress &&
@@ -3573,7 +3433,7 @@ export default function HomeView({
   const mapHeaderAddressEntry = useMemo(() => {
     if (!mapsApiKey) return null
     if (homeBrainFlow != null) return null
-    if (showPickup || showDropoff || showConfirm) return null
+    if (showPickup || showDropoff || showDualAddresses) return null
     if (chatNavRoute) return null
 
     const pu =
@@ -3608,7 +3468,7 @@ export default function HomeView({
     homeBrainFlow,
     showPickup,
     showDropoff,
-    showConfirm,
+    showDualAddresses,
     chatNavRoute,
     bookingState.pickupCoords,
     bookingState.dropoffCoords,
@@ -3630,7 +3490,7 @@ export default function HomeView({
     if (mysteryPanel.mode === 'loading') return 'searching'
     if (
       bookingAddressSuggestOpen &&
-      (flowStep === 'pickup' || flowStep === 'dropoff' || showIntent)
+      (flowStep === 'pickup' || flowStep === 'dropoff' || showDualAddresses || showIntent)
     ) {
       return 'searching'
     }
@@ -3680,7 +3540,8 @@ export default function HomeView({
   const tripSheetPhase: TripSheetPhase = useMemo(
     () =>
       deriveTripSheetPhase(bookingState, {
-        showConfirm,
+        showConfirm: false,
+        showDualAddresses,
         showIntent,
         showPickup,
         showDropoff,
@@ -3695,7 +3556,7 @@ export default function HomeView({
     [
       bookingState.bookingStatus,
       bookingState.paymentIntent?.status,
-      showConfirm,
+      showDualAddresses,
       showIntent,
       showPickup,
       showDropoff,
@@ -3801,10 +3662,15 @@ export default function HomeView({
   }, [bookingState, speakLine])
 
   const bookingFlowBubble = useMemo((): string | null => {
-    if (showConfirm && pendingConfirm) {
-      return pendingConfirm.field === 'pickup'
-        ? `Is this the pickup?\n${pendingConfirm.address}`
-        : `Is this the drop-off?\n${pendingConfirm.address}`
+    if (showDualAddresses) {
+      const hint = !mapsApiKey
+        ? 'Add a Google Maps API key to use addresses.'
+        : 'Search both stops — pickup first, then drop-off. Saved places work for either.'
+      const title = 'Pickup & drop-off'
+      const core = `${title}\n${hint}`
+      return servicePersonalityLine?.trim()
+        ? `${servicePersonalityLine.trim()}\n\n${core}`
+        : core
     }
     if (showPickup) {
       const title =
@@ -3938,8 +3804,7 @@ export default function HomeView({
     }
     return null
   }, [
-    showConfirm,
-    pendingConfirm,
+    showDualAddresses,
     showPickup,
     showDropoff,
     showLaborDetails,
@@ -3991,7 +3856,6 @@ export default function HomeView({
   }, [orbFetchPromptLine, showIntent])
 
   const sheetSurface = useMemo((): HomeBookingSheetSurface => {
-    if (showConfirm) return 'confirm'
     if (showPostScan && sheetDisplayPricing) return 'quote'
     if (
       showPostScan &&
@@ -4004,14 +3868,13 @@ export default function HomeView({
     if (showScanner) return 'details'
     if (showRouteReady) return 'route'
     if (showBuildingRoute) return 'route'
-    if (showPickup || showDropoff) return 'addresses'
-    if (homeShellTab === 'maps') return 'maps'
+    if (showPickup || showDropoff || showDualAddresses) return 'addresses'
     if ((chatNavRoute || homeMapExploreMode) && showIntent) return 'route'
     if (showIntent) return 'intent'
     if (showPostScan) return 'working'
     return 'idle'
   }, [
-    showConfirm,
+    showDualAddresses,
     showPostScan,
     sheetDisplayPricing,
     bookingState.bookingStatus,
@@ -4025,7 +3888,6 @@ export default function HomeView({
     showLaborDetails,
     chatNavRoute,
     homeMapExploreMode,
-    homeShellTab,
   ])
 
   const lastAssistantTurnIndex = useMemo(() => {
@@ -4041,13 +3903,8 @@ export default function HomeView({
     if (homeOrbBottomPx != null) {
       return `calc(${homeOrbBottomPx}px + ${orbH} + 0.85rem)`
     }
-    return `calc(max(1.1rem, env(safe-area-inset-bottom)) + min(47dvh, 27.5rem) + 8px + ${orbHalf} + 0.85rem)`
+    return `calc(max(1.1rem, env(safe-area-inset-bottom)) + min(calc(21.75rem + 10dvh), 38dvh, 23.5rem) + 8px + ${orbHalf} + 0.85rem)`
   }, [homeOrbBottomPx, orbTopLeftOnNavMap])
-
-  useEffect(() => {
-    if (sheetGestureActive) return
-    if (showConfirm) setSheetSnap('full')
-  }, [showConfirm, sheetGestureActive])
 
   useEffect(() => {
     if (sheetGestureActive) return
@@ -4055,24 +3912,25 @@ export default function HomeView({
   }, [showPostScan, sheetDisplayPricing, showScanner, sheetGestureActive])
 
   useEffect(() => {
-    if (!showPickup && !showDropoff) setBookingAddressSuggestOpen(false)
-  }, [showPickup, showDropoff])
+    if (!showPickup && !showDropoff && !showDualAddresses) {
+      setBookingAddressSuggestOpen(false)
+    }
+  }, [showPickup, showDropoff, showDualAddresses])
 
   useEffect(() => {
     if (sheetGestureActive) return
-    if (homeShellTab === 'maps') return
     if (
       bookingAddressSuggestOpen &&
-      (showPickup || showDropoff || (showIntent && mapsApiKey))
+      (showPickup || showDropoff || showDualAddresses || (showIntent && mapsApiKey))
     ) {
       setSheetSnap('full')
     }
   }, [
     sheetGestureActive,
-    homeShellTab,
     bookingAddressSuggestOpen,
     showPickup,
     showDropoff,
+    showDualAddresses,
     showIntent,
     mapsApiKey,
   ])
@@ -4083,6 +3941,17 @@ export default function HomeView({
     if (!tripSheetPhasePrefersExpandedSnap(tripSheetPhase)) return
     setSheetSnap('half')
   }, [sheetGestureActive, uberTripCard, homeShellTab, tripSheetPhase])
+
+  const prevShowBuildingRouteRef = useRef(false)
+  useEffect(() => {
+    const wasBuilding = prevShowBuildingRouteRef.current
+    prevShowBuildingRouteRef.current = showBuildingRoute
+    if (sheetGestureActive) return
+    if (!showBuildingRoute) return
+    if (homeShellTab !== 'services') return
+    if (wasBuilding) return
+    setSheetSnap('compact')
+  }, [showBuildingRoute, sheetGestureActive, homeShellTab])
 
   const onPeekHomeClick = useCallback(() => {
     setIntentAddressEntryActive(false)
@@ -4098,7 +3967,7 @@ export default function HomeView({
 
   const homeShellFooterNav = useMemo(
     () => (
-      <nav className="fetch-home-intent-bottom-nav" aria-label="Home, maps, marketplace, and account">
+      <nav className="fetch-home-intent-bottom-nav" aria-label="Home, supplies marketplace, and buy and sell">
         <button
           type="button"
           className={[
@@ -4114,23 +3983,7 @@ export default function HomeView({
             onPeekHomeClick()
           }}
         >
-          <FetchEyesHomeIcon className="h-6 w-6" />
-        </button>
-        <button
-          type="button"
-          className={[
-            'fetch-home-intent-bottom-nav__icon',
-            homeShellTab === 'maps' ? 'fetch-home-intent-bottom-nav__icon--active' : '',
-          ]
-            .filter(Boolean)
-            .join(' ')}
-          aria-label="Open maps"
-          onClick={() => {
-            bumpInteraction()
-            onHomeShellTabChange('maps')
-          }}
-        >
-          <MapsNavIconFilled className="h-6 w-6" />
+          <FetchEyesHomeIcon className="block" />
         </button>
         <button
           type="button"
@@ -4140,46 +3993,40 @@ export default function HomeView({
           ]
             .filter(Boolean)
             .join(' ')}
-          aria-label="Marketplace"
+          aria-label="Fetch supplies marketplace"
           aria-current={homeShellTab === 'marketplace' ? 'page' : undefined}
           onClick={() => {
             bumpInteraction()
             onHomeShellTabChange('marketplace')
           }}
         >
-          <MarketplaceNavIconFilled className="h-6 w-6" />
+          <MarketplaceNavIconFilled className="block" />
         </button>
         <button
           type="button"
-          className="fetch-home-intent-bottom-nav__icon"
-          aria-label="Account"
+          className={[
+            'fetch-home-intent-bottom-nav__icon',
+            homeShellTab === 'buySell' ? 'fetch-home-intent-bottom-nav__icon--active' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          aria-label="Fetch buy and sell"
+          aria-current={homeShellTab === 'buySell' ? 'page' : undefined}
           onClick={() => {
             bumpInteraction()
-            onAccountsClick()
+            onHomeShellTabChange('buySell')
           }}
         >
-          <AccountNavIconFilled className="h-6 w-6" />
+          <BuySellNavIconFilled className="block" />
         </button>
       </nav>
     ),
-    [
-      bumpInteraction,
-      homeShellTab,
-      onAccountsClick,
-      onHomeShellTabChange,
-      onPeekHomeClick,
-    ],
+    [bumpInteraction, homeShellTab, onHomeShellTabChange, onPeekHomeClick],
   )
 
-  const onHomeOrbBottomPxChange = useCallback(
-    (px: number) => {
-      if (homeSheetNavMapChrome) return
-      setHomeOrbBottomPx((prev) =>
-        prev != null && Math.abs(prev - px) < 0.75 ? prev : px,
-      )
-    },
-    [homeSheetNavMapChrome],
-  )
+  const onHomeOrbBottomPxChange = useCallback((px: number) => {
+    setHomeOrbBottomPx((prev) => (prev != null && Math.abs(prev - px) < 0.75 ? prev : px))
+  }, [])
 
   const serviceHint: 'junk' | 'moving' | 'pickup' | 'heavy' | undefined =
     jobType === 'junkRemoval' ? 'junk'
@@ -4442,49 +4289,35 @@ export default function HomeView({
     () =>
       homeShellTab === 'services' &&
       Boolean(cardVisible && homeBrainFlow == null && !brainImmersive) &&
-      (showConfirm || (Boolean(jobType) && !showIntent)),
-    [
-      homeShellTab,
-      cardVisible,
-      homeBrainFlow,
-      brainImmersive,
-      showConfirm,
-      jobType,
-      showIntent,
-    ],
+      Boolean(jobType && !showIntent),
+    [homeShellTab, cardVisible, homeBrainFlow, brainImmersive, jobType, showIntent],
   )
 
-  /** Bottom shell (tabs + nav) — stay visible on Maps even if Services is in booking focus mode */
+  /** Bottom shell — stay visible on full-screen shell pages even if Services is in booking focus mode */
   const showHomeShellChrome = Boolean(
     cardVisible &&
       homeBrainFlow == null &&
       !brainImmersive &&
       (!bookingSheetFocusMode ||
-        homeShellTab === 'maps' ||
-        homeShellTab === 'marketplace'),
+        homeShellTab === 'marketplace' ||
+        homeShellTab === 'buySell'),
   )
 
   useEffect(() => {
     if (sheetGestureActive) return
-    const suggestionsWantFull =
-      homeShellTab === 'maps' && mapsExploreAddressExpanded
-    if (suggestionsWantFull) {
-      setSheetSnap('half')
-      return
-    }
-    if (homeShellTab === 'maps') return
     if (showIntent) setSheetSnap('compact')
-    if ((showPickup || showDropoff) && !bookingAddressSuggestOpen)
+    if ((showPickup || showDropoff || showDualAddresses) && !bookingAddressSuggestOpen) {
       setSheetSnap('compact')
+    }
   }, [
     sheetGestureActive,
     homeShellTab,
     sheetSnap,
-    mapsExploreAddressExpanded,
     bookingAddressSuggestOpen,
     showIntent,
     showPickup,
     showDropoff,
+    showDualAddresses,
   ])
 
   const prevHomeShellTabRef = useRef<HomeShellTab>(homeShellTab)
@@ -4492,12 +4325,22 @@ export default function HomeView({
     const prev = prevHomeShellTabRef.current
     prevHomeShellTabRef.current = homeShellTab
     if (brainImmersive) return
-    if (prev === 'maps' || homeShellTab !== 'maps') return
-    void speakLine('Maps are open — ready when you are.', {
-      debounceKey: 'maps_tab_ready_line',
-      debounceMs: 0,
-      withVoiceHold: true,
-    })
+    if (prev !== 'services') return
+    if (homeShellTab === 'marketplace') {
+      void speakLine('Fetch supplies marketplace is open — browse categories anytime.', {
+        debounceKey: 'marketplace_tab_ready_line',
+        debounceMs: 0,
+        withVoiceHold: true,
+      })
+      return
+    }
+    if (homeShellTab === 'buySell') {
+      void speakLine('Buy and sell is open — local listings are on the way.', {
+        debounceKey: 'buysell_tab_ready_line',
+        debounceMs: 0,
+        withVoiceHold: true,
+      })
+    }
   }, [homeShellTab, brainImmersive, speakLine])
 
   return (
@@ -4526,7 +4369,7 @@ export default function HomeView({
       ) : null}
 
       {homeBrainFlow == null || homeBrainFlow === 'tunnel' ? (
-        homeShellTab !== 'marketplace' ? (
+        homeShellTab !== 'marketplace' && homeShellTab !== 'buySell' ? (
         <>
         <FetchHomeStepOne
           onMapsJavaScriptReady={setMapsJsReady}
@@ -4535,26 +4378,20 @@ export default function HomeView({
           onMapInstance={handleHomeMapInstance}
           chatBookingHintLabel={chatBookingHintLabel}
           pickup={
-            chatNavRoute
-              ? 'Your location'
-              : bookingState.pickupAddressText ||
-                (pendingConfirm?.field === 'pickup' ? pendingConfirm.address : null)
+            chatNavRoute ? 'Your location' : bookingState.pickupAddressText
           }
           dropoff={
-            chatNavRoute
-              ? chatNavRoute.destinationLabel
-              : bookingState.dropoffAddressText ||
-                (pendingConfirm?.field === 'dropoff' ? pendingConfirm.address : null)
+            chatNavRoute ? chatNavRoute.destinationLabel : bookingState.dropoffAddressText
           }
           pickupCoords={
             chatNavRoute
               ? { lat: chatNavRoute.originLat, lng: chatNavRoute.originLng }
-              : bookingState.pickupCoords ?? (pendingConfirm?.field === 'pickup' ? pendingConfirm.coords : null)
+              : bookingState.pickupCoords
           }
           dropoffCoords={
             chatNavRoute
               ? { lat: chatNavRoute.destLat, lng: chatNavRoute.destLng }
-              : bookingState.dropoffCoords ?? (pendingConfirm?.field === 'dropoff' ? pendingConfirm.coords : null)
+              : bookingState.dropoffCoords
           }
           routePath={mapRoutePath}
           mapStage={mapStage}
@@ -4565,36 +4402,23 @@ export default function HomeView({
           driverLivePosition={driverMapLivePosition}
           mapFollowUser={mapFollowUser}
           onMapFollowUserChange={setMapFollowUser}
-          suppressTrafficLayer={
-            !!chatNavRoute || homeMapExploreMode || homeShellTab === 'maps'
-          }
-          explorePois={homeShellTab === 'maps' ? explorePois : []}
+          suppressTrafficLayer={!!chatNavRoute || homeMapExploreMode}
+          explorePois={homeMapExploreMode ? explorePois : []}
           navigationRouteActive={!!chatNavRoute}
-          droppedPinCoords={homeShellTab === 'maps' ? userDroppedPin : null}
+          droppedPinCoords={homeMapExploreMode ? userDroppedPin : null}
           onHomeMapMenuAccount={onAccountNavigate}
           homeMapHardwareCatalog={HARDWARE_PRODUCTS}
           liveTrackingFit={chatNavRoute ? null : homeLiveTrackingFit}
           pickupLockInCelebrateKey={pickupLockInCelebrateKey}
           mapHeaderAddressEntry={mapHeaderAddressEntry}
-          mapExploreMinimalChrome={mapsClosedExplorePeek}
+          mapExploreMinimalChrome={mapExploreMinimalChrome}
+          squareMapTopCorners={false}
         />
-        {homeShellTab === 'maps' &&
-        !chatNavRoute &&
-        !mapsClosedExplorePeek &&
-        homeBrainFlow == null &&
-        !streetViewPosition ? (
-          <MapExploreToolbar
-            onStreetView={openMapStreetView}
-            onDropPin={dropPinAtMapCenter}
-            onMystery={() => void handleMysteryAdventure()}
-            mysteryLoading={mysteryPanel.mode === 'loading'}
-          />
-        ) : null}
         </>
         ) : null
       ) : null}
 
-      {!brainImmersive && homeShellTab !== 'marketplace' ? (
+      {!brainImmersive && homeShellTab !== 'marketplace' && homeShellTab !== 'buySell' ? (
       <>
       <FetchHomeBookingSheet
         snap={sheetSnap}
@@ -4617,25 +4441,16 @@ export default function HomeView({
         onHomeShellTabChange={onHomeShellTabChange}
         showHomeShellTabs={showHomeShellChrome}
         mapsPeekInsetRef={mapsPeekInsetRef}
-        mapsCompactPeek={mapsClosedExplorePeek}
+        mapsCompactPeek={false}
+        navMapsExploreKeepsOpen={false}
         navMapChrome={homeSheetNavMapChrome}
         hideExpandedHeaderChrome={Boolean(
-          (showIntent && homeShellTab === 'services') ||
-            homeShellTab === 'maps' ||
-            bookingSheetFocusMode,
+          (showIntent && homeShellTab === 'services') || bookingSheetFocusMode,
         )}
         edgeToEdgeShell={Boolean(
           cardVisible && homeBrainFlow == null && !brainImmersive,
         )}
         shellFooterNav={showHomeShellChrome ? homeShellFooterNav : undefined}
-        shellFooterBackdrop={
-          showHomeShellChrome &&
-          showIntent &&
-          homeShellTab === 'services' &&
-          !chatNavRoute ? (
-            <HomeServicePromoCarousel onSelectService={setServiceInfoLandingId} />
-          ) : undefined
-        }
         suppressPeekBar={bookingSheetFocusMode}
         intentClosedPeek={Boolean(
           showIntent &&
@@ -4646,6 +4461,7 @@ export default function HomeView({
             homeBrainFlow == null &&
             !brainImmersive,
         )}
+        routeBuildingForMapPeek={showBuildingRoute}
         topLeftAccessory={
           showIntent &&
           cardVisible &&
@@ -4716,128 +4532,192 @@ export default function HomeView({
           ) : undefined
         }
       >
-        {homeShellTab === 'maps' ? (
-          chatNavRoute ? (
-            <div className="fetch-home-landing fetch-home-landing--nav-minimal flex flex-col gap-2.5 px-0.5">
-              <AppleMapsNavRoutePanel
-                destinationLabel={chatNavRoute.destinationLabel}
-                etaMinutes={Math.max(1, Math.round(chatNavRoute.etaSeconds / 60))}
-                distanceMeters={chatNavRoute.distanceMeters}
-                onClose={exitChatNavigation}
-                onGo={() => {
-                  bumpInteraction()
-                  playUiEvent('success')
-                  setSheetSnap('closed')
-                  setMapFollowUser(true)
-                }}
-                onFromMyLocation={() => {
-                  bumpInteraction()
-                  setMapFollowUser(true)
-                }}
-                footerLink={
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (chatNavRoute) applyChatNavToBooking(chatNavRoute)
-                    }}
-                    className="w-full py-1.5 text-center text-[12px] font-semibold text-fetch-charcoal underline decoration-fetch-charcoal/35 underline-offset-2 transition-opacity hover:opacity-80"
-                  >
-                    Use for booking
-                  </button>
-                }
-              />
-            </div>
-          ) : (
-            <MapsExploreSheet
-              mapsJsReady={mapsJsReady}
-              userMapLocation={userMapLocation}
-              savedAddresses={savedAddresses}
-              onStartNavigationToPlace={startChatNavigationToPlace}
-              onExplorePoisChange={setExplorePois}
-              onMapsAddressFieldExpandedChange={setMapsExploreAddressExpanded}
-              onShowPlaceOnMap={onShowPlaceOnMap}
-              sheetSnap={sheetSnap}
-              mapsPeekHost={mapsPeekHost}
+        {chatNavRoute ? (
+          <div className="fetch-home-landing fetch-home-landing--nav-minimal flex flex-col gap-2.5 px-0.5">
+            <AppleMapsNavRoutePanel
+              destinationLabel={chatNavRoute.destinationLabel}
+              etaMinutes={Math.max(1, Math.round(chatNavRoute.etaSeconds / 60))}
+              distanceMeters={chatNavRoute.distanceMeters}
+              onClose={exitChatNavigation}
+              onGo={() => {
+                bumpInteraction()
+                playUiEvent('success')
+                setSheetSnap('closed')
+                setMapFollowUser(true)
+              }}
+              onFromMyLocation={() => {
+                bumpInteraction()
+                setMapFollowUser(true)
+              }}
+              footerLink={
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (chatNavRoute) applyChatNavToBooking(chatNavRoute)
+                  }}
+                  className="w-full py-1.5 text-center text-[12px] font-semibold text-fetch-charcoal underline decoration-fetch-charcoal/35 underline-offset-2 transition-opacity hover:opacity-80"
+                >
+                  Use for booking
+                </button>
+              }
             />
-          )
+          </div>
         ) : (
           <>
-          {showConfirm && pendingConfirm ? (
-            <section className="fetch-home-booking-step fetch-home-booking-step--confirm-address w-full">
-              <h2 className="text-[14px] font-semibold leading-tight tracking-[-0.02em] text-fetch-charcoal">
-                {pendingConfirm.field === 'pickup' ? 'Confirm pickup' : 'Confirm drop-off'}
-              </h2>
-              <p className="mt-1.5 text-[12px] font-medium leading-snug text-fetch-muted/90 [text-wrap:pretty]">
-                {pendingConfirm.address}
-              </p>
-              <div className="mt-2 overflow-hidden rounded-xl">
-                <img
-                  src={`https://maps.googleapis.com/maps/api/streetview?size=600x260&location=${pendingConfirm.coords.lat},${pendingConfirm.coords.lng}&fov=90&pitch=5&key=${mapsApiKey}`}
-                  alt={`Street view of ${pendingConfirm.address}`}
-                  className="h-[120px] w-full object-cover"
-                  loading="eager"
-                  onLoad={() => {
-                    if (fetchPerfIsEnabled()) {
-                      fetchPerfExtra('maps_streetview_static_image_loaded', {
-                        field: pendingConfirm.field,
-                      })
-                    }
-                  }}
-                />
-              </div>
-              <div className="mt-2 flex gap-2">
-                <button
-                  type="button"
-                  onClick={cancelPendingAddress}
-                  className="fetch-home-secondary-btn flex-1 rounded-2xl px-3 py-2.5 text-[13px] font-semibold transition-transform active:scale-[0.97]"
-                >
-                  Change
-                </button>
-                <button
-                  type="button"
-                  onClick={confirmPendingAddress}
-                  className="fetch-stage-primary-btn flex-1 rounded-2xl px-3 py-2.5 text-[13px] font-semibold transition-transform active:scale-[0.97]"
-                >
-                  Confirm
-                </button>
-              </div>
-            </section>
+          {showDualAddresses && jobType ? (
+            <TripSheetCard
+              enabled={uberTripCard}
+              title={
+                jobType === 'homeMoving'
+                  ? 'Moving from & to'
+                  : jobType === 'deliveryPickup'
+                    ? 'Pickup & delivery'
+                    : 'Pickup & drop-off'
+              }
+              secondaryAction={{
+                label: 'Back',
+                onClick:
+                  flowStep === 'dropoff' && requiresDropoff(jobType)
+                    ? goBackToPickup
+                    : goBackToIntent,
+              }}
+              helpAction={uberTripCard ? { onClick: openBrainFromHome } : null}
+            >
+              <section className="fetch-home-booking-step fetch-home-booking-step--dual-address w-full space-y-0">
+                {mapsApiKey ? (
+                  <>
+                    <div className="pb-1">
+                      <div className="mb-2 flex items-center gap-2">
+                        <span
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-[11px] font-bold text-emerald-800"
+                          aria-hidden
+                        >
+                          A
+                        </span>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.07em] text-fetch-muted">
+                          Pickup
+                        </p>
+                      </div>
+                      <div className="relative z-[5]">
+                        <PlacesAddressAutocomplete
+                          key={`pickup-${bookingState.pickupPlace?.placeId ?? bookingState.pickupAddressText ?? 'new'}`}
+                          apiKey={mapsApiKey}
+                          field="pickup"
+                          placeholder="Search pickup address"
+                          autoFocus={!bookingState.pickupCoords}
+                          initialDisplayValue={bookingState.pickupAddressText}
+                          onResolved={onPickupResolved}
+                          onSuggestionsOpenChange={setBookingAddressSuggestOpen}
+                          className={bookingFlatFieldClass}
+                        />
+                      </div>
+                      {savedAddresses.length > 0 ? (
+                        <div
+                          className="mt-2 flex flex-wrap gap-1.5"
+                          role="group"
+                          aria-label="Saved places for pickup"
+                        >
+                          {savedAddresses.map((a) => (
+                            <button
+                              key={`pu-${a.id}`}
+                              type="button"
+                              onClick={() => onPickupResolved(savedPlaceToResolved(a))}
+                              className="rounded-full border border-fetch-charcoal/12 bg-fetch-charcoal/[0.04] px-2.5 py-1 text-[11px] font-semibold text-fetch-charcoal/90 transition-colors hover:bg-fetch-charcoal/[0.07] active:scale-[0.98]"
+                            >
+                              {a.label}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="mt-4 border-t border-fetch-charcoal/[0.07] pt-4">
+                      <div className="mb-2 flex items-center gap-2">
+                        <span
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-500/15 text-[11px] font-bold text-sky-900"
+                          aria-hidden
+                        >
+                          B
+                        </span>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.07em] text-fetch-muted">
+                          Drop-off
+                        </p>
+                      </div>
+                      <div className="relative z-[5]">
+                        <PlacesAddressAutocomplete
+                          key={`dropoff-${bookingState.dropoffPlace?.placeId ?? bookingState.dropoffAddressText ?? 'new'}`}
+                          apiKey={mapsApiKey}
+                          field="dropoff"
+                          placeholder="Search drop-off address"
+                          autoFocus={Boolean(bookingState.pickupCoords && !bookingState.dropoffCoords)}
+                          initialDisplayValue={bookingState.dropoffAddressText}
+                          onResolved={onDropoffResolved}
+                          onSuggestionsOpenChange={setBookingAddressSuggestOpen}
+                          className={bookingFlatFieldClass}
+                        />
+                      </div>
+                      {savedAddresses.length > 0 ? (
+                        <div
+                          className="mt-2 flex flex-wrap gap-1.5"
+                          role="group"
+                          aria-label="Saved places for drop-off"
+                        >
+                          {savedAddresses.map((a) => (
+                            <button
+                              key={`do-${a.id}`}
+                              type="button"
+                              onClick={() => onDropoffResolved(savedPlaceToResolved(a))}
+                              className="rounded-full border border-fetch-charcoal/12 bg-fetch-charcoal/[0.04] px-2.5 py-1 text-[11px] font-semibold text-fetch-charcoal/90 transition-colors hover:bg-fetch-charcoal/[0.07] active:scale-[0.98]"
+                            >
+                              {a.label}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-[12px] text-fetch-muted">Add a Google Maps API key to use addresses.</p>
+                )}
+                <p className="text-[11px] font-medium leading-snug text-fetch-muted/85 [text-wrap:pretty]">
+                  {bookingState.currentQuestion ??
+                    'Pick from suggestions — both pins update on the map as you go.'}
+                </p>
+              </section>
+            </TripSheetCard>
           ) : null}
 
-          {showIntent && chatNavRoute ? (
-            <div className="fetch-home-landing fetch-home-landing--nav-minimal flex flex-col gap-2.5 px-0.5">
-              <AppleMapsNavRoutePanel
-                destinationLabel={chatNavRoute.destinationLabel}
-                etaMinutes={Math.max(1, Math.round(chatNavRoute.etaSeconds / 60))}
-                distanceMeters={chatNavRoute.distanceMeters}
-                onClose={exitChatNavigation}
-                onGo={() => {
-                  bumpInteraction()
-                  playUiEvent('success')
-                  setSheetSnap('closed')
-                  setMapFollowUser(true)
-                }}
-                onFromMyLocation={() => {
-                  bumpInteraction()
-                  setMapFollowUser(true)
-                }}
-                footerLink={
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (chatNavRoute) applyChatNavToBooking(chatNavRoute)
-                    }}
-                    className="w-full py-1.5 text-center text-[12px] font-semibold text-fetch-charcoal underline decoration-fetch-charcoal/35 underline-offset-2 transition-opacity hover:opacity-80"
-                  >
-                    Use for booking
-                  </button>
-                }
-              />
-            </div>
-          ) : showIntent ? (
+          {showIntent ? (
             <div className="fetch-home-landing fetch-home-landing--intent-tight flex flex-col">
               <section className="fetch-home-landing-section fetch-home-landing-section--intent shrink-0">
                 <div className="fetch-home-service-rail-row">
+                  <div className="fetch-home-service-rail-headline-row">
+                    <h2 className="fetch-home-service-rail-headline fetch-home-service-rail-headline--choose">
+                      Choose a service
+                    </h2>
+                    <button
+                      type="button"
+                      className="fetch-home-service-advanced-trigger"
+                      aria-label="More service options"
+                      onClick={() => {
+                        bumpInteraction()
+                        setAdvancedServiceMenuOpen(true)
+                      }}
+                    >
+                      <svg
+                        width="22"
+                        height="22"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.25"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden
+                      >
+                        <path d="m9 18 6-6-6-6" />
+                      </svg>
+                    </button>
+                  </div>
                   <div className="fetch-home-intent-carousel-stack">
                     <div
                       className="fetch-home-service-carousel-clip"
@@ -4924,10 +4804,7 @@ export default function HomeView({
                     initialDisplayValue={bookingState.pickupAddressText}
                     onResolved={onPickupResolved}
                     onSuggestionsOpenChange={setBookingAddressSuggestOpen}
-                    className={[
-                      'fetch-stage-text-input fetch-home-address-input fetch-home-stage-field-input w-full rounded-full border px-3.5 py-3 ring-0',
-                      'mt-0',
-                    ].join(' ')}
+                    className={bookingFlatFieldClass}
                   />
                 </div>
               ) : (
@@ -4974,10 +4851,7 @@ export default function HomeView({
                     initialDisplayValue={bookingState.dropoffAddressText}
                     onResolved={onDropoffResolved}
                     onSuggestionsOpenChange={setBookingAddressSuggestOpen}
-                    className={[
-                      'fetch-stage-text-input fetch-home-address-input fetch-home-stage-field-input w-full rounded-full border px-3.5 py-3 ring-0',
-                      'mt-0',
-                    ].join(' ')}
+                    className={bookingFlatFieldClass}
                   />
                 </div>
               ) : (
@@ -5167,13 +5041,24 @@ export default function HomeView({
               helpAction={uberTripCard ? { onClick: openBrainFromHome } : null}
             >
               <div className="fetch-home-booking-step fetch-home-booking-step--stack w-full min-h-0">
-              <div className="fetch-home-booking-step__main min-h-0">
-                <div className="mt-1.5 flex items-center gap-2">
-                  <div className="fetch-stage-spinner h-3 w-3 shrink-0 animate-spin rounded-full" />
-                  <p className="text-[11px] font-medium text-fetch-muted/85">Mapping pickup to drop-off…</p>
+              <div
+                className="fetch-home-booking-step__main min-h-0"
+                aria-busy="true"
+                aria-live="polite"
+              >
+                <p className="mt-1 text-[11px] font-medium text-fetch-muted/85">
+                  Mapping pickup to drop-off…
+                </p>
+                <div className="fetch-route-load-bar mt-2.5 w-full" aria-hidden>
+                  <div className="fetch-route-load-bar__track">
+                    <div
+                      key={`${bookingState.pickupCoords?.lat ?? ''}-${bookingState.pickupCoords?.lng ?? ''}-${bookingState.dropoffCoords?.lat ?? ''}-${bookingState.dropoffCoords?.lng ?? ''}`}
+                      className="fetch-route-load-bar__fill"
+                    />
+                  </div>
                 </div>
                 {bookingState.pickupAddressText ? (
-                  <p className="mt-1.5 line-clamp-1 text-[11px] text-fetch-muted">
+                  <p className="mt-2 line-clamp-1 text-[11px] text-fetch-muted">
                     <span className="font-semibold text-fetch-charcoal/75">A </span>
                     {bookingState.pickupAddressText}
                   </p>
@@ -5856,8 +5741,18 @@ export default function HomeView({
       ) : null}
 
       {!brainImmersive &&
+      homeShellTab === 'buySell' &&
+      cardVisible &&
+      homeBrainFlow == null ? (
+        <HomeShellBuySellPage
+          bottomNav={showHomeShellChrome ? homeShellFooterNav : null}
+          onMenuAccount={onAccountNavigate}
+        />
+      ) : null}
+
+      {!brainImmersive &&
       homeShellTab !== 'marketplace' &&
-      !mapsClosedExplorePeek &&
+      homeShellTab !== 'buySell' &&
       orbChatTurns.length > 0 ? (
         <div
           className={[
@@ -5903,9 +5798,7 @@ export default function HomeView({
         </div>
       ) : null}
 
-      {!brainImmersive &&
-      homeShellTab !== 'marketplace' &&
-      !mapsClosedExplorePeek ? (
+      {!brainImmersive && homeShellTab !== 'marketplace' && homeShellTab !== 'buySell' ? (
         <div
           className={[
             'fetch-home-orb-sheet-follow pointer-events-none fixed z-[58] flex flex-col',
@@ -5922,7 +5815,7 @@ export default function HomeView({
                   bottom:
                     homeOrbBottomPx != null
                       ? `${homeOrbBottomPx}px`
-                      : 'calc(max(1.1rem, env(safe-area-inset-bottom)) + min(47dvh, 27.5rem) + 8px - 6.5rem * 0.5 + 12px)',
+                      : 'calc(max(1.1rem, env(safe-area-inset-bottom)) + min(calc(21.75rem + 10dvh), 38dvh, 23.5rem) + 8px - 6.5rem * 0.5 + 12px)',
                 }
           }
         >

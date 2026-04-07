@@ -27,7 +27,24 @@ function sleep(ms: number): Promise<void> {
 }
 
 function buildPrompt(p: SupplyProduct): string {
-  const lane = p.categoryId === 'cleaning' ? 'professional cleaning supplies' : 'moving / packing supplies'
+  const lane =
+    p.categoryId === 'drinks'
+      ? 'bottled and canned beverages for home'
+      : p.categoryId === 'cleaning'
+      ? 'professional cleaning supplies'
+      : p.categoryId === 'packing'
+        ? 'moving / packing supplies'
+        : p.categoryId === 'kitchen'
+          ? 'kitchen and cookware for a new home'
+          : p.categoryId === 'bedroom'
+            ? 'bedroom linens and sleep essentials'
+            : p.categoryId === 'bathroom'
+              ? 'bathroom accessories and textiles'
+              : p.categoryId === 'livingRoom'
+                ? 'living room lighting and decor'
+                : p.categoryId === 'laundry'
+                  ? 'laundry room essentials'
+                  : 'home storage and organisation'
   return [
     `E-commerce hero product photo for ${lane}.`,
     `Product: ${p.title}.`,

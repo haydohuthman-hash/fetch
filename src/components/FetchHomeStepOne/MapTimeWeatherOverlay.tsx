@@ -81,6 +81,29 @@ function HamburgerIcon({ className = '' }: { className?: string }) {
   )
 }
 
+function HelpCircleIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+      aria-hidden
+    >
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
+      <path
+        d="M9.6 9.15c0-1.35 1.05-2.4 2.4-2.4s2.4 1.05 2.4 2.4c0 1.2-.75 1.8-1.35 2.25-.33.24-.45.42-.45.9V13"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="16.35" r="1.05" fill="currentColor" />
+    </svg>
+  )
+}
+
 function MapHeaderSearchIcon({ className = '' }: { className?: string }) {
   return (
     <svg
@@ -200,6 +223,18 @@ function MapTimeWeatherOverlayInner({
 
   return (
     <>
+      {typeof document !== 'undefined' && overlayOpen
+        ? createPortal(
+            <div
+              className="pointer-events-none fixed inset-x-0 top-0 z-[78] flex flex-col"
+              style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+              aria-hidden
+            >
+              <div className="fetch-home-map-overlay-menu-topline h-[2px] w-full shrink-0" />
+            </div>,
+            document.body,
+          )
+        : null}
       {appleDriving && navStrip ? (
         <div
           className="pointer-events-none fixed inset-x-0 bottom-[max(9.5rem,calc(env(safe-area-inset-bottom)+8rem))] z-[55] flex justify-center px-4"
@@ -238,16 +273,12 @@ function MapTimeWeatherOverlayInner({
       ) : null}
 
       <div
-        className={[
-          'fetch-home-map-system-header pointer-events-none fixed left-0 right-0 top-0 z-[46] flex h-[var(--fetch-map-header-h)] flex-col bg-white pt-[env(safe-area-inset-top,0px)]',
-          mapHeaderAddressEntry ? 'justify-start' : 'justify-center',
-        ].join(' ')}
+        className="fetch-home-map-system-header pointer-events-none fixed left-0 right-0 top-0 z-[46] flex h-[var(--fetch-map-header-h)] flex-col justify-center bg-white pt-[env(safe-area-inset-top,0px)]"
         aria-live="polite"
       >
         <div
           className={[
-            'fetch-home-map-top-actions mx-auto flex w-full max-w-[min(100%,36rem)] shrink-0 items-center px-4 pt-1.5',
-            mapHeaderAddressEntry ? 'min-h-[2.875rem] pb-0.5' : 'min-h-0 flex-1',
+            'fetch-home-map-top-actions mx-auto flex min-h-0 w-full max-w-[min(100%,36rem)] flex-1 shrink-0 items-center px-4 pt-1.5',
             routeNavHeader ? 'justify-between gap-3' : 'grid grid-cols-3 gap-2',
           ].join(' ')}
         >
@@ -278,13 +309,14 @@ function MapTimeWeatherOverlayInner({
               <div className="pointer-events-auto flex shrink-0 justify-end">
                 <button
                   type="button"
-                  className="fetch-home-map-help-btn inline-flex h-9 shrink-0 items-center justify-center rounded-full border border-zinc-200/90 bg-white px-3.5 text-[12px] font-semibold leading-none tracking-[-0.02em] text-zinc-800 transition-[transform,colors] active:scale-[0.97]"
+                  className="fetch-home-map-help-btn fetch-home-map-icon-btn inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-zinc-200/90 bg-white text-zinc-800 transition-[transform,colors] active:scale-[0.97]"
+                  aria-label="Help"
                   onClick={() => {
                     setSideMenuOpen(false)
                     setHelpOpen(true)
                   }}
                 >
-                  Help
+                  <HelpCircleIcon className="h-[18px] w-[18px] translate-y-px" />
                 </button>
               </div>
             </>
@@ -316,23 +348,30 @@ function MapTimeWeatherOverlayInner({
               <div className="pointer-events-auto flex justify-end">
                 <button
                   type="button"
-                  className="fetch-home-map-help-btn inline-flex h-10 shrink-0 items-center justify-center rounded-full border border-zinc-200/90 bg-white px-4 text-[13px] font-semibold leading-none tracking-[-0.02em] text-zinc-800 transition-[transform,colors] active:scale-[0.97]"
+                  className="fetch-home-map-help-btn fetch-home-map-icon-btn inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-zinc-200/90 bg-white text-zinc-800 transition-[transform,colors] active:scale-[0.97]"
+                  aria-label="Help"
                   onClick={() => {
                     setSideMenuOpen(false)
                     setHelpOpen(true)
                   }}
                 >
-                  Help
+                  <HelpCircleIcon className="translate-y-px" />
                 </button>
               </div>
             </>
           )}
         </div>
-        {mapHeaderAddressEntry && overlayContext === 'home' ? (
-          <div className="pointer-events-auto mx-auto w-full max-w-[min(100%,36rem)] shrink-0 px-4 pb-6 pt-1">
+      </div>
+
+      {mapHeaderAddressEntry && overlayContext === 'home' ? (
+        <div
+          className="pointer-events-none fixed left-0 right-0 z-[44] px-4"
+          style={{ top: 'calc(var(--fetch-map-header-h) + 0.45rem)' }}
+        >
+          <div className="mx-auto w-full max-w-[min(100%,36rem)] pointer-events-auto">
             <button
               type="button"
-              className="fetch-home-map-header-search-shell fetch-home-map-header-entry-btn flex min-h-[2.75rem] w-full cursor-pointer items-center gap-2.5 rounded-[0.875rem] border border-zinc-200/90 bg-white px-3.5 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-[background,transform,box-shadow] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/35"
+              className="fetch-home-map-floating-search fetch-home-map-header-search-shell fetch-home-map-header-entry-btn flex min-h-11 w-full cursor-pointer items-center gap-2.5 rounded-full border border-zinc-200/90 bg-white/95 px-3.5 py-2 text-left shadow-[0_10px_28px_-8px_rgba(15,23,42,0.18),0_4px_12px_-4px_rgba(15,23,42,0.08)] backdrop-blur-md transition-[background,transform,box-shadow] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/35"
               onClick={mapHeaderAddressEntry.onOpen}
               disabled={mapHeaderAddressEntry.disabled}
               aria-label={mapHeaderAddressEntry.title}
@@ -340,17 +379,17 @@ function MapTimeWeatherOverlayInner({
               <span className="fetch-home-map-header-search-shell__icon flex shrink-0 items-center justify-center">
                 <MapHeaderSearchIcon className="text-zinc-400" />
               </span>
-              <span className="min-w-0 flex-1 truncate py-2 text-left text-[16px] font-medium leading-snug tracking-[-0.01em] text-zinc-600">
+              <span className="min-w-0 flex-1 truncate text-left text-[15px] font-medium leading-snug tracking-[-0.02em] text-zinc-600">
                 {mapHeaderAddressEntry.title}
               </span>
             </button>
           </div>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       <div
         className="pointer-events-none fixed left-0 right-0 z-[40] flex flex-col items-center gap-1.5 px-3"
-        style={{ top: 'calc(var(--fetch-map-header-h) + 0.375rem)' }}
+        style={{ top: 'var(--fetch-map-nav-chrome-top, calc(var(--fetch-map-header-h) + 0.375rem))' }}
         aria-live="polite"
       >
         <div className="relative flex w-full max-w-[min(100%,36rem)] flex-col gap-1.5">

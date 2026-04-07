@@ -258,7 +258,7 @@
           "createdAt": 1775146614970
         }
       ],
-      "updatedAt": 1775488361354,
+      "updatedAt": 1775567727372,
       "createdAt": 1775146614970,
       "dispatchMeta": {
         "startedAt": 1775146657399
@@ -1824,7 +1824,7 @@
           "createdAt": 1775146398198
         }
       ],
-      "updatedAt": 1775488361354,
+      "updatedAt": 1775567727372,
       "createdAt": 1775146398198,
       "dispatchMeta": {
         "startedAt": 1775146515017
@@ -2009,7 +2009,7 @@
         "autoHelpers": 0
       },
       "dropoffAddressText": "88 Charlotte St, Brisbane City QLD",
-      "updatedAt": 1775488361354,
+      "updatedAt": 1775567727372,
       "createdAt": 1775145215194,
       "dispatchMeta": {
         "startedAt": 1775145215227
@@ -2231,6 +2231,31 @@
   ],
   "media": [],
   "paymentIntents": [
+    {
+      "id": "pi_1775567727318_wt7e0m",
+      "bookingId": null,
+      "metadata": null,
+      "status": "succeeded",
+      "amount": 10912,
+      "currency": "AUD",
+      "paymentMethodId": "pm_seed_visa",
+      "clientSecret": "secret_1775567727318_cokozh_client_secret",
+      "lastError": null,
+      "createdAt": 1775567727318,
+      "confirmedAt": 1775567727372,
+      "provider": "demo",
+      "webhookConfirmedAt": 1775567727372,
+      "stripePaymentIntentId": null,
+      "instrument": {
+        "paymentMethodId": "pm_seed_visa",
+        "brand": "Visa",
+        "number": "4242424242424242",
+        "last4": "4242",
+        "expiryMonth": 8,
+        "expiryYear": 2028,
+        "cvcProvided": true
+      }
+    },
     {
       "id": "pi_1775488361354_0h2934",
       "bookingId": null,

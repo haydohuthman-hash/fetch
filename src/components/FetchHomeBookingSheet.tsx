@@ -10,7 +10,7 @@ import {
 import {
   AccountNavIconFilled,
   FetchEyesHomeIcon,
-  MapsNavIconFilled,
+  MarketplaceNavIconFilled,
 } from './icons/HomeShellNavIcons'
 
 /** closed = peek · compact / half / full = fixed snap heights (CSS); body scrolls inside */
@@ -29,7 +29,7 @@ export type HomeBookingSheetSurface =
   | 'confirm'
   | 'live'
 
-export type HomeShellTab = 'services' | 'maps' | 'marketplace'
+export type HomeShellTab = 'services' | 'marketplace' | 'buySell'
 
 const SNAP_ORDER: HomeBookingSheetSnap[] = ['closed', 'compact', 'half', 'full']
 
@@ -40,10 +40,19 @@ function nextSnap(current: HomeBookingSheetSnap, direction: 1 | -1): HomeBooking
   return SNAP_ORDER[j] ?? current
 }
 
-/** Maps (nav) tab: only closed ↔ half — single “open” height. */
+/** Maps (nav) tab: default open height; explore can half ↔ full; closed only when routing. */
 const NAV_MAPS_OPEN_SNAP: HomeBookingSheetSnap = 'half'
 
-function nextSnapNavMaps(_snap: HomeBookingSheetSnap, direction: 1 | -1): HomeBookingSheetSnap {
+function nextSnapNavMaps(
+  snap: HomeBookingSheetSnap,
+  direction: 1 | -1,
+  exploreKeepsOpen: boolean,
+): HomeBookingSheetSnap {
+  if (exploreKeepsOpen) {
+    if (snap === 'closed') return NAV_MAPS_OPEN_SNAP
+    if (direction === 1) return 'full'
+    return 'half'
+  }
   if (direction === 1) return NAV_MAPS_OPEN_SNAP
   return 'closed'
 }
@@ -110,7 +119,7 @@ export type FetchHomeBookingSheetProps = {
   onAccountsClick?: () => void
   /** Booking UI phase — sheet colour shifts per step */
   surface?: HomeBookingSheetSurface
-  /** Sheet chrome: collapse to show the map (left control in peek + expanded header). */
+  /** Sheet chrome: open full-screen Fetch buy & sell (left control in peek + expanded header). */
   onMapsIconClick?: () => void
   /** Persistent Services | Maps tabs on the home shell. */
   homeShellTab?: HomeShellTab | null
@@ -120,6 +129,10 @@ export type FetchHomeBookingSheetProps = {
   mapsPeekInsetRef?: (el: HTMLDivElement | null) => void
   /** True when Maps tab + not in chat nav — use compact peek with search inset only. */
   mapsCompactPeek?: boolean
+  /**
+   * Maps explore (no live chat route): do not snap to `closed` — stay half/full until directions start.
+   */
+  navMapsExploreKeepsOpen?: boolean
   /**
    * Maps tab while a nav/route strip is active (not map explore). Enables tighter peek chrome,
    * Fetch wordmark, frosted top, and 25% / 50% / 80% snap heights.
@@ -150,11 +163,16 @@ export type FetchHomeBookingSheetProps = {
    * visible above the shell footer; drag anywhere on the sheet (except buttons) to expand.
    */
   intentClosedPeek?: boolean
+  /**
+   * Directions request in flight (pickup → drop-off): shrink sheet so the map / route preview
+   * stays prominent; paired with CSS `[data-route-building]`.
+   */
+  routeBuildingForMapPeek?: boolean
   children: ReactNode
 }
 
 /**
- * Single control: on Services shows Maps; on Maps shows Home (Services).
+ * Single control: Home ↔ full-screen Fetch supplies marketplace (peer buy & sell is a separate nav tab).
  */
 function ShellModeSwitchButton({
   tab,
@@ -174,20 +192,20 @@ function ShellModeSwitchButton({
   const baseBtn =
     sizeClass +
     ' fetch-home-sheet-chrome-btn flex shrink-0 items-center justify-center rounded-full transition-[transform,colors,box-shadow] active:scale-[0.94] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/35'
-  const goMaps = tab === 'services' || tab === 'marketplace'
+  const goMarketplace = tab === 'services'
   return (
     <button
       type="button"
       className={[baseBtn, className ?? ''].join(' ')}
-      aria-label={goMaps ? 'Open maps and explore' : 'Back to services'}
-      title={goMaps ? 'Maps' : 'Home'}
+      aria-label={goMarketplace ? 'Open Fetch supplies marketplace' : 'Back to home'}
+      title={goMarketplace ? 'Supplies' : 'Home'}
       onClick={(e) => {
         e.stopPropagation()
-        onChange(goMaps ? 'maps' : 'services')
+        onChange(goMarketplace ? 'marketplace' : 'services')
       }}
     >
-      {goMaps ? (
-        <MapsNavIconFilled className={navChrome ? 'h-[21px] w-[21px]' : 'h-6 w-6'} tight={navChrome} />
+      {goMarketplace ? (
+        <MarketplaceNavIconFilled className={navChrome ? 'h-[21px] w-[21px]' : 'h-6 w-6'} />
       ) : (
         <FetchEyesHomeIcon className={navChrome ? 'h-[19px] w-[19px]' : 'h-6 w-6'} tight={navChrome} />
       )}
@@ -217,6 +235,7 @@ export function FetchHomeBookingSheet({
   showHomeShellTabs = false,
   mapsPeekInsetRef,
   mapsCompactPeek = false,
+  navMapsExploreKeepsOpen = false,
   navMapChrome = false,
   hideExpandedHeaderChrome = false,
   edgeToEdgeShell = false,
@@ -226,6 +245,7 @@ export function FetchHomeBookingSheet({
   topRightAccessory,
   suppressPeekBar = false,
   intentClosedPeek = false,
+  routeBuildingForMapPeek = false,
   children,
 }: FetchHomeBookingSheetProps) {
   const panelRef = useRef<HTMLDivElement>(null)
@@ -299,10 +319,17 @@ export function FetchHomeBookingSheet({
 
   useLayoutEffect(() => {
     if (!navMapChrome) return
-    if (snap === 'compact' || snap === 'full') {
+    if (snap === 'compact') {
       onSnapChange(NAV_MAPS_OPEN_SNAP)
     }
   }, [navMapChrome, snap, onSnapChange])
+
+  useLayoutEffect(() => {
+    if (!navMapChrome || !navMapsExploreKeepsOpen) return
+    if (snap === 'closed') {
+      onSnapChange(NAV_MAPS_OPEN_SNAP)
+    }
+  }, [navMapChrome, navMapsExploreKeepsOpen, snap, onSnapChange])
 
   const clearDrag = useCallback(() => {
     dragRef.current = null
@@ -405,15 +432,20 @@ export function FetchHomeBookingSheet({
 
       if (navMapChrome) {
         if (tap) {
-          if (start === 'closed') onSnapChange(NAV_MAPS_OPEN_SNAP)
-          else onSnapChange('closed')
+          if (start === 'closed') {
+            onSnapChange(NAV_MAPS_OPEN_SNAP)
+          } else if (navMapsExploreKeepsOpen) {
+            onSnapChange(start === 'half' ? 'full' : 'half')
+          } else {
+            onSnapChange('closed')
+          }
         } else if (Math.abs(vy) > 0.45) {
-          if (vy > 0) onSnapChange(nextSnapNavMaps(start, -1))
-          else onSnapChange(nextSnapNavMaps(start, 1))
+          if (vy > 0) onSnapChange(nextSnapNavMaps(start, -1, navMapsExploreKeepsOpen))
+          else onSnapChange(nextSnapNavMaps(start, 1, navMapsExploreKeepsOpen))
         } else if (dy > threshold) {
-          onSnapChange(nextSnapNavMaps(start, -1))
+          onSnapChange(nextSnapNavMaps(start, -1, navMapsExploreKeepsOpen))
         } else if (dy < -threshold) {
-          onSnapChange(nextSnapNavMaps(start, 1))
+          onSnapChange(nextSnapNavMaps(start, 1, navMapsExploreKeepsOpen))
         }
       } else if (tap) {
         if (start === 'closed') onSnapChange('compact')
@@ -431,7 +463,7 @@ export function FetchHomeBookingSheet({
 
       clearDrag()
     },
-    [clearDrag, navMapChrome, onSnapChange],
+    [clearDrag, navMapChrome, navMapsExploreKeepsOpen, onSnapChange],
   )
 
   const onPanelPointerUp = useCallback(
@@ -481,16 +513,16 @@ export function FetchHomeBookingSheet({
       }
       return [
         'fetch-home-booking-sheet-outer fetch-home-booking-sheet-outer--edge',
-        'px-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]',
+        'px-3 pb-[max(0.42rem,env(safe-area-inset-bottom,0px))]',
       ].join(' ')
     }
     if (sheetFullBleed) {
       return 'fetch-home-booking-sheet-outer fetch-home-booking-sheet-outer--fullbleed px-0 pb-0'
     }
     if (snap === 'closed') {
-      return 'fetch-home-booking-sheet-outer fetch-home-booking-sheet-outer--padded px-3 pb-[max(calc(0.35rem+8px),env(safe-area-inset-bottom))]'
+      return 'fetch-home-booking-sheet-outer fetch-home-booking-sheet-outer--padded px-3 pb-[max(calc(0.25rem+4px),env(safe-area-inset-bottom))]'
     }
-    return 'fetch-home-booking-sheet-outer fetch-home-booking-sheet-outer--floated px-4 pb-[max(0.85rem,calc(0.35rem+8px),env(safe-area-inset-bottom))]'
+    return 'fetch-home-booking-sheet-outer fetch-home-booking-sheet-outer--floated px-4 pb-[max(0.5rem,calc(0.35rem+4px),env(safe-area-inset-bottom))]'
   })()
 
   /** Width comes from `.fetch-home-phone-frame` (centered column); never span the desktop viewport. */
@@ -528,6 +560,7 @@ export function FetchHomeBookingSheet({
           data-snap={snap}
           data-surface={surface}
           data-nav-map-chrome={navMapChrome ? 'true' : undefined}
+          data-maps-apple-chrome={surface === 'maps' && navMapChrome ? 'true' : undefined}
           data-maps-compact-peek={mapsCompactPeek ? 'true' : undefined}
           data-shell-footer={shellFooterNav ? 'true' : undefined}
           data-edge-shell={edgeToEdgeShell ? 'true' : undefined}
@@ -535,6 +568,7 @@ export function FetchHomeBookingSheet({
           data-intent-shell-promo={shellFooterBackdrop ? 'true' : undefined}
           data-intent-top-accessories={intentTopAccessories ? 'true' : undefined}
           data-shell-tab={homeShellTab ?? undefined}
+          data-route-building={routeBuildingForMapPeek ? 'true' : undefined}
           onPointerDownCapture={onPanelPointerDownCapture}
           onPointerMove={onPanelPointerMove}
           onPointerUp={onPanelPointerUp}
@@ -586,11 +620,10 @@ export function FetchHomeBookingSheet({
                 'fetch-home-sheet-chrome-btn flex shrink-0 items-center justify-center rounded-full transition-transform active:scale-[0.94] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/35',
                 navMapChrome ? 'h-9 w-9' : 'h-11 w-11',
               ].join(' ')}
-              aria-label="Navigation mode"
+              aria-label="Open Fetch supplies marketplace"
             >
-              <MapsNavIconFilled
+              <MarketplaceNavIconFilled
                 className={navMapChrome ? 'h-[21px] w-[21px]' : 'h-6 w-6'}
-                tight={navMapChrome}
               />
             </button>
           </div>
@@ -687,7 +720,9 @@ export function FetchHomeBookingSheet({
               </>
             ) : null}
             {closedPeekShellRow ? (
-              homeShellTab === 'services' || homeShellTab === 'marketplace' ? (
+              homeShellTab === 'services' ||
+              homeShellTab === 'marketplace' ||
+              homeShellTab === 'buySell' ? (
                 <>
                   <button
                     type="button"
@@ -776,11 +811,10 @@ export function FetchHomeBookingSheet({
                         'fetch-home-sheet-peek-map fetch-home-sheet-chrome-btn flex shrink-0 items-center justify-center rounded-full transition-transform active:scale-[0.94]',
                         navMapChrome ? 'h-9 w-9' : 'h-11 w-11',
                       ].join(' ')}
-                      aria-label="Navigation mode"
+                      aria-label="Open Fetch supplies marketplace"
                     >
-                      <MapsNavIconFilled
+                      <MarketplaceNavIconFilled
                         className={navMapChrome ? 'h-[21px] w-[21px]' : 'h-6 w-6'}
-                        tight={navMapChrome}
                       />
                     </button>
                   ) : null}

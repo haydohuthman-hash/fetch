@@ -101,6 +101,10 @@ export type MapsExploreSheetProps = {
   /** Closed sheet: address field portals into this host (peek bar). */
   mapsPeekHost?: HTMLDivElement | null
   sheetSnap?: HomeBookingSheetSnap
+  /** Optional quest-style actions (camera brain + surprise). */
+  onOpenFetchBrain?: () => void
+  onSurpriseMe?: () => void
+  surpriseLoading?: boolean
 }
 
 export function MapsExploreSheet({
@@ -113,6 +117,9 @@ export function MapsExploreSheet({
   onShowPlaceOnMap,
   mapsPeekHost = null,
   sheetSnap = 'full',
+  onOpenFetchBrain,
+  onSurpriseMe,
+  surpriseLoading = false,
 }: MapsExploreSheetProps) {
   const mapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ?? ''
   const { isLoaded: mapsJsLoaded } = useJsApiLoader({
@@ -628,7 +635,13 @@ export function MapsExploreSheet({
       <label className="sr-only" htmlFor="fetch-maps-address-input">
         Search address or place
       </label>
-      <div className="fetch-maps-explore-search-row flex min-w-0 items-stretch gap-1.5">
+      <div
+        className={
+          usePeekPortal
+            ? 'fetch-maps-explore-search-row fetch-maps-explore-search-row--peek flex min-w-0 flex-1 items-stretch'
+            : 'fetch-maps-explore-search-row flex min-w-0 items-stretch gap-1.5'
+        }
+      >
         <div className="fetch-maps-explore-search-inner relative min-w-0 flex-1">
           {!usePeekPortal ? (
             <MapsExploreSearchIcon className="fetch-maps-explore-input-icon absolute left-3 top-1/2 z-[1] h-[18px] w-[18px] -translate-y-1/2" />
@@ -654,7 +667,7 @@ export function MapsExploreSheet({
             autoComplete="off"
             className={
               usePeekPortal
-                ? 'fetch-home-address-input fetch-maps-explore-input fetch-home-stage-field-input fetch-stage-text-input w-full border-0 bg-transparent py-2 pl-0 pr-9 text-[15px] font-medium leading-snug tracking-[-0.01em] shadow-none outline-none ring-0 focus:border-0 focus:ring-0'
+                ? 'fetch-maps-explore-input fetch-maps-explore-input--peek-field fetch-home-stage-field-input fetch-stage-text-input w-full border-0 bg-transparent py-2 pl-0 pr-9 text-[16px] font-medium leading-snug tracking-[-0.01em] text-zinc-800 shadow-none outline-none ring-0 placeholder:text-zinc-500 focus:border-0 focus:ring-0'
                 : 'fetch-home-address-input fetch-maps-explore-input fetch-home-stage-field-input fetch-stage-text-input w-full rounded-2xl border py-3 pl-10 pr-11 text-[16px] font-semibold leading-snug tracking-[-0.01em] shadow-sm outline-none ring-0'
             }
             data-sheet-no-drag
@@ -727,7 +740,10 @@ export function MapsExploreSheet({
       }
     >
       {usePeekPortal ? (
-        <div className="fetch-home-map-header-search-shell fetch-maps-explore-search-shell--peek flex min-h-[2.5rem] w-full items-center rounded-[var(--fetch-home-sheet-radius)] px-3">
+        <div className="fetch-home-map-header-search-shell fetch-maps-explore-search-shell--peek flex min-h-[2.75rem] w-full items-center gap-2.5 rounded-[0.875rem] border border-zinc-200/90 bg-white px-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+          <span className="fetch-home-map-header-search-shell__icon flex shrink-0 items-center justify-center">
+            <MapsExploreSearchIcon className="h-[18px] w-[18px] text-zinc-400" />
+          </span>
           {addressSearchFields}
         </div>
       ) : (
@@ -736,10 +752,68 @@ export function MapsExploreSheet({
     </div>
   )
 
+  const showAdventureActions = Boolean(onOpenFetchBrain != null || onSurpriseMe != null)
+
   return (
     <>
       {usePeekPortal && mapsPeekHost ? createPortal(addressHero, mapsPeekHost) : null}
-      <div className="fetch-maps-explore-sheet flex flex-col gap-3 pb-1">
+      <div className="fetch-maps-explore-sheet fetch-maps-explore-sheet--apple flex flex-col gap-3 pb-1">
+        {showListsAndChips && showAdventureActions ? (
+          <div
+            className="fetch-maps-explore-apple-actions px-0.5"
+            role="toolbar"
+            aria-label="Explore shortcuts"
+          >
+            {onOpenFetchBrain ? (
+              <button
+                type="button"
+                className="fetch-maps-explore-apple-actions__btn"
+                aria-label="Open Fetch with a photo"
+                onClick={() => onOpenFetchBrain()}
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.85"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
+                  <circle cx="12" cy="13" r="3.25" />
+                </svg>
+              </button>
+            ) : null}
+            {onSurpriseMe ? (
+              <button
+                type="button"
+                className="fetch-maps-explore-apple-actions__btn"
+                aria-label="Surprise me"
+                disabled={surpriseLoading}
+                onClick={() => onSurpriseMe()}
+              >
+                <svg
+                  width="19"
+                  height="19"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.75"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M12 3v2M12 19v2M3 12h2M19 12h2" />
+                  <path d="m5.6 5.6 1.4 1.4M17 17l1.4 1.4M17 7l1.4-1.4M5.6 18.4 1.4-1.4" />
+                  <circle cx="12" cy="12" r="3.25" />
+                </svg>
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {showListsAndChips ? addressHero : null}
 
       {showListsAndChips ? (

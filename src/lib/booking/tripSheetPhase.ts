@@ -32,6 +32,8 @@ export type TripSheetPhase =
 
 export type TripSheetUiFlags = {
   showConfirm: boolean
+  /** Pickup + drop-off fields shown together (moving / multi-stop jobs). */
+  showDualAddresses: boolean
   showIntent: boolean
   showPickup: boolean
   showDropoff: boolean
@@ -50,6 +52,7 @@ export function deriveTripSheetPhase(
 ): TripSheetPhase {
   if (f.showIntent) return 'idle_intent'
   if (f.showConfirm) return 'confirm_pin'
+  if (f.showDualAddresses) return 'pickup_address'
   if (f.showPickup) return 'pickup_address'
   if (f.showDropoff) return 'dropoff_address'
   if (f.showLaborDetails) return 'labor_details'

@@ -5,6 +5,7 @@ import { deriveTripSheetPhase, mapStageForTripSheetPhase, tripSheetPhasePrefersE
 
 const baseFlags = {
   showConfirm: false,
+  showDualAddresses: false,
   showIntent: false,
   showPickup: false,
   showDropoff: false,
@@ -22,6 +23,18 @@ test('deriveTripSheetPhase: pickup wins over post-scan flags', () => {
   const phase = deriveTripSheetPhase(s, {
     ...baseFlags,
     showPickup: true,
+    showPostScan: true,
+    hasSheetPricing: true,
+  })
+  assert.equal(phase, 'pickup_address')
+})
+
+test('deriveTripSheetPhase: dual addresses uses pickup_address phase', () => {
+  const s = createInitialBookingState()
+  const phase = deriveTripSheetPhase(s, {
+    ...baseFlags,
+    showDualAddresses: true,
+    showDropoff: true,
     showPostScan: true,
     hasSheetPricing: true,
   })

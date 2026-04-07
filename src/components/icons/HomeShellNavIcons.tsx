@@ -26,6 +26,25 @@ export function FetchEyesHomeIcon({ className, tight }: IconProps) {
   )
 }
 
+/**
+ * Same face as {@link FetchEyesHomeIcon}, with a one-shot intro: three blinks then pupils glance
+ * left and right. Used when the supplies marketplace opens (`index.css` keyframes).
+ */
+export function FetchEyesMarketplaceIntroIcon({ className }: IconProps) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <g className="fetch-marketplace-eyes-intro__blink">
+        <rect x="2" y="7.5" width="9" height="9" rx="4.5" fill="currentColor" />
+        <rect x="13" y="7.5" width="9" height="9" rx="4.5" fill="currentColor" />
+        <g className="fetch-marketplace-eyes-intro__pupils">
+          <circle cx="6.5" cy="12" r="1.45" fill="currentColor" fillOpacity="0.38" />
+          <circle cx="17.5" cy="12" r="1.45" fill="currentColor" fillOpacity="0.38" />
+        </g>
+      </g>
+    </svg>
+  )
+}
+
 /** Rounded filled map pin — softer than the old sharp folded map. */
 export function MapsNavIconFilled({ className, tight }: IconProps) {
   return (
@@ -40,6 +59,35 @@ export function MapsNavIconFilled({ className, tight }: IconProps) {
         d="M12 21.25s-5.75-5.1-5.75-10.5A5.75 5.75 0 1117.75 10.75c0 5.4-5.75 10.5-5.75 10.5z"
       />
       <circle cx="12" cy="10.25" r="2.35" fill="currentColor" fillOpacity="0.32" />
+    </svg>
+  )
+}
+
+/** Upward navigation arrow — shell “Maps / Nav” tab (directions & explore). */
+export function NavShellArrowIcon({ className, tight }: IconProps) {
+  return (
+    <svg
+      className={className}
+      viewBox={tight ? '3.5 2.5 17 19' : '0 0 24 24'}
+      fill="none"
+      aria-hidden
+    >
+      <path
+        fill="currentColor"
+        d="M12 4L20 18h-6v6h-4v-6H4L12 4z"
+      />
+    </svg>
+  )
+}
+
+/** Two opposing arrows — peer buy and sell (separate from the supplies storefront). */
+export function BuySellNavIconFilled({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        fill="currentColor"
+        d="M8.25 6.5L5 9.75l3.25 3.25v-2h6.5V9.5H8.25V6.5zm7.5 11l3.25-3.25L15.75 11v2H9.25v1.5h6.5v2z"
+      />
     </svg>
   )
 }
