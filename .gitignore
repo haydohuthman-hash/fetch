@@ -13,3 +13,6 @@ Thumbs.db
 # OpenAI-generated marketplace supply PNGs (run npm run generate:supply-images)
 public/supplies/*.png
 public/supplies/*.webp
+
+# Peer listing uploads (local dev)
+public/listing-uploads/

@@ -256,7 +256,7 @@ function MarketplaceBrowseBootSkeleton() {
         <div className="fetch-home-marketplace-grid-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-white [-webkit-overflow-scrolling:touch] px-4 py-4">
           {Array.from({ length: 3 }, (_, i) => (
             <div key={i} className="fetch-marketplace-boot-skel mb-8 last:mb-0">
-              <div className="aspect-[21/9] w-full rounded-2xl bg-zinc-200/55" />
+              <div className="aspect-video w-full rounded-2xl bg-zinc-200/55" />
               <div className="mt-3 space-y-2">
                 <div className="h-5 max-w-[14rem] rounded-md bg-zinc-200/80" />
                 <div className="h-3.5 max-w-full rounded-md bg-zinc-200/60" />
@@ -675,7 +675,7 @@ function HomeShellMarketplacePageInner({ bottomNav }: HomeShellMarketplacePagePr
                             className="block w-full cursor-pointer border-0 bg-transparent p-0 text-left transition-opacity active:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
                             aria-label={`${row.label} supplies. ${deliveryLine} ${line2}`}
                           >
-                            <div className="relative aspect-[21/9] w-full overflow-hidden rounded-2xl bg-zinc-100 ring-1 ring-zinc-200/80">
+                            <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-zinc-100 ring-1 ring-zinc-200/80">
                               {imgSrc ? (
                                 <img
                                   src={imgSrc}
@@ -689,7 +689,7 @@ function HomeShellMarketplacePageInner({ bottomNav }: HomeShellMarketplacePagePr
                               )}
                             </div>
                             <div className="mt-3 space-y-1.5 px-0.5">
-                              <p className="text-[28px] font-bold leading-tight tracking-[-0.03em] text-zinc-900">
+                              <p className="text-[22px] font-bold leading-tight tracking-[-0.03em] text-zinc-900">
                                 {line1}
                               </p>
                               <p className="text-[13px] font-semibold leading-snug text-emerald-900/90 [text-wrap:pretty]">
@@ -727,7 +727,7 @@ function HomeShellMarketplacePageInner({ bottomNav }: HomeShellMarketplacePagePr
                               aria-label={`${activeBundle.title}. ${formatAud(activeBundle.bundlePriceAud)} bundle. View details.`}
                               className="block w-full cursor-pointer border-0 bg-transparent p-0 text-left transition-opacity active:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
                             >
-                              <div className="relative aspect-[21/9] w-full overflow-hidden bg-zinc-100">
+                              <div className="relative aspect-video w-full overflow-hidden bg-zinc-100">
                                 <img
                                   src={browseProductBannerSrc}
                                   alt=""
@@ -1109,7 +1109,7 @@ function HomeShellMarketplacePageInner({ bottomNav }: HomeShellMarketplacePagePr
         )}
 
         {bottomNav ? (
-          <div className="shrink-0 border-t border-black/[0.06] bg-white pb-[env(safe-area-inset-bottom,0px)]">
+          <div className="fetch-home-marketplace-shell-footer shrink-0 pb-[env(safe-area-inset-bottom,0px)]">
             {bottomNav}
           </div>
         ) : null}

@@ -39,11 +39,21 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      '/listing-uploads': {
+        target: `http://127.0.0.1:${fetchDevApiPort}`,
+        changeOrigin: true,
+        secure: false,
+      },
     },
   },
   preview: {
     proxy: {
       '/api': {
+        target: `http://127.0.0.1:${fetchDevApiPort}`,
+        changeOrigin: true,
+        secure: false,
+      },
+      '/listing-uploads': {
         target: `http://127.0.0.1:${fetchDevApiPort}`,
         changeOrigin: true,
         secure: false,

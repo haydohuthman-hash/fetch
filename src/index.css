@@ -6277,6 +6277,15 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   box-shadow: 0 1px 10px rgba(6, 182, 212, 0.22);
 }
 
+/* Marketplace shell: frosted bottom nav strip + crisp white top edge */
+.fetch-home-marketplace-shell-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(22px) saturate(1.18);
+  -webkit-backdrop-filter: blur(22px) saturate(1.18);
+  box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.55);
+}
+
 /* Full-width bottom bar — home / maps / marketplace (fixed row; safe-area on bottom). */
 .fetch-home-intent-bottom-nav {
   display: flex;

@@ -346,6 +346,12 @@ export function FetchHomeBookingSheet({
     onHomeShellTabChange != null
   const persistentShellFooter = Boolean(shellFooterNav) && shellToggleActive
 
+  /** Match supplies marketplace header: eyes + wordmark on the home (services) sheet. */
+  const showServicesHeaderBrand =
+    expanded &&
+    shellToggleActive &&
+    homeShellTab === 'services'
+
   const closedPeekMapsRow =
     mapsCompactPeek && shellToggleActive && mapsPeekInsetRef != null
   const closedPeekShellRow =
@@ -599,15 +605,34 @@ export function FetchHomeBookingSheet({
             {topRightAccessory}
           </div>
         ) : null}
-        {expanded && shellToggleActive && !hideExpandedHeaderChrome ? (
-          <div className="absolute left-4 top-2.5 z-[3] flex items-center gap-1.5">
-            <ShellModeSwitchButton
-              tab={homeShellTab!}
-              onChange={onHomeShellTabChange!}
-              density={navMapChrome ? 'default' : 'dense'}
-              navChrome={navMapChrome}
-            />
-          </div>
+        {showServicesHeaderBrand ? (
+          intentTopAccessories && hideExpandedHeaderChrome ? (
+            <div
+              className="pointer-events-none absolute left-1/2 top-[1.05rem] z-[2] flex -translate-x-1/2 items-center gap-2.5"
+              aria-hidden
+            >
+              <FetchEyesHomeIcon className="h-9 w-9 shrink-0 text-zinc-900" />
+              <span className="fetch-home-map-brand-logo text-[1.35rem] font-bold leading-none tracking-[-0.03em] text-zinc-900">
+                Fetch
+              </span>
+            </div>
+          ) : (
+            <div className="absolute left-4 top-2.5 z-[3] flex min-w-0 items-center gap-2.5">
+              <FetchEyesHomeIcon className="h-9 w-9 shrink-0 text-zinc-900" tight={navMapChrome} />
+              <span className="fetch-home-map-brand-logo min-w-0 truncate text-[1.35rem] font-bold leading-none tracking-[-0.03em] text-zinc-900">
+                Fetch
+              </span>
+              {!hideExpandedHeaderChrome ? (
+                <ShellModeSwitchButton
+                  tab={homeShellTab!}
+                  onChange={onHomeShellTabChange!}
+                  density={navMapChrome ? 'default' : 'dense'}
+                  navChrome={navMapChrome}
+                  className="shrink-0"
+                />
+              ) : null}
+            </div>
+          )
         ) : expanded && onMapsIconClick && !hideExpandedHeaderChrome ? (
           <div className="absolute left-4 top-2.5 z-[3] flex items-center gap-1.5">
             <button
