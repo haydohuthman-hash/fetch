@@ -286,7 +286,7 @@ export function createPaymentIntentRecord({
     bookingId,
     metadata: metadata && typeof metadata === 'object' ? metadata : null,
     status: 'requires_confirmation',
-    amount: Math.max(0, Math.round(amount || 0)),
+    amount: Math.max(0, Math.round((Number(amount) || 0) * 100) / 100),
     currency,
     paymentMethodId: null,
     clientSecret: `${makeId('secret')}_client_secret`,

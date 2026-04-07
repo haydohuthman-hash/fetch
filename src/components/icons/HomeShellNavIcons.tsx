@@ -27,8 +27,8 @@ export function FetchEyesHomeIcon({ className, tight }: IconProps) {
 }
 
 /**
- * Same face as {@link FetchEyesHomeIcon}, with a one-shot intro: three blinks then pupils glance
- * left and right. Used when the supplies marketplace opens (`index.css` keyframes).
+ * Same face as {@link FetchEyesHomeIcon}, with looping slow blinks and drifting pupils in
+ * `index.css` (`.fetch-marketplace-eyes-intro__*`).
  */
 export function FetchEyesMarketplaceIntroIcon({ className }: IconProps) {
   return (

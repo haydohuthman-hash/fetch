@@ -3,6 +3,7 @@ import multer from 'multer'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import { execSync } from 'node:child_process'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -16,6 +17,7 @@ import {
 } from './llm/chatProvider.js'
 import { runFetchAiChatTurn } from './llm/fetchChatRunner.js'
 import {
+  createStripeConnectPaymentIntent,
   createStripePaymentIntentOnStripe,
   isStripeWebhookEventProcessed,
   localRecordFromStripePaymentIntent,
@@ -24,6 +26,10 @@ import {
 import { getHardwareSkuPriceAud } from './lib/hardware-catalog.js'
 import { getSupplySkuPriceAud } from './lib/supplies-catalog.js'
 import { createHardwareOrdersStore } from './lib/hardware-orders-store.js'
+import { createStoreOrdersStore } from './lib/store-orders-store.js'
+import { validateSupplyCartLines, validateBundleCart, STORE_CATALOG_PRODUCTS, STORE_BUNDLES } from './lib/store-cart.js'
+import { createPeerListingsStore } from './lib/peer-listings-store.js'
+import { postStoreOrderWebhook } from './lib/store-outbound-webhook.js'
 import { createMarketplaceStore } from './lib/marketplace-store.js'
 import { createMarketplaceEventBus } from './lib/marketplace-events.js'
 import { createSqlitePersistence } from './lib/marketplace-sqlite.js'
@@ -352,6 +358,98 @@ const HARDWARE_ORDERS_FILE = process.env.VERCEL
   : path.join(__dirname, 'hardware-orders.json')
 const hardwareOrdersStore = createHardwareOrdersStore(HARDWARE_ORDERS_FILE)
 
+const STORE_ORDERS_FILE = process.env.VERCEL
+  ? path.join('/tmp', 'fetch-store-orders.json')
+  : path.join(__dirname, 'store-orders.json')
+const storeOrdersStore = createStoreOrdersStore(STORE_ORDERS_FILE)
+
+const PEER_LISTINGS_FILE = process.env.VERCEL
+  ? path.join('/tmp', 'fetch-peer-listings.json')
+  : path.join(__dirname, 'peer-listings.json')
+const peerListingsStore = createPeerListingsStore(PEER_LISTINGS_FILE)
+
+const LISTING_UPLOAD_DIR = process.env.VERCEL
+  ? path.join('/tmp', 'fetch-listing-uploads')
+  : path.join(projectRoot, 'public', 'listing-uploads')
+const LISTING_PLATFORM_FEE_BPS = Math.min(
+  5000,
+  Math.max(0, Math.round(Number(process.env.LISTING_PLATFORM_FEE_BPS || '1000') || 1000)),
+)
+const STRIPE_CONNECT_REFRESH_URL = (process.env.STRIPE_CONNECT_REFRESH_URL || 'http://localhost:5173').trim()
+const STRIPE_CONNECT_RETURN_URL = (process.env.STRIPE_CONNECT_RETURN_URL || 'http://localhost:5173').trim()
+
+/** @type {Map<string, { storeOrderId: string, at: number }>} */
+const storeCheckoutIdempotency = new Map()
+const STORE_CHECKOUT_IDEM_MAX = 2000
+
+function storeCheckoutIdemRemember(key, storeOrderId) {
+  if (!key) return
+  storeCheckoutIdempotency.set(key, { storeOrderId, at: Date.now() })
+  while (storeCheckoutIdempotency.size > STORE_CHECKOUT_IDEM_MAX) {
+    const first = storeCheckoutIdempotency.keys().next().value
+    storeCheckoutIdempotency.delete(first)
+  }
+}
+
+function storeCheckoutIdemGet(key) {
+  if (!key) return null
+  const row = storeCheckoutIdempotency.get(key)
+  if (!row) return null
+  if (Date.now() - row.at > 24 * 60 * 60 * 1000) {
+    storeCheckoutIdempotency.delete(key)
+    return null
+  }
+  return row.storeOrderId
+}
+
+async function finalizeSupplyStoreOrderPaid(storeOrderId, stripePiId) {
+  if (!storeOrderId || typeof storeOrderId !== 'string') return
+  const order = await storeOrdersStore.getById(storeOrderId)
+  if (!order || order.status === 'paid') return
+  await storeOrdersStore.patchOrder(storeOrderId, {
+    status: 'paid',
+    webhookConfirmedAt: Date.now(),
+    stripePaymentIntentId: stripePiId || order.stripePaymentIntentId,
+  })
+  await postStoreOrderWebhook(
+    (process.env.STORE_ORDER_WEBHOOK_URL || '').trim(),
+    (process.env.STORE_ORDER_WEBHOOK_SECRET || '').trim(),
+    { event: 'order.paid', orderId: storeOrderId, kind: order.kind, subtotalAud: order.subtotalAud },
+  )
+}
+
+async function finalizeListingOrderPaidCore(o, chargeRef) {
+  if (!o || o.status === 'paid') return
+  await peerListingsStore.patchListingOrder(o.id, {
+    status: 'paid',
+    webhookConfirmedAt: Date.now(),
+    stripePaymentIntentId: chargeRef || o.stripePaymentIntentId || null,
+  })
+  if (o.listingId) await peerListingsStore.markListingSold(o.listingId)
+  await peerListingsStore.appendLedger({
+    sellerKey: o.sellerKey,
+    type: 'sale',
+    listingOrderId: o.id,
+    listingId: o.listingId,
+    grossCents: o.priceCents,
+    feeCents: o.platformFeeCents ?? 0,
+    netCents: o.sellerNetCents ?? Math.max(0, o.priceCents - (o.platformFeeCents ?? 0)),
+    currency: 'aud',
+    stripeChargeId: chargeRef || o.stripePaymentIntentId || o.paymentIntentId || '',
+  })
+}
+
+async function finalizeListingOrderPaidFromPi(stripePiId) {
+  const o = await peerListingsStore.findListingOrderByPaymentIntent(stripePiId)
+  if (!o) return
+  await finalizeListingOrderPaidCore(o, stripePiId)
+}
+
+const listingImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 6 * 1024 * 1024, files: 1 },
+})
+
 function stripJsonFence(s) {
   const t = (s || '').trim()
   if (t.startsWith('```')) {
@@ -403,7 +501,7 @@ function vercelRestoreApiRequestPath(req, _res, next) {
   if (raw.startsWith('/api')) return next()
   const pathOnly = raw.split('?')[0] || '/'
   if (
-    /^\/(fetch-ai|scan|auth|marketplace|payments|chat|voice|tts|healthz|readyz)(\/|$)/.test(
+    /^\/(fetch-ai|scan|auth|marketplace|payments|store|listings|sellers|chat|voice|tts|healthz|readyz)(\/|$)/.test(
       pathOnly,
     )
   ) {
@@ -488,6 +586,13 @@ app.post(
           marketplaceStore.materializeState(state)
           await marketplaceStore.writeState(state)
         }
+        const metaOk = pi.metadata || {}
+        if (metaOk.checkout === 'supply_cart' && metaOk.storeOrderId) {
+          await finalizeSupplyStoreOrderPaid(metaOk.storeOrderId, stripeId)
+        }
+        if (metaOk.checkout === 'listing_order') {
+          await finalizeListingOrderPaidFromPi(stripeId)
+        }
         await markStripeWebhookDoneOrMemory(event.id)
         return res.json({ received: true })
       }
@@ -514,6 +619,14 @@ app.post(
           marketplaceStore.materializeState(state)
           await marketplaceStore.writeState(state)
         }
+        const metaF = pi.metadata || {}
+        if (metaF.checkout === 'supply_cart' && metaF.storeOrderId) {
+          await storeOrdersStore.patchOrder(metaF.storeOrderId, { status: 'failed', lastError: msg.slice(0, 500) })
+        }
+        if (metaF.checkout === 'listing_order') {
+          const lo = await peerListingsStore.findListingOrderByPaymentIntent(stripeId)
+          if (lo) await peerListingsStore.patchListingOrder(lo.id, { status: 'failed', lastError: msg.slice(0, 500) })
+        }
         await markStripeWebhookDoneOrMemory(event.id)
         return res.json({ received: true })
       }
@@ -527,6 +640,8 @@ app.post(
 )
 
 app.use(express.json({ limit: '15mb' }))
+
+app.use('/listing-uploads', express.static(LISTING_UPLOAD_DIR))
 
 app.post('/api/auth/customer-session', authRouteLimiter, (req, res) => {
   if (FETCH_AUTH_USERS_DB_ENABLED) {
@@ -1391,6 +1506,461 @@ app.post(['/api/fetch-ai/chat/stream', '/api/chat/stream'], async (req, res) => 
   res.end()
 })
 
+const STORE_ADMIN_KEY = (process.env.STORE_ADMIN_KEY || '').trim()
+
+app.get('/api/store/catalog', (req, res) => {
+  const cat = typeof req.query.category === 'string' ? req.query.category.trim() : ''
+  let products = STORE_CATALOG_PRODUCTS.map((p) => ({
+    id: p.id,
+    sku: p.sku,
+    title: p.title,
+    subtitle: p.subtitle,
+    categoryId: p.categoryId,
+    priceAud: p.priceAud,
+    coverImageUrl: `/supplies/${p.id}.png`,
+  }))
+  if (cat) products = products.filter((p) => p.categoryId === cat)
+  return res.json({ products, currency: 'AUD' })
+})
+
+app.get('/api/store/bundles', (_req, res) => {
+  return res.json({ bundles: STORE_BUNDLES, currency: 'AUD' })
+})
+
+app.post('/api/store/cart/validate', (req, res) => {
+  const body = req.body ?? {}
+  if (body.bundleId != null) {
+    const v = validateBundleCart(body.bundleId)
+    if (!v.ok) return res.status(400).json({ error: v.error, detail: v.detail })
+    return res.json({
+      bundleId: v.bundleId,
+      lines: v.lines,
+      subtotalAud: v.subtotalAud,
+      retailAud: v.retailAud,
+      currency: v.currency,
+    })
+  }
+  const lines = body.lines
+  const v = validateSupplyCartLines(Array.isArray(lines) ? lines : [])
+  if (!v.ok) return res.status(400).json({ error: v.error, detail: v.detail })
+  return res.json({ lines: v.lines, subtotalAud: v.subtotalAud, currency: v.currency })
+})
+
+app.post('/api/store/checkout', paymentIntentCreateLimiter, async (req, res) => {
+  const actor = resolveMarketplaceActor(req)
+  const idem =
+    typeof req.headers['idempotency-key'] === 'string' ? req.headers['idempotency-key'].trim() : ''
+  if (idem) {
+    const existingId = storeCheckoutIdemGet(idem)
+    if (existingId) {
+      const existingOrder = await storeOrdersStore.getById(existingId)
+      if (existingOrder) {
+        const state = await marketplaceStore.readState()
+        const pid = existingOrder.paymentIntentId
+        const pi = pid
+          ? state.paymentIntents.find((row) => row.id === pid || row.stripePaymentIntentId === pid)
+          : null
+        return res.json({
+          storeOrder: existingOrder,
+          paymentIntent: pi ?? null,
+          idempotent: true,
+        })
+      }
+    }
+  }
+
+  const body = req.body ?? {}
+  /** @type {{ ok: true, lines: any[], subtotalAud: number, bundleId: string | null } | { ok: false, error: string, detail?: string }} */
+  let validated
+  if (body.bundleId != null) {
+    const v = validateBundleCart(body.bundleId)
+    if (!v.ok) return res.status(400).json({ error: v.error, detail: v.detail })
+    validated = { ok: true, lines: v.lines, subtotalAud: v.subtotalAud, bundleId: v.bundleId }
+  } else {
+    const v = validateSupplyCartLines(Array.isArray(body.lines) ? body.lines : [])
+    if (!v.ok) return res.status(400).json({ error: v.error, detail: v.detail })
+    validated = { ok: true, lines: v.lines, subtotalAud: v.subtotalAud, bundleId: null }
+  }
+
+  const order = await storeOrdersStore.appendPendingOrder({
+    kind: validated.bundleId ? 'supply_bundle' : 'supply_cart',
+    lines: validated.lines,
+    subtotalAud: validated.subtotalAud,
+    currency: 'AUD',
+    customerUserId: actor.customerUserId,
+    customerEmail: actor.customerEmail,
+    idempotencyKey: idem || null,
+    bundleId: validated.bundleId,
+    paymentIntentId: null,
+    stripePaymentIntentId: null,
+    webhookConfirmedAt: null,
+  })
+
+  const ship = body.shipping && typeof body.shipping === 'object' ? body.shipping : null
+  if (ship) {
+    const shipping = {
+      name: String(ship.name || '').slice(0, 200),
+      email: String(ship.email || '').slice(0, 200),
+      address: String(ship.address || '').slice(0, 2000),
+    }
+    if (shipping.name || shipping.email || shipping.address) {
+      await storeOrdersStore.patchOrder(order.id, { shipping })
+    }
+  }
+
+  if (idem) storeCheckoutIdemRemember(idem, order.id)
+
+  const intentMetadata = { type: 'supply_cart', storeOrderId: order.id }
+  const state = await marketplaceStore.readState()
+  const stripeKey = (process.env.STRIPE_SECRET_KEY || '').trim()
+  let paymentIntent
+  if (stripeKey) {
+    try {
+      const Stripe = (await import('stripe')).default
+      const stripe = new Stripe(stripeKey)
+      const stripePi = await createStripePaymentIntentOnStripe(stripe, {
+        amountAud: validated.subtotalAud,
+        bookingId: null,
+        metadata: intentMetadata,
+      })
+      paymentIntent = localRecordFromStripePaymentIntent(stripePi, {
+        bookingId: null,
+        amountAud: validated.subtotalAud,
+        currency: 'AUD',
+        metadata: intentMetadata,
+      })
+    } catch (e) {
+      console.error('[store/checkout] stripe create failed', e)
+      const msg = e instanceof Error ? e.message : String(e)
+      return res.status(502).json({
+        error: 'stripe_intent_create_failed',
+        detail: msg.slice(0, 280),
+      })
+    }
+  } else {
+    paymentIntent = createPaymentIntentRecord({
+      bookingId: null,
+      amount: validated.subtotalAud,
+      currency: 'AUD',
+      metadata: intentMetadata,
+    })
+  }
+  marketplaceStore.upsertPaymentIntent(state, paymentIntent)
+  await marketplaceStore.writeState(state)
+  await storeOrdersStore.patchOrder(order.id, {
+    paymentIntentId: paymentIntent.id,
+    stripePaymentIntentId: paymentIntent.stripePaymentIntentId || null,
+  })
+  const nextOrder = await storeOrdersStore.getById(order.id)
+  return res.json({ storeOrder: nextOrder, paymentIntent })
+})
+
+app.get('/api/store/orders', async (req, res) => {
+  const actor = resolveMarketplaceActor(req)
+  if (!actor.customerUserId && !actor.customerEmail) {
+    return res.json({ orders: [] })
+  }
+  const fs = await import('node:fs/promises')
+  try {
+    const raw = await fs.readFile(STORE_ORDERS_FILE, 'utf8')
+    const rows = JSON.parse(raw)
+    if (!Array.isArray(rows)) return res.json({ orders: [] })
+    const mine = rows.filter((o) => {
+      if (actor.customerUserId && o.customerUserId === actor.customerUserId) return true
+      if (actor.customerEmail && o.customerEmail === actor.customerEmail) return true
+      return false
+    })
+    return res.json({ orders: mine.slice(0, 50) })
+  } catch (e) {
+    if (e && e.code === 'ENOENT') return res.json({ orders: [] })
+    throw e
+  }
+})
+
+app.get('/api/store/orders/:orderId', async (req, res) => {
+  const order = await storeOrdersStore.getById(req.params.orderId)
+  if (!order) return res.status(404).json({ error: 'order_not_found' })
+  return res.json({ order })
+})
+
+app.get('/api/store/admin/inventory', (req, res) => {
+  const key = (req.headers['x-fetch-store-admin-key'] || '').trim()
+  if (!STORE_ADMIN_KEY || key !== STORE_ADMIN_KEY) {
+    return res.status(403).json({ error: 'forbidden' })
+  }
+  const stock = {}
+  for (const p of STORE_CATALOG_PRODUCTS) {
+    stock[p.sku] = { sku: p.sku, available: null, note: 'Unlimited (demo)' }
+  }
+  return res.json({ products: STORE_CATALOG_PRODUCTS, stock, bundles: STORE_BUNDLES })
+})
+
+function peerListingSellerKey(req) {
+  const actor = resolveMarketplaceActor(req)
+  return peerListingsStore.sellerKey(actor.customerUserId, actor.customerEmail)
+}
+
+app.get('/api/listings', async (req, res) => {
+  const statusRaw = typeof req.query.status === 'string' ? req.query.status.trim() : 'published'
+  const r = await peerListingsStore.listListings({
+    status: statusRaw || 'published',
+    q: typeof req.query.q === 'string' ? req.query.q : undefined,
+    category: typeof req.query.category === 'string' ? req.query.category : undefined,
+    minPrice: req.query.minPrice,
+    maxPrice: req.query.maxPrice,
+    cursor: typeof req.query.cursor === 'string' ? req.query.cursor : undefined,
+    limit:
+      typeof req.query.limit === 'string' && Number.isFinite(Number(req.query.limit))
+        ? Math.min(48, Math.max(1, Math.floor(Number(req.query.limit))))
+        : 24,
+  })
+  return res.json({ ...r, currency: 'AUD' })
+})
+
+app.get('/api/listings/mine', async (req, res) => {
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.status(401).json({ error: 'auth_required' })
+  const listings = await peerListingsStore.listListingsBySeller(sk)
+  return res.json({ listings })
+})
+
+app.get('/api/listings/:listingId', async (req, res) => {
+  const sk = peerListingSellerKey(req)
+  const l = await peerListingsStore.getListingVisible(req.params.listingId, sk)
+  if (!l) return res.status(404).json({ error: 'listing_not_found' })
+  return res.json({ listing: l })
+})
+
+app.post('/api/listings', async (req, res) => {
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.status(401).json({ error: 'auth_required' })
+  const actor = resolveMarketplaceActor(req)
+  const body = req.body ?? {}
+  const listing = await peerListingsStore.createListing({
+    sellerUserId: actor.customerUserId,
+    sellerEmail: actor.customerEmail,
+    title: body.title,
+    description: body.description,
+    priceAud: body.priceAud,
+    category: body.category,
+    condition: body.condition,
+  })
+  return res.json({ listing })
+})
+
+app.patch('/api/listings/:listingId', async (req, res) => {
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.status(401).json({ error: 'auth_required' })
+  const out = await peerListingsStore.patchListing(req.params.listingId, sk, req.body ?? {})
+  if (!out) return res.status(404).json({ error: 'listing_not_found' })
+  if (out.error) return res.status(403).json({ error: out.error })
+  return res.json(out)
+})
+
+app.post('/api/listings/:listingId/publish', async (req, res) => {
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.status(401).json({ error: 'auth_required' })
+  const out = await peerListingsStore.setListingStatus(req.params.listingId, sk, 'published')
+  if (!out) return res.status(404).json({ error: 'listing_not_found' })
+  if (out.error) return res.status(403).json({ error: out.error })
+  return res.json(out)
+})
+
+app.post('/api/listings/:listingId/pause', async (req, res) => {
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.status(401).json({ error: 'auth_required' })
+  const out = await peerListingsStore.setListingStatus(req.params.listingId, sk, 'paused')
+  if (!out) return res.status(404).json({ error: 'listing_not_found' })
+  if (out.error) return res.status(403).json({ error: out.error })
+  return res.json(out)
+})
+
+app.post(
+  '/api/listings/:listingId/images',
+  listingImageUpload.single('file'),
+  async (req, res) => {
+    const sk = peerListingSellerKey(req)
+    if (!sk) return res.status(401).json({ error: 'auth_required' })
+    const buf = req.file?.buffer
+    if (!buf || !buf.length) return res.status(400).json({ error: 'file_required' })
+    const ext = path.extname(req.file.originalname || '').toLowerCase()
+    const safeExt = ['.jpg', '.jpeg', '.png', '.webp'].includes(ext) ? ext : '.jpg'
+    const name = `${Date.now()}_${crypto.randomBytes(8).toString('hex')}${safeExt}`
+    await fs.promises.mkdir(LISTING_UPLOAD_DIR, { recursive: true })
+    await fs.promises.writeFile(path.join(LISTING_UPLOAD_DIR, name), buf)
+    const url = `/listing-uploads/${name}`
+    const out = await peerListingsStore.addListingImage(req.params.listingId, sk, { url, sort: undefined })
+    if (!out) return res.status(404).json({ error: 'listing_not_found' })
+    if (out.error) return res.status(400).json({ error: out.error })
+    return res.json(out)
+  },
+)
+
+app.post('/api/listings/:listingId/checkout', paymentIntentCreateLimiter, async (req, res) => {
+  const listing = await peerListingsStore.getListing(req.params.listingId)
+  if (!listing || listing.status !== 'published') {
+    return res.status(404).json({ error: 'listing_not_available' })
+  }
+  const sellerKey = peerListingsStore.sellerKey(listing.sellerUserId, listing.sellerEmail)
+  const seller = sellerKey ? await peerListingsStore.getSeller(sellerKey) : null
+  const buyer = resolveMarketplaceActor(req)
+  const priceCents = listing.priceCents ?? 0
+  if (priceCents < 1) return res.status(400).json({ error: 'invalid_price' })
+  const feeCents = Math.min(priceCents - 1, Math.round((priceCents * LISTING_PLATFORM_FEE_BPS) / 10000))
+  const netCents = Math.max(0, priceCents - feeCents)
+  const listingOrder = await peerListingsStore.appendListingOrder({
+    listingId: listing.id,
+    sellerKey,
+    buyerUserId: buyer.customerUserId,
+    buyerEmail: buyer.customerEmail,
+    priceCents,
+    platformFeeCents: feeCents,
+    sellerNetCents: netCents,
+    status: 'pending',
+    paymentIntentId: null,
+    stripePaymentIntentId: null,
+  })
+  const intentMetadata = { type: 'listing_order', listingOrderId: listingOrder.id }
+  const amountAud = priceCents / 100
+  const stripeKey = (process.env.STRIPE_SECRET_KEY || '').trim()
+  const state = await marketplaceStore.readState()
+  let paymentIntent
+  if (stripeKey) {
+    if (!seller?.stripeAccountId) {
+      return res.status(409).json({ error: 'seller_not_connect_ready', detail: 'Seller has not connected payouts.' })
+    }
+    if (!seller.onboardingComplete) {
+      return res
+        .status(409)
+        .json({ error: 'seller_onboarding_incomplete', detail: 'Seller must finish Stripe Connect onboarding.' })
+    }
+    try {
+      const Stripe = (await import('stripe')).default
+      const stripe = new Stripe(stripeKey)
+      const stripePi = await createStripeConnectPaymentIntent(stripe, {
+        amountCents: priceCents,
+        applicationFeeCents: feeCents,
+        destinationAccountId: seller.stripeAccountId,
+        metadata: intentMetadata,
+      })
+      paymentIntent = localRecordFromStripePaymentIntent(stripePi, {
+        bookingId: null,
+        amountAud,
+        currency: 'AUD',
+        metadata: intentMetadata,
+      })
+    } catch (e) {
+      console.error('[listings/checkout] stripe create failed', e)
+      const msg = e instanceof Error ? e.message : String(e)
+      return res.status(502).json({
+        error: 'stripe_intent_create_failed',
+        detail: msg.slice(0, 280),
+      })
+    }
+  } else {
+    paymentIntent = createPaymentIntentRecord({
+      bookingId: null,
+      amount: amountAud,
+      currency: 'AUD',
+      metadata: intentMetadata,
+    })
+  }
+  marketplaceStore.upsertPaymentIntent(state, paymentIntent)
+  await marketplaceStore.writeState(state)
+  await peerListingsStore.patchListingOrder(listingOrder.id, {
+    paymentIntentId: paymentIntent.id,
+    stripePaymentIntentId: paymentIntent.stripePaymentIntentId || null,
+  })
+  const nextLo = await peerListingsStore.getListingOrder(listingOrder.id)
+  return res.json({ listingOrder: nextLo, paymentIntent })
+})
+
+app.post('/api/sellers/connect/start', authRouteLimiter, async (req, res) => {
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.status(401).json({ error: 'auth_required' })
+  const stripeKey = (process.env.STRIPE_SECRET_KEY || '').trim()
+  if (!stripeKey) {
+    return res.status(503).json({ error: 'stripe_not_configured' })
+  }
+  try {
+    const Stripe = (await import('stripe')).default
+    const stripe = new Stripe(stripeKey)
+    let seller = await peerListingsStore.getSeller(sk)
+    let accountId = seller?.stripeAccountId
+    if (!accountId) {
+      const acct = await stripe.accounts.create({
+        type: 'express',
+        capabilities: { card_payments: { requested: true }, transfers: { requested: true } },
+      })
+      accountId = acct.id
+      await peerListingsStore.upsertSellerStripe(sk, accountId)
+    }
+    const link = await stripe.accountLinks.create({
+      account: accountId,
+      refresh_url: STRIPE_CONNECT_REFRESH_URL,
+      return_url: STRIPE_CONNECT_RETURN_URL,
+      type: 'account_onboarding',
+    })
+    return res.json({ url: link.url, stripeAccountId: accountId })
+  } catch (e) {
+    console.error('[sellers/connect/start]', e)
+    const msg = e instanceof Error ? e.message : String(e)
+    return res.status(502).json({ error: 'stripe_connect_failed', detail: msg.slice(0, 280) })
+  }
+})
+
+app.post('/api/sellers/connect/refresh-status', authRouteLimiter, async (req, res) => {
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.status(401).json({ error: 'auth_required' })
+  const stripeKey = (process.env.STRIPE_SECRET_KEY || '').trim()
+  if (!stripeKey) return res.status(503).json({ error: 'stripe_not_configured' })
+  const seller = await peerListingsStore.getSeller(sk)
+  if (!seller?.stripeAccountId) return res.status(400).json({ error: 'no_connected_account' })
+  try {
+    const Stripe = (await import('stripe')).default
+    const stripe = new Stripe(stripeKey)
+    const acct = await stripe.accounts.retrieve(seller.stripeAccountId)
+    const ok = Boolean(acct.charges_enabled && acct.details_submitted)
+    await peerListingsStore.setSellerOnboardingByUserKey(sk, ok)
+    return res.json({ stripeAccountId: seller.stripeAccountId, onboardingComplete: ok })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    return res.status(502).json({ error: 'stripe_retrieve_failed', detail: msg.slice(0, 280) })
+  }
+})
+
+app.post('/api/sellers/connect/register-dev', authRouteLimiter, async (req, res) => {
+  if (process.env.NODE_ENV === 'production' && process.env.FETCH_ALLOW_CONNECT_REGISTER_DEV !== '1') {
+    return res.status(403).json({ error: 'forbidden' })
+  }
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.status(401).json({ error: 'auth_required' })
+  const id = typeof req.body?.stripeAccountId === 'string' ? req.body.stripeAccountId.trim() : ''
+  if (!id) return res.status(400).json({ error: 'stripe_account_id_required' })
+  await peerListingsStore.upsertSellerStripe(sk, id)
+  await peerListingsStore.setSellerOnboardingByUserKey(sk, true)
+  return res.json({ ok: true, stripeAccountId: id, onboardingComplete: true })
+})
+
+app.get('/api/sellers/me', async (req, res) => {
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.status(401).json({ error: 'auth_required' })
+  const seller = await peerListingsStore.getSeller(sk)
+  return res.json({ seller })
+})
+
+app.get('/api/sellers/me/earnings', async (req, res) => {
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.status(401).json({ error: 'auth_required' })
+  const from = req.query.from ? Number(req.query.from) : undefined
+  const to = req.query.to ? Number(req.query.to) : undefined
+  const ledger = await peerListingsStore.ledgerForSeller(sk, { from, to })
+  const gross = ledger.reduce((s, e) => s + (e.grossCents ?? 0), 0)
+  const fees = ledger.reduce((s, e) => s + (e.feeCents ?? 0), 0)
+  const net = ledger.reduce((s, e) => s + (e.netCents ?? 0), 0)
+  return res.json({ ledger, summary: { grossCents: gross, feeCents: fees, netCents: net, currency: 'AUD' } })
+})
+
 app.post('/api/payments/intents', paymentIntentCreateLimiter, async (req, res) => {
   const meta = req.body?.metadata
   const isHardware =
@@ -1586,6 +2156,29 @@ app.post('/api/payments/intents/:paymentIntentId/confirm', async (req, res) => {
       return res.status(409).json({ error: 'supply_amount_mismatch' })
     }
   }
+  if (paymentIntent.metadata?.type === 'supply_cart') {
+    const storeOrderId = paymentIntent.metadata.storeOrderId
+    if (typeof storeOrderId !== 'string' || !storeOrderId.trim()) {
+      return res.status(400).json({ error: 'invalid_metadata' })
+    }
+    const ord = await storeOrdersStore.getById(storeOrderId.trim())
+    if (!ord) return res.status(400).json({ error: 'store_order_not_found' })
+    if (paymentIntent.amount !== ord.subtotalAud) {
+      return res.status(409).json({ error: 'store_amount_mismatch' })
+    }
+  }
+  if (paymentIntent.metadata?.type === 'listing_order') {
+    const lid = paymentIntent.metadata.listingOrderId
+    if (typeof lid !== 'string' || !lid.trim()) {
+      return res.status(400).json({ error: 'invalid_metadata' })
+    }
+    const lo = await peerListingsStore.getListingOrder(lid.trim())
+    if (!lo) return res.status(400).json({ error: 'listing_order_not_found' })
+    const expectedAud = Math.round(lo.priceCents) / 100
+    if (Math.abs(paymentIntent.amount - expectedAud) > 0.001) {
+      return res.status(409).json({ error: 'listing_amount_mismatch' })
+    }
+  }
   paymentIntent.status = 'succeeded'
   paymentIntent.provider = paymentIntent.provider || 'demo'
   paymentIntent.webhookConfirmedAt = Date.now()
@@ -1637,6 +2230,13 @@ app.post('/api/payments/intents/:paymentIntentId/confirm', async (req, res) => {
     } catch (e) {
       console.error('[hardware-orders] supply append failed', e)
     }
+  }
+  if (paymentIntent.metadata?.type === 'supply_cart' && typeof paymentIntent.metadata.storeOrderId === 'string') {
+    await finalizeSupplyStoreOrderPaid(paymentIntent.metadata.storeOrderId.trim(), paymentIntent.id)
+  }
+  if (paymentIntent.metadata?.type === 'listing_order' && typeof paymentIntent.metadata.listingOrderId === 'string') {
+    const lo = await peerListingsStore.getListingOrder(paymentIntent.metadata.listingOrderId.trim())
+    if (lo) await finalizeListingOrderPaidCore(lo, paymentIntent.id)
   }
   marketplaceStore.materializeState(state)
   await marketplaceStore.writeState(state)

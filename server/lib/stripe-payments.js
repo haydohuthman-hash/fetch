@@ -64,6 +64,18 @@ export function stripeMetadataForIntent(bookingId, intentMetadata) {
       meta.qty =
         typeof qty === 'number' && Number.isFinite(qty) ? String(Math.min(20, Math.max(1, Math.floor(qty)))) : '1'
     }
+    if (intentMetadata.type === 'supply_cart') {
+      meta.checkout = 'supply_cart'
+      if (typeof intentMetadata.storeOrderId === 'string') {
+        meta.storeOrderId = intentMetadata.storeOrderId.slice(0, 120)
+      }
+    }
+    if (intentMetadata.type === 'listing_order') {
+      meta.checkout = 'listing_order'
+      if (typeof intentMetadata.listingOrderId === 'string') {
+        meta.listingOrderId = intentMetadata.listingOrderId.slice(0, 120)
+      }
+    }
   }
   return meta
 }
@@ -86,7 +98,7 @@ export function localRecordFromStripePaymentIntent(stripePi, ctx) {
     bookingId: ctx.bookingId,
     metadata: ctx.metadata && typeof ctx.metadata === 'object' ? ctx.metadata : null,
     status,
-    amount: Math.max(0, Math.round(ctx.amountAud || 0)),
+    amount: Math.max(0, Math.round((Number(ctx.amountAud) || 0) * 100) / 100),
     currency: ctx.currency || 'AUD',
     paymentMethodId: null,
     clientSecret: stripePi.client_secret,
@@ -117,6 +129,33 @@ export async function createStripePaymentIntentOnStripe(stripe, args) {
     amount: amountCents,
     currency: 'aud',
     automatic_payment_methods: { enabled: true },
+    metadata,
+  })
+}
+
+/**
+ * Destination charge with application fee (Stripe Connect).
+ * @param {import('stripe').Stripe} stripe
+ * @param {{
+ *   amountCents: number
+ *   applicationFeeCents: number
+ *   destinationAccountId: string
+ *   metadata: object | null
+ * }} args
+ */
+export async function createStripeConnectPaymentIntent(stripe, args) {
+  const amountCents = Math.max(1, Math.round(Number(args.amountCents) || 0))
+  let feeCents = Math.max(0, Math.round(Number(args.applicationFeeCents) || 0))
+  if (feeCents >= amountCents) feeCents = Math.max(0, amountCents - 1)
+  const dest = String(args.destinationAccountId || '').trim()
+  if (!dest) throw new Error('stripe_connect_destination_required')
+  const metadata = stripeMetadataForIntent(null, args.metadata)
+  return stripe.paymentIntents.create({
+    amount: amountCents,
+    currency: 'aud',
+    automatic_payment_methods: { enabled: true },
+    application_fee_amount: feeCents,
+    transfer_data: { destination: dest },
     metadata,
   })
 }

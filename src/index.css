@@ -162,53 +162,86 @@ html[data-fetch-theme='dark'] .fetch-home-phone-stage {
   animation-delay: 630ms;
 }
 
-/* Marketplace header: Fetch eyes — three blinks then glance left / right (one-shot). */
+/* Marketplace header: Fetch eyes — slow, soft blinks + gentle drifting pupils (loops). */
 @keyframes fetch-marketplace-eyes-blink {
   0%,
-  8%,
-  12%,
-  20%,
-  24%,
-  32%,
-  36%,
-  100% {
+  6% {
     transform: scaleY(1);
   }
-  10%,
-  22%,
-  34% {
-    transform: scaleY(0.08);
+  8% {
+    transform: scaleY(0.72);
+  }
+  10.2% {
+    transform: scaleY(0.06);
+  }
+  12.5% {
+    transform: scaleY(0.58);
+  }
+  15%,
+  38% {
+    transform: scaleY(1);
+  }
+  40% {
+    transform: scaleY(0.68);
+  }
+  42% {
+    transform: scaleY(0.06);
+  }
+  44.5% {
+    transform: scaleY(0.52);
+  }
+  47%,
+  68% {
+    transform: scaleY(1);
+  }
+  70% {
+    transform: scaleY(0.75);
+  }
+  72% {
+    transform: scaleY(0.07);
+  }
+  74.5% {
+    transform: scaleY(0.55);
+  }
+  77%,
+  100% {
+    transform: scaleY(1);
   }
 }
 
 @keyframes fetch-marketplace-eyes-look {
   0%,
-  38% {
-    transform: translateX(0);
-  }
-  48% {
-    transform: translateX(-2.65px);
-  }
-  62% {
-    transform: translateX(2.65px);
-  }
-  78%,
   100% {
-    transform: translateX(0);
+    transform: translate(0, 0);
+  }
+  18% {
+    transform: translate(-1.35px, 0.28px);
+  }
+  34% {
+    transform: translate(0.45px, -0.22px);
+  }
+  52% {
+    transform: translate(1.5px, 0.18px);
+  }
+  68% {
+    transform: translate(-0.55px, -0.2px);
+  }
+  84% {
+    transform: translate(0.35px, 0.12px);
   }
 }
 
 .fetch-marketplace-eyes-intro__blink {
   transform-origin: 12px 12px;
   transform-box: fill-box;
-  animation: fetch-marketplace-eyes-blink 1.25s ease-in-out forwards;
+  animation: fetch-marketplace-eyes-blink 16s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
 }
 
 .fetch-marketplace-eyes-intro__pupils {
   transform-origin: 12px 12px;
   transform-box: fill-box;
-  animation: fetch-marketplace-eyes-look 2.35s ease-in-out forwards;
-  animation-delay: 1.05s;
+  animation: fetch-marketplace-eyes-look 20s cubic-bezier(0.42, 0, 0.58, 1) infinite;
+  animation-delay: 0.8s;
 }
 
 @media (prefers-reduced-motion: reduce) {

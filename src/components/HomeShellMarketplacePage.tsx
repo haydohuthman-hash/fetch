@@ -20,7 +20,11 @@ import {
   type SupplyCategoryId,
   type SupplyProduct,
 } from '../lib/suppliesCatalog'
+import { waitForPaymentIntentServerConfirmed } from '../lib/booking/api'
+import { confirmDemoPaymentIntent, isStripePublishableConfigured } from '../lib/paymentCheckout'
+import { storeCheckout, syncCheckoutCustomerSession } from '../lib/storeApi'
 import { FetchEyesMarketplaceIntroIcon } from './icons/HomeShellNavIcons'
+import { FetchStripePaymentElement } from './FetchStripePaymentElement'
 
 export type HomeShellMarketplacePageProps = {
   bottomNav: React.ReactNode
@@ -304,6 +308,14 @@ function HomeShellMarketplacePageInner({ bottomNav }: HomeShellMarketplacePagePr
   const [checkoutName, setCheckoutName] = useState('')
   const [checkoutEmail, setCheckoutEmail] = useState('')
   const [checkoutAddress, setCheckoutAddress] = useState('')
+  const [checkoutBusy, setCheckoutBusy] = useState(false)
+  const [checkoutError, setCheckoutError] = useState<string | null>(null)
+  const [stripeStoreCheckout, setStripeStoreCheckout] = useState<{
+    clientSecret: string
+    paymentIntentId: string
+    storeOrderId: string
+  } | null>(null)
+  const [completedOrderId, setCompletedOrderId] = useState<string | null>(null)
   const [cartEnterLoading, setCartEnterLoading] = useState(false)
   const [cartOpenSeq, setCartOpenSeq] = useState(0)
   const [marketplaceBootLoading, setMarketplaceBootLoading] = useState(true)
@@ -382,6 +394,9 @@ function HomeShellMarketplacePageInner({ bottomNav }: HomeShellMarketplacePagePr
   }, [])
 
   const goBrowse = useCallback(() => {
+    setCompletedOrderId(null)
+    setStripeStoreCheckout(null)
+    setCheckoutError(null)
     setSubView('browse')
     setBrowseShelf('categories')
   }, [])
@@ -392,13 +407,60 @@ function HomeShellMarketplacePageInner({ bottomNav }: HomeShellMarketplacePagePr
   }, [])
   const goCheckout = useCallback(() => setSubView('checkout'), [])
 
-  const placeDemoOrder = useCallback(() => {
-    setCartQtyById({})
-    setCheckoutName('')
-    setCheckoutEmail('')
-    setCheckoutAddress('')
-    setSubView('orderComplete')
-  }, [])
+  const placeStoreOrder = useCallback(async () => {
+    if (cartLines.length === 0) return
+    setCheckoutBusy(true)
+    setCheckoutError(null)
+    setStripeStoreCheckout(null)
+    try {
+      await syncCheckoutCustomerSession(checkoutEmail)
+      const lines = cartLines.map(({ product, qty }) => ({ productId: product.id, qty }))
+      const idem =
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `idem_${Date.now()}_${Math.random().toString(36).slice(2)}`
+      const { storeOrder, paymentIntent } = await storeCheckout(
+        {
+          lines,
+          shipping: {
+            name: checkoutName,
+            email: checkoutEmail,
+            address: checkoutAddress,
+          },
+        },
+        idem,
+      )
+      if (paymentIntent.provider === 'stripe') {
+        if (!isStripePublishableConfigured()) {
+          setCheckoutError(
+            'Stripe is enabled on the server. Set VITE_STRIPE_PUBLISHABLE_KEY in the app env for checkout.',
+          )
+          return
+        }
+        if (!paymentIntent.clientSecret) {
+          setCheckoutError('Missing Stripe client secret.')
+          return
+        }
+        setStripeStoreCheckout({
+          clientSecret: paymentIntent.clientSecret,
+          paymentIntentId: paymentIntent.id,
+          storeOrderId: storeOrder.id,
+        })
+        return
+      }
+      await confirmDemoPaymentIntent(paymentIntent)
+      setCompletedOrderId(storeOrder.id)
+      setCartQtyById({})
+      setCheckoutName('')
+      setCheckoutEmail('')
+      setCheckoutAddress('')
+      setSubView('orderComplete')
+    } catch (e) {
+      setCheckoutError(e instanceof Error ? e.message : 'Checkout failed')
+    } finally {
+      setCheckoutBusy(false)
+    }
+  }, [cartLines, checkoutAddress, checkoutEmail, checkoutName])
 
   useEffect(() => {
     if (!bundleSheet) return
@@ -944,20 +1006,73 @@ function HomeShellMarketplacePageInner({ bottomNav }: HomeShellMarketplacePagePr
                       placeholder="Street, suburb, state, postcode"
                     />
                   </label>
+                  {checkoutError ? (
+                    <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[12px] font-medium text-red-800">
+                      {checkoutError}
+                    </p>
+                  ) : null}
                   <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50/80 px-4 py-3">
                     <p className="text-[12px] font-semibold text-zinc-700">Payment</p>
                     <p className="mt-1 text-[13px] leading-snug text-zinc-500">
-                      Demo checkout — no card is charged. A real flow would open payment here.
+                      {stripeStoreCheckout && import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY?.trim()
+                        ? 'Pay securely with your card. Totals are set by the server from the catalog.'
+                        : 'Uses your saved card from Account when the server is in demo mode; otherwise Stripe card form below when publishable key is set.'}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    disabled={!checkoutValid || cartLines.length === 0}
-                    className="w-full rounded-xl bg-zinc-900 py-3.5 text-[15px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40 active:opacity-90"
-                    onClick={placeDemoOrder}
-                  >
-                    Place order
-                  </button>
+                  {stripeStoreCheckout && import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY?.trim() ? (
+                    <div className="rounded-2xl border border-zinc-200 bg-zinc-950 px-4 py-4">
+                      <FetchStripePaymentElement
+                        publishableKey={import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY.trim()}
+                        clientSecret={stripeStoreCheckout.clientSecret}
+                        submitLabel={checkoutBusy ? 'Confirming…' : 'Pay now'}
+                        disabled={checkoutBusy}
+                        errorText={checkoutError}
+                        onError={(msg) => setCheckoutError(msg)}
+                        onSuccess={() => {
+                          void (async () => {
+                            setCheckoutBusy(true)
+                            setCheckoutError(null)
+                            try {
+                              await waitForPaymentIntentServerConfirmed(stripeStoreCheckout.paymentIntentId)
+                              setCompletedOrderId(stripeStoreCheckout.storeOrderId)
+                              setStripeStoreCheckout(null)
+                              setCartQtyById({})
+                              setCheckoutName('')
+                              setCheckoutEmail('')
+                              setCheckoutAddress('')
+                              setSubView('orderComplete')
+                            } catch (e) {
+                              setCheckoutError(
+                                e instanceof Error ? e.message : 'Payment confirmation failed.',
+                              )
+                            } finally {
+                              setCheckoutBusy(false)
+                            }
+                          })()
+                        }}
+                      />
+                      <button
+                        type="button"
+                        disabled={checkoutBusy}
+                        className="mt-3 w-full text-[12px] font-medium text-zinc-400 underline decoration-zinc-600"
+                        onClick={() => {
+                          setStripeStoreCheckout(null)
+                          setCheckoutError(null)
+                        }}
+                      >
+                        Cancel card payment
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={!checkoutValid || cartLines.length === 0 || checkoutBusy}
+                      className="w-full rounded-xl bg-zinc-900 py-3.5 text-[15px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40 active:opacity-90"
+                      onClick={() => void placeStoreOrder()}
+                    >
+                      {checkoutBusy ? 'Processing…' : 'Place order'}
+                    </button>
+                  )}
                 </div>
               </div>
             ) : (
@@ -973,9 +1088,12 @@ function HomeShellMarketplacePageInner({ bottomNav }: HomeShellMarketplacePagePr
                     />
                   </svg>
                 </div>
-                <p className="text-[17px] font-bold text-zinc-900">Thanks — your demo order is placed</p>
+                <p className="text-[17px] font-bold text-zinc-900">Thanks — your order is placed</p>
+                {completedOrderId ? (
+                  <p className="mt-2 font-mono text-[13px] text-zinc-600">Order {completedOrderId}</p>
+                ) : null}
                 <p className="mt-2 max-w-xs text-[14px] leading-relaxed text-zinc-500">
-                  We&apos;ll email confirmation when checkout is wired to payments and fulfilment.
+                  You&apos;ll receive confirmation by email once fulfilment is wired to your address.
                 </p>
                 <button
                   type="button"
