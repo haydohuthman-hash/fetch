@@ -4,7 +4,8 @@ const MIN_SKELETON_MS = 880
 const MAX_WAIT_MS = 5600
 const EXIT_MS = 420
 
-const MAP_HEADER_H = 'calc(env(safe-area-inset-top, 0px) + 3.5rem)'
+/** Matches home map header with wordmark + address row (`FetchHomeStepOne`). */
+const MAP_HEADER_H = 'calc(env(safe-area-inset-top, 0px) + 7.5rem)'
 
 type FetchBootstrapOverlayProps = {
   open: boolean
@@ -79,11 +80,14 @@ export function FetchBootstrapOverlay({
     >
       <div className="fetch-bootstrap-home-mirror relative flex min-h-dvh min-h-[100dvh] w-full flex-col">
         <div className="fetch-bootstrap-map-shell flex min-h-0 flex-1 flex-col">
-          <header className="fetch-bootstrap-skel-system-header pointer-events-none fixed left-0 right-0 top-0 z-[46] flex h-[var(--fetch-map-header-h)] flex-col bg-white pt-[env(safe-area-inset-top,0px)]">
-            <div className="fetch-bootstrap-skel-stagger mx-auto grid h-full min-h-0 w-full max-w-[min(100%,36rem)] flex-1 grid-cols-3 items-center gap-2 px-4">
+          <header className="fetch-bootstrap-skel-system-header pointer-events-none fixed left-0 right-0 top-0 z-[46] flex h-[var(--fetch-map-header-h)] flex-col justify-start bg-white pt-[env(safe-area-inset-top,0px)]">
+            <div className="fetch-bootstrap-skel-stagger mx-auto grid min-h-[2.875rem] w-full max-w-[min(100%,36rem)] shrink-0 grid-cols-3 items-center gap-2 px-4 pt-1.5 pb-0.5">
               <div className="fetch-bootstrap-skel-chip justify-self-start rounded-full" />
               <div className="fetch-bootstrap-skel-brand justify-self-center rounded-md" />
               <div className="fetch-bootstrap-skel-chip-wide justify-self-end rounded-full" />
+            </div>
+            <div className="fetch-bootstrap-skel-stagger mx-auto w-full max-w-[min(100%,36rem)] shrink-0 px-4 pb-6 pt-1">
+              <div className="fetch-bootstrap-skel-map-header-search h-11 w-full rounded-[0.875rem]" />
             </div>
           </header>
 

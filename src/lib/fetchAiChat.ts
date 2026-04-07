@@ -113,7 +113,7 @@ function parseFetchAiChatNavigation(raw: unknown): FetchAiChatNavigation | null 
   }
 }
 
-/** Structured UI affordance from `/api/fetch-ai/chat` (Neural Field uses `choices`; extend with union later). */
+/** Structured UI affordance from `POST /api/chat` (Neural Field uses `choices`; extend with union later). */
 export type FetchAiChatInteraction =
   | {
       type: 'choices'
@@ -158,7 +158,7 @@ export type PostFetchAiChatOptions = {
 }
 
 /**
- * Fullscreen Fetch AI voice/chat turn. Calls the Node server directly (CORS), same base as booking API.
+ * Fullscreen Fetch AI voice/chat turn. `POST /api/chat` on same origin (or `VITE_FETCH_API_BASE_URL`).
  */
 export async function postFetchAiChat(
   messages: FetchAiChatMessage[],
@@ -188,38 +188,11 @@ export async function postFetchAiChat(
     }
   }
 
-  const url = fetchApiAbsoluteUrl('/api/fetch-ai/chat')
+  const url = fetchApiAbsoluteUrl('/api/chat')
 
   try {
     let res: Response
     try {
-      // #region agent log
-      fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Debug-Session-Id': '217219',
-        },
-        body: JSON.stringify({
-          sessionId: '217219',
-          hypothesisId: 'H3',
-          location: 'fetchAiChat.ts:pre-fetch',
-          message: 'postFetchAiChat request',
-          data: {
-            urlHost: (() => {
-              try {
-                return new URL(url, window.location.origin).origin
-              } catch {
-                return 'parse_err'
-              }
-            })(),
-            path: '/api/fetch-ai/chat',
-            msgCount: messages.length,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {})
-      // #endregion
       if (perfRunId) {
         fetchPerfMark(perfRunId, '3_client_request_sent', { route: 'fetch_ai_chat' })
       }
@@ -245,23 +218,6 @@ export async function postFetchAiChat(
     } catch (err) {
       const name = err instanceof Error ? err.name : ''
       const msg = err instanceof Error ? err.message : String(err)
-      // #region agent log
-      fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Debug-Session-Id': '217219',
-        },
-        body: JSON.stringify({
-          sessionId: '217219',
-          hypothesisId: 'H5',
-          location: 'fetchAiChat.ts:fetch-catch',
-          message: 'fetch threw',
-          data: { name, msg },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {})
-      // #endregion
       if (name === 'AbortError' || msg.toLowerCase().includes('abort')) {
         throw err instanceof Error ? err : new Error('AbortError')
       }
@@ -284,52 +240,11 @@ export async function postFetchAiChat(
     if (!res.ok) {
       const errCode =
         typeof data.error === 'string' ? data.error : `chat_http_${res.status}`
-      // #region agent log
-      fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Debug-Session-Id': '217219',
-        },
-        body: JSON.stringify({
-          sessionId: '217219',
-          hypothesisId: 'H4',
-          location: 'fetchAiChat.ts:!res.ok',
-          message: 'chat HTTP error body',
-          data: {
-            status: res.status,
-            errCode,
-            detail:
-              typeof (data as { detail?: unknown }).detail === 'string'
-                ? (data as { detail: string }).detail.slice(0, 160)
-                : null,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {})
-      // #endregion
       throw new Error(errCode)
     }
 
     const reply = typeof data.reply === 'string' ? data.reply.trim() : ''
     if (!reply) {
-      // #region agent log
-      fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Debug-Session-Id': '217219',
-        },
-        body: JSON.stringify({
-          sessionId: '217219',
-          hypothesisId: 'H2',
-          location: 'fetchAiChat.ts:empty_reply',
-          message: '200 but empty reply',
-          data: { keys: Object.keys(data) },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {})
-      // #endregion
       throw new Error('empty_reply')
     }
 
@@ -386,7 +301,7 @@ function parseSseBlock(block: string): { event: string; data: string } {
 }
 
 /**
- * Same contract as `postFetchAiChat`, but uses `POST /api/fetch-ai/chat/stream` (SSE).
+ * Same contract as `postFetchAiChat`, but uses `POST /api/chat/stream` (SSE).
  * Structured fields (`navigation`, `interaction`, `bookingPatch`) arrive only on the final `complete` event.
  */
 export async function postFetchAiChatStream(
@@ -418,7 +333,7 @@ export async function postFetchAiChatStream(
     }
   }
 
-  const url = fetchApiAbsoluteUrl('/api/fetch-ai/chat/stream')
+  const url = fetchApiAbsoluteUrl('/api/chat/stream')
 
   try {
     let res: Response

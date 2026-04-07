@@ -1,6 +1,6 @@
 /**
  * Filled, rounded icons for home shell nav (bottom bar + peek chrome).
- * Home uses Fetch-style horizontal pill “eyes”; maps + account are solid rounded shapes.
+ * Home uses Fetch-style horizontal pill “eyes”; maps, marketplace, and account are solid shapes.
  */
 
 type IconProps = {
@@ -26,19 +26,6 @@ export function FetchEyesHomeIcon({ className, tight }: IconProps) {
   )
 }
 
-/** Activity / timeline — three rising bars (read as “pulse” at small sizes). */
-export function ActivityNavIconFilled({ className }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        fill="currentColor"
-        d="M5 15.5h3.25v5H5v-5Zm6.375-4.5h3.25v9.5h-3.25V11Zm6.375-3.5h3.25v13h-3.25V7.5Z"
-        opacity="0.92"
-      />
-    </svg>
-  )
-}
-
 /** Rounded filled map pin — softer than the old sharp folded map. */
 export function MapsNavIconFilled({ className, tight }: IconProps) {
   return (
@@ -53,6 +40,29 @@ export function MapsNavIconFilled({ className, tight }: IconProps) {
         d="M12 21.25s-5.75-5.1-5.75-10.5A5.75 5.75 0 1117.75 10.75c0 5.4-5.75 10.5-5.75 10.5z"
       />
       <circle cx="12" cy="10.25" r="2.35" fill="currentColor" fillOpacity="0.32" />
+    </svg>
+  )
+}
+
+/** Storefront + awning — marketplace tab. */
+export function MarketplaceNavIconFilled({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        fill="currentColor"
+        d="M5.25 10.25h13.5v9.5a1.75 1.75 0 01-1.75 1.75H7a1.75 1.75 0 01-1.75-1.75v-9.5z"
+      />
+      <path
+        fill="currentColor"
+        fillOpacity="0.35"
+        d="M4.5 8.5L6 5.75h12l1.5 2.75H4.5z"
+      />
+      <path
+        fill="currentColor"
+        fillOpacity="0.22"
+        d="M4 8.5h16v1.75H4V8.5z"
+      />
+      <rect x="9.25" y="13.5" width="5.5" height="4.25" rx="0.75" fill="currentColor" fillOpacity="0.28" />
     </svg>
   )
 }

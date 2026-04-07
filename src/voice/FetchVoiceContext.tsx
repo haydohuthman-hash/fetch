@@ -13,6 +13,7 @@ import {
 import {
   playVoice,
   primeVoicePlaybackFromUserGesture,
+  speakFetch,
   speakLine,
   stopFetchAssistantPlayback,
   subscribeVoiceSpeechPlaying,
@@ -37,6 +38,8 @@ type FetchVoiceContextValue = {
   toggleMute: () => void
   playEvent: (type: VoiceEventType, options?: VoiceEventOptions) => void
   speakLine: (text: string, options?: FetchSpeakLineOptions) => Promise<void>
+  /** Same premium voice as `speakLine`, but uses `POST /api/voice` and always interrupts current speech. */
+  speakFetch: (text: string) => Promise<void>
   playUiEvent: (event: UiFeedbackEvent) => void
   /** Stop assistant TTS and clear voice-hold UI (e.g. exit brain). */
   stopAssistantPlayback: () => void
@@ -107,6 +110,14 @@ export function FetchVoiceProvider({ children }: { children: React.ReactNode }) 
     [muted],
   )
 
+  const speakFetchAssistant = useCallback(
+    async (text: string) => {
+      if (muted) return
+      await speakFetch(text)
+    },
+    [muted],
+  )
+
   const speakAssistantLine = useCallback(
     async (text: string, options?: FetchSpeakLineOptions) => {
       const { withVoiceHold, ...rest } = options ?? {}
@@ -152,6 +163,7 @@ export function FetchVoiceProvider({ children }: { children: React.ReactNode }) 
       toggleMute,
       playEvent,
       speakLine: speakAssistantLine,
+      speakFetch: speakFetchAssistant,
       playUiEvent,
       stopAssistantPlayback,
     }),
@@ -164,6 +176,7 @@ export function FetchVoiceProvider({ children }: { children: React.ReactNode }) 
       toggleMute,
       playEvent,
       speakAssistantLine,
+      speakFetchAssistant,
       playUiEvent,
       stopAssistantPlayback,
     ],

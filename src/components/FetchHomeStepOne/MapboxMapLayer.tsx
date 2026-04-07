@@ -95,53 +95,29 @@ export function MapboxMapLayer({
   }
 
   const [mapReady, setMapReady] = useState(false)
+  const mapBootReportedRef = useRef(false)
 
   useEffect(() => {
     const el = rootRef.current
     const token = accessToken.trim()
+    mapBootReportedRef.current = false
     if (!el || !token) {
-      // #region agent log
-      fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '7db7f8' },
-        body: JSON.stringify({
-          sessionId: '7db7f8',
-          runId: 'pre-fix',
-          hypothesisId: 'A,E',
-          location: 'MapboxMapLayer.tsx:skip-init',
-          message: 'Mapbox init skipped',
-          data: { hasEl: Boolean(el), tokenLen: token.length },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {})
-      // #endregion
       onJsReadyRef.current?.(false)
       return
     }
 
-    const styleSuffix = FETCH_MAPBOX_STYLE_URL.replace(/^mapbox:\/\/styles\/[^/]+\//, '')
-    // #region agent log
-    fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '7db7f8' },
-      body: JSON.stringify({
-        sessionId: '7db7f8',
-        runId: 'pre-fix',
-        hypothesisId: 'A,B,C',
-        location: 'MapboxMapLayer.tsx:precheck',
-        message: 'Mapbox host before Map()',
-        data: {
-          tokenLen: token.length,
-          hostW: el.clientWidth,
-          hostH: el.clientHeight,
-          styleSuffix,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {})
-    // #endregion
-
     let cancelled = false
+    const reportBootOnce = (ready: boolean) => {
+      if (mapBootReportedRef.current && ready) return
+      if (ready) mapBootReportedRef.current = true
+      onJsReadyRef.current?.(ready)
+    }
+
+    const bootFailsafe = window.setTimeout(() => {
+      if (cancelled) return
+      reportBootOnce(true)
+    }, 16_000)
+
     mapboxgl.accessToken = token
 
     const map = new mapboxgl.Map({
@@ -160,115 +136,43 @@ export function MapboxMapLayer({
     map.touchZoomRotate.disableRotation()
     map.keyboard.disableRotation()
 
-    map.addControl(
-      new mapboxgl.NavigationControl({ showCompass: false, visualizePitch: false }),
-      'top-right',
-    )
-
     mapRef.current = map
 
     if (import.meta.env.DEV) {
       map.getContainer().style.background = 'red'
     }
 
-    requestAnimationFrame(() => {
-      const cv = map.getCanvas()
-      // #region agent log
-      fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '7db7f8' },
-        body: JSON.stringify({
-          sessionId: '7db7f8',
-          runId: 'pre-fix',
-          hypothesisId: 'C',
-          location: 'MapboxMapLayer.tsx:post-construct-raf',
-          message: 'Canvas size after Map()',
-          data: {
-            canvasW: cv?.clientWidth ?? null,
-            canvasH: cv?.clientHeight ?? null,
-            mapLoaded: map.loaded(),
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {})
-      // #endregion
-    })
-
     const onMapError = (e: mapboxgl.ErrorEvent) => {
       const err = e.error as Error | undefined
-      // #region agent log
-      fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '7db7f8' },
-        body: JSON.stringify({
-          sessionId: '7db7f8',
-          runId: 'pre-fix',
-          hypothesisId: 'A,B,D',
-          location: 'MapboxMapLayer.tsx:map-error',
-          message: 'Mapbox map error',
-          data: {
-            msg: err?.message ?? String(e),
-            type: err?.name ?? 'unknown',
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {})
-      // #endregion
+      if (import.meta.env.DEV) {
+        // eslint-disable-next-line no-console
+        console.warn('[MapboxMapLayer]', err?.message ?? e)
+      }
+      queueMicrotask(() => reportBootOnce(true))
     }
     map.on('error', onMapError)
 
     const onLoad = () => {
       if (cancelled) return
-      // #region agent log
-      fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '7db7f8' },
-        body: JSON.stringify({
-          sessionId: '7db7f8',
-          runId: 'pre-fix',
-          hypothesisId: 'E',
-          location: 'MapboxMapLayer.tsx:map-load',
-          message: 'Mapbox load event',
-          data: { styleLoaded: map.isStyleLoaded() },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {})
-      // #endregion
+      window.clearTimeout(bootFailsafe)
       if (import.meta.env.DEV) {
         map.getContainer().style.background = ''
       }
       requestAnimationFrame(() => map.resize())
       window.setTimeout(() => map.resize(), 300)
 
-      onJsReadyRef.current?.(true)
+      reportBootOnce(true)
       onMapReadyRef.current?.(map)
       setMapReady(true)
     }
     map.once('load', onLoad)
-
-    map.once('idle', () => {
-      // #region agent log
-      fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '7db7f8' },
-        body: JSON.stringify({
-          sessionId: '7db7f8',
-          runId: 'pre-fix',
-          hypothesisId: 'E',
-          location: 'MapboxMapLayer.tsx:map-idle',
-          message: 'Mapbox idle',
-          data: { fullyLoaded: map.loaded() },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {})
-      // #endregion
-    })
 
     const ro = new ResizeObserver(() => map.resize())
     ro.observe(el)
 
     return () => {
       cancelled = true
+      window.clearTimeout(bootFailsafe)
       ro.disconnect()
       userMarkerRef.current?.remove()
       userMarkerRef.current = null
@@ -285,6 +189,7 @@ export function MapboxMapLayer({
       map.off('error', onMapError)
       map.remove()
       setMapReady(false)
+      mapBootReportedRef.current = false
       onJsReadyRef.current?.(false)
     }
   }, [accessToken])
@@ -348,7 +253,7 @@ export function MapboxMapLayer({
   return (
     <div
       ref={rootRef}
-      className="pointer-events-auto z-0 box-border min-w-0 min-h-[320px]"
+      className="pointer-events-auto z-0 box-border min-h-[320px] min-w-0 overflow-hidden rounded-t-[1.375rem]"
       style={{
         position: 'absolute',
         inset: 0,

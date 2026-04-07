@@ -22,6 +22,7 @@ import {
   markStripeWebhookEventProcessed,
 } from './lib/stripe-payments.js'
 import { getHardwareSkuPriceAud } from './lib/hardware-catalog.js'
+import { getSupplySkuPriceAud } from './lib/supplies-catalog.js'
 import { createHardwareOrdersStore } from './lib/hardware-orders-store.js'
 import { createMarketplaceStore } from './lib/marketplace-store.js'
 import { createMarketplaceEventBus } from './lib/marketplace-events.js'
@@ -56,27 +57,6 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 /** Repo root (parent of server/), so .env loads even when cwd is not the project root. */
 const projectRoot = path.resolve(__dirname, '..')
-
-/** Debug NDJSON (session 59c911) — workspace file locally; /tmp fallback on serverless. */
-function agentDebugLog(payload) {
-  if (process.env.FETCH_DEBUG_LOG !== '1') return
-  const line = JSON.stringify({
-    sessionId: '59c911',
-    timestamp: Date.now(),
-    ...payload,
-  })
-  for (const filePath of [
-    path.join(projectRoot, 'debug-59c911.log'),
-    path.join('/tmp', 'debug-59c911.log'),
-  ]) {
-    try {
-      fs.appendFileSync(filePath, `${line}\n`)
-      return
-    } catch {
-      /* try next */
-    }
-  }
-}
 
 dotenv.config({ path: path.join(projectRoot, '.env') })
 dotenv.config({ path: path.join(projectRoot, '.env.local'), override: true })
@@ -133,6 +113,7 @@ app.get('/api/healthz', sendHealthz)
 
 app.get('/readyz', sendReadyz)
 app.get('/api/readyz', sendReadyz)
+/** LLM keys: set `OPENAI_API_KEY` (and optional `ANTHROPIC_API_KEY`) on Vercel — never `VITE_*`. */
 const OPENAI_API_KEY =
   process.env.OPENAI_API_KEY || process.env.VITE_OPENAI_API_KEY
 /** Google Cloud Text-to-Speech API key (enable “Cloud Text-to-Speech API” in GCP). */
@@ -411,6 +392,27 @@ async function buildReviewedBookingPayload(payload) {
     review,
   }
 }
+
+/**
+ * Vercel optional catch-all (`api/[[...slug]].js`) may invoke Express with a path that omits the `/api` prefix.
+ * Normalize so existing `/api/...` Express routes match in production.
+ */
+function vercelRestoreApiRequestPath(req, _res, next) {
+  if (process.env.VERCEL !== '1') return next()
+  const raw = typeof req.url === 'string' ? req.url : '/'
+  if (raw.startsWith('/api')) return next()
+  const pathOnly = raw.split('?')[0] || '/'
+  if (
+    /^\/(fetch-ai|scan|auth|marketplace|payments|chat|voice|tts|healthz|readyz)(\/|$)/.test(
+      pathOnly,
+    )
+  ) {
+    req.url = '/api/' + raw.replace(/^\//, '')
+  }
+  next()
+}
+
+app.use(vercelRestoreApiRequestPath)
 
 app.use(
   cors({
@@ -707,11 +709,8 @@ async function handleGoogleTtsPost(req, res) {
   return res.send(audio)
 }
 
-/** Legacy path — same synthesis as `POST /api/tts`. */
-app.post('/api/voice/tts', handleGoogleTtsPost)
-
-/** Canonical TTS: `POST { text }` → `audio/mpeg` (Google Cloud TTS, server-side key only). */
-app.post('/api/tts', handleGoogleTtsPost)
+/** TTS: `POST { text }` → `audio/mpeg` (Google Cloud TTS, server-side key only). */
+app.post(['/api/voice', '/api/voice/tts', '/api/tts'], handleGoogleTtsPost)
 
 app.post('/api/fetch-ai/review', async (req, res) => {
   try {
@@ -1202,7 +1201,7 @@ async function runFetchAiChatPipeline(body) {
   }
 }
 
-app.post('/api/fetch-ai/chat', async (req, res) => {
+app.post(['/api/fetch-ai/chat', '/api/chat'], async (req, res) => {
   const perfRun = readPerfRun(req)
   const perfT0 = Date.now()
   if (perfRun) perfLog(perfRun, '4_backend_request_received', { route: 'fetch_ai_chat' })
@@ -1221,33 +1220,10 @@ app.post('/api/fetch-ai/chat', async (req, res) => {
   }
 
   if (!pipeline.ok) {
-    if (pipeline.httpStatus === 400 && pipeline.httpBody?.error === 'no_valid_messages') {
-      agentDebugLog({
-        hypothesisId: 'H4',
-        location: 'server/index.js:chat',
-        message: 'reject no_valid_messages',
-        data: {},
-      })
-    }
-    if (pipeline.httpStatus === 503) {
-      agentDebugLog({
-        hypothesisId: 'H1',
-        location: 'server/index.js:chat',
-        message: 'reject no llm key',
-        data: {},
-      })
-    }
     return res.status(pipeline.httpStatus).json(pipeline.httpBody)
   }
 
   const { nonEmpty, navBundle, context_build_ms, turn, openai_ms } = pipeline
-
-  agentDebugLog({
-    hypothesisId: 'H1-H5',
-    location: 'server/index.js:chat',
-    message: 'chat accepted',
-    data: { nonEmptyCount: nonEmpty.length, lastUserLen: nonEmpty[nonEmpty.length - 1]?.content?.length },
-  })
 
   try {
     if (perfRun) {
@@ -1272,12 +1248,6 @@ app.post('/api/fetch-ai/chat', async (req, res) => {
     }
 
     if (!turn.ok) {
-      agentDebugLog({
-        hypothesisId: 'H2',
-        location: 'server/index.js:chat',
-        message: 'llm non-ok',
-        data: { error: turn.error, status: turn.status },
-      })
       attachPerfTimingHeader(res, perfRun, {
         route: 'fetch_ai_chat',
         context_build_ms,
@@ -1305,19 +1275,6 @@ app.post('/api/fetch-ai/chat', async (req, res) => {
       return res.status(502).json({ error: 'empty_model_reply' })
     }
 
-    agentDebugLog({
-      hypothesisId: 'H1-H5',
-      location: 'server/index.js:chat',
-      message: 'chat success',
-      data: {
-        replyLen: reply.length,
-        navActive: Boolean(navBundle.navigation?.active),
-        interaction: Boolean(interaction),
-        bookingPatch: Boolean(bookingPatch),
-        provider: turn.providerUsed,
-      },
-    })
-
     attachPerfTimingHeader(res, perfRun, {
       route: 'fetch_ai_chat',
       context_build_ms,
@@ -1332,14 +1289,6 @@ app.post('/api/fetch-ai/chat', async (req, res) => {
     }
     return res.json(payloadOut)
   } catch (error) {
-    agentDebugLog({
-      hypothesisId: 'H5',
-      location: 'server/index.js:chat',
-      message: 'chat catch',
-      data: {
-        err: error instanceof Error ? error.message : String(error),
-      },
-    })
     console.error('[fetch-ai/chat] failed', error)
     attachPerfTimingHeader(res, perfRun, {
       route: 'fetch_ai_chat',
@@ -1353,7 +1302,7 @@ app.post('/api/fetch-ai/chat', async (req, res) => {
   }
 })
 
-app.post('/api/fetch-ai/chat/stream', async (req, res) => {
+app.post(['/api/fetch-ai/chat/stream', '/api/chat/stream'], async (req, res) => {
   const perfRun = readPerfRun(req)
   const perfT0 = Date.now()
   if (perfRun) perfLog(perfRun, '4_backend_request_received', { route: 'fetch_ai_chat_stream' })
@@ -1449,6 +1398,11 @@ app.post('/api/payments/intents', paymentIntentCreateLimiter, async (req, res) =
     typeof meta === 'object' &&
     meta.type === 'hardware' &&
     typeof meta.sku === 'string'
+  const isSupply =
+    meta &&
+    typeof meta === 'object' &&
+    meta.type === 'supply' &&
+    typeof meta.sku === 'string'
 
   let bookingId = typeof req.body?.bookingId === 'string' ? req.body.bookingId : null
   const requestedAmount =
@@ -1469,6 +1423,17 @@ app.post('/api/payments/intents', paymentIntentCreateLimiter, async (req, res) =
       Number.isFinite(qtyRaw) && qtyRaw >= 1 ? Math.min(20, Math.floor(qtyRaw)) : 1
     amount = Math.round(unit * qty)
     intentMetadata = { type: 'hardware', sku: meta.sku, qty }
+  } else if (isSupply) {
+    bookingId = null
+    const unit = getSupplySkuPriceAud(meta.sku)
+    if (unit == null) {
+      return res.status(400).json({ error: 'unknown_supply_sku' })
+    }
+    const qtyRaw = Number(meta.qty)
+    const qty =
+      Number.isFinite(qtyRaw) && qtyRaw >= 1 ? Math.min(20, Math.floor(qtyRaw)) : 1
+    amount = Math.round(unit * qty)
+    intentMetadata = { type: 'supply', sku: meta.sku, qty }
   } else {
     const booking =
       bookingId ? state.bookings.find((row) => row.id === bookingId) ?? null : null
@@ -1606,6 +1571,21 @@ app.post('/api/payments/intents/:paymentIntentId/confirm', async (req, res) => {
       return res.status(409).json({ error: 'hardware_amount_mismatch' })
     }
   }
+  if (paymentIntent.metadata?.type === 'supply') {
+    const sku = paymentIntent.metadata.sku
+    const unit = getSupplySkuPriceAud(sku)
+    if (unit == null) {
+      return res.status(400).json({ error: 'unknown_supply_sku' })
+    }
+    const qty =
+      typeof paymentIntent.metadata.qty === 'number' && paymentIntent.metadata.qty >= 1
+        ? Math.min(20, Math.floor(paymentIntent.metadata.qty))
+        : 1
+    const expected = Math.round(unit * qty)
+    if (paymentIntent.amount !== expected) {
+      return res.status(409).json({ error: 'supply_amount_mismatch' })
+    }
+  }
   paymentIntent.status = 'succeeded'
   paymentIntent.provider = paymentIntent.provider || 'demo'
   paymentIntent.webhookConfirmedAt = Date.now()
@@ -1638,9 +1618,24 @@ app.post('/api/payments/intents/:paymentIntentId/confirm', async (req, res) => {
         qty: paymentIntent.metadata.qty ?? 1,
         amountAud: paymentIntent.amount,
         status: 'paid',
+        lineKind: 'hardware',
       })
     } catch (e) {
       console.error('[hardware-orders] append failed', e)
+    }
+  }
+  if (paymentIntent.metadata?.type === 'supply') {
+    try {
+      await hardwareOrdersStore.appendOrder({
+        paymentIntentId: paymentIntent.id,
+        sku: paymentIntent.metadata.sku,
+        qty: paymentIntent.metadata.qty ?? 1,
+        amountAud: paymentIntent.amount,
+        status: 'paid',
+        lineKind: 'supply',
+      })
+    } catch (e) {
+      console.error('[hardware-orders] supply append failed', e)
     }
   }
   marketplaceStore.materializeState(state)

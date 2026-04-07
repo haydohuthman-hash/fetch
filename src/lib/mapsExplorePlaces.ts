@@ -26,6 +26,8 @@ const ADVENTURE_PLACE_TYPES = [
   'natural_feature',
 ] as const
 
+const RESTAURANT_PLACE_TYPES = ['restaurant', 'cafe', 'meal_takeaway'] as const
+
 /** Default nearby radius (metres). */
 export const MAPS_EXPLORE_NEARBY_RADIUS_M = 4200
 
@@ -65,7 +67,7 @@ export function placeTypeToExploreKind(type: string): ExploreMapPoiKind {
   if (type === 'natural_feature') return 'natural'
   if (type === 'tourist_attraction') return 'adventure'
   if (type === 'gas_station') return 'fuel'
-  if (type === 'restaurant') return 'food'
+  if (type === 'restaurant' || type === 'meal_takeaway') return 'food'
   if (type === 'cafe') return 'cafe'
   if (type === 'supermarket' || type === 'store') return 'shop'
   return 'nearby'
@@ -179,6 +181,20 @@ export function runAdventureNearbyBatch(
     location,
     radiusMeters,
     ADVENTURE_PLACE_TYPES as unknown as string[],
+    8,
+  )
+}
+
+export function runRestaurantNearbyBatch(
+  service: google.maps.places.PlacesService,
+  location: google.maps.LatLngLiteral,
+  radiusMeters: number = MAPS_EXPLORE_NEARBY_RADIUS_M,
+): Promise<ExploreMapPoi[]> {
+  return nearbySearchByTypes(
+    service,
+    location,
+    radiusMeters,
+    RESTAURANT_PLACE_TYPES as unknown as string[],
     8,
   )
 }

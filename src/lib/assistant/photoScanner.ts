@@ -1,4 +1,5 @@
 import type { JobLane } from './types'
+import { fetchApiAbsoluteUrl } from '../fetchApiBase'
 import {
   fetchPerfHeaders,
   fetchPerfMark,
@@ -24,8 +25,6 @@ export type PhotoScanResult = {
   detailedDescription?: string
   error?: string
 }
-
-const DEFAULT_SCAN_API_URL = 'http://127.0.0.1:8787/api/scan'
 
 function normItem(raw: string): string {
   return raw.trim().toLowerCase().replace(/[_-]+/g, ' ')
@@ -205,7 +204,8 @@ export async function scanBookingPhotos(
     }
   }
 
-  const endpoint = import.meta.env.VITE_SCAN_API_URL?.trim() || DEFAULT_SCAN_API_URL
+  const endpoint =
+    import.meta.env.VITE_SCAN_API_URL?.trim() || fetchApiAbsoluteUrl('/api/scan')
   const perfRunId = perf?.perfRunId
   try {
     const form = new FormData()

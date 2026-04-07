@@ -47,11 +47,8 @@ export function FakeMapBackground({ variant = 'light' }: { variant?: FakeMapVari
   }
 
   return (
-    <div
-      className="absolute inset-0 overflow-hidden bg-[#f4f6f8]"
-      aria-hidden
-    >
-      <div className="absolute inset-0 bg-gradient-to-br from-[#fafbfc] via-[#f2f5f8] to-[#e8eef4]" />
+    <div className="absolute inset-0 overflow-hidden bg-white" aria-hidden>
+      <div className="absolute inset-0 bg-white" />
       <div
         className="absolute inset-[-12%] opacity-[0.88]"
         style={{

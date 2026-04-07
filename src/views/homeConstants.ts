@@ -71,7 +71,7 @@ export const LANDING_PRIMARY_SERVICES = [
     label: 'Cleaning',
     jobType: 'cleaning' as const,
     tone: 'teal' as const,
-    cardHeading: 'House clean',
+    cardHeading: 'Bond clean',
     fetchPersonalityExample:
       'Hayden, which place are we cleaning — regular tidy or a bond clean?',
   },
@@ -169,6 +169,16 @@ export function junkLiveJobCopy(
   return getSessionPhaseJobCard({ phase: sessionPhaseFromWireStatus(status), driver })
 }
 
-export const IDLE_TO_SLEEPY_MS = 60_000
+/** No “sleepy” orb / sleepy line until this much quiet time. */
+export const IDLE_TO_SLEEPY_MS = 10 * 60_000
+
+/**
+ * After this much quiet time: dog ears + one friendly reminder line (before sleepy at 10m).
+ */
+export const IDLE_TO_FETCH_REMINDER_MS = 60_000
+
+export const FETCH_IDLE_REMINDER_COPY =
+  "If you need anything, I'll fetch it for you."
+
 export const SLEEPY_COPY = "Feeling a bit sleepy. If you need anything, wake me up."
 export const WAKE_COPY = 'Fetch activated. What can I do for you today?'

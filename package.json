@@ -12,7 +12,8 @@
     "test": "tsx --test server/lib/booking-flow.test.js server/llm/fetchChatParse.test.js src/lib/booking/bookingLifecycle.test.ts src/lib/booking/bookingSessionPhase.test.ts src/lib/booking/specialtyItemCatalog.test.ts src/lib/booking/tripSheetPhase.test.ts",
     "test:e2e": "playwright test",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "generate:supply-images": "tsx scripts/generate-supply-product-images.ts"
   },
   "dependencies": {
     "@googlemaps/markerclusterer": "^2.6.2",
@@ -29,7 +30,6 @@
     "pg": "^8.20.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "serverless-http": "^4.0.0",
     "stripe": "^22.0.0"
   },
   "devDependencies": {

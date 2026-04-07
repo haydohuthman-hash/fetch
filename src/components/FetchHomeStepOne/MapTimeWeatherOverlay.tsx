@@ -4,14 +4,20 @@ import { FetchHardwareShopFlow } from '../FetchHardwareShopFlow'
 import { FetchHomeSideMenu } from '../FetchHomeSideMenu'
 import {
   countUnreadHomeAlerts,
-  loadHomeActivities,
   loadHomeAlerts,
   markAllHomeAlertsRead,
-  type HomeActivityEntry,
   type HomeAlertRecord,
 } from '../../lib/homeActivityFeed'
 import type { HardwareProduct } from '../../lib/hardwareCatalog'
 import { HARDWARE_PRODUCTS } from '../../lib/hardwareCatalog'
+
+/** Map wordmark row: single-line tap target (parent opens chat / composer). */
+export type MapHeaderAddressEntryProps = {
+  /** One line — placeholder-style prompt or short address summary. */
+  title: string
+  disabled?: boolean
+  onOpen: () => void
+}
 
 export type MapNavStatusStrip = {
   /** `explore` = traffic / map follow — not turn-by-turn. */
@@ -51,6 +57,8 @@ type MapTimeWeatherOverlayProps = {
   overlayContext?: 'home' | 'driver'
   /** Leave driver mode (e.g. return to customer home). */
   onDriverExit?: () => void
+  /** Customer home: pickup / drop-off entry under the Fetch wordmark. */
+  mapHeaderAddressEntry?: MapHeaderAddressEntryProps | null
 }
 
 function HamburgerIcon({ className = '' }: { className?: string }) {
@@ -73,20 +81,36 @@ function HamburgerIcon({ className = '' }: { className?: string }) {
   )
 }
 
+function MapHeaderSearchIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+      aria-hidden
+    >
+      <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" strokeWidth="2" />
+      <path d="M20 20l-4.35-4.35" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 function MapTimeWeatherOverlayInner({
   navStrip = null,
   onMenuAccount,
   hardwareProducts = HARDWARE_PRODUCTS,
   overlayContext = 'home',
   onDriverExit,
+  mapHeaderAddressEntry = null,
 }: MapTimeWeatherOverlayProps) {
   const isDriver = overlayContext === 'driver'
   const [sideMenuOpen, setSideMenuOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [legalOpen, setLegalOpen] = useState(false)
-  const [feedPanel, setFeedPanel] = useState<'activity' | 'alerts' | null>(null)
+  const [feedPanel, setFeedPanel] = useState<'alerts' | null>(null)
   const [hardwareProduct, setHardwareProduct] = useState<HardwareProduct | null>(null)
-  const [activityRows, setActivityRows] = useState<HomeActivityEntry[]>([])
   const [alertRows, setAlertRows] = useState<HomeAlertRecord[]>([])
   const [alertsUnreadMenu, setAlertsUnreadMenu] = useState(0)
 
@@ -126,9 +150,7 @@ function MapTimeWeatherOverlayInner({
   }, [sideMenuOpen])
 
   useEffect(() => {
-    if (feedPanel === 'activity') {
-      setActivityRows(loadHomeActivities())
-    } else if (feedPanel === 'alerts') {
+    if (feedPanel === 'alerts') {
       markAllHomeAlertsRead()
       setAlertRows(loadHomeAlerts())
     }
@@ -216,12 +238,16 @@ function MapTimeWeatherOverlayInner({
       ) : null}
 
       <div
-        className="fetch-home-map-system-header pointer-events-none fixed left-0 right-0 top-0 z-[46] flex h-[var(--fetch-map-header-h)] flex-col bg-white pt-[env(safe-area-inset-top,0px)]"
+        className={[
+          'fetch-home-map-system-header pointer-events-none fixed left-0 right-0 top-0 z-[46] flex h-[var(--fetch-map-header-h)] flex-col bg-white pt-[env(safe-area-inset-top,0px)]',
+          mapHeaderAddressEntry ? 'justify-start' : 'justify-center',
+        ].join(' ')}
         aria-live="polite"
       >
         <div
           className={[
-            'fetch-home-map-top-actions mx-auto flex min-h-0 w-full max-w-[min(100%,36rem)] flex-1 items-center px-4',
+            'fetch-home-map-top-actions mx-auto flex w-full max-w-[min(100%,36rem)] shrink-0 items-center px-4 pt-1.5',
+            mapHeaderAddressEntry ? 'min-h-[2.875rem] pb-0.5' : 'min-h-0 flex-1',
             routeNavHeader ? 'justify-between gap-3' : 'grid grid-cols-3 gap-2',
           ].join(' ')}
         >
@@ -231,7 +257,7 @@ function MapTimeWeatherOverlayInner({
                 <button
                   type="button"
                   id="fetch-home-map-menu-trigger"
-                  className="fetch-home-map-icon-btn inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-zinc-200/90 bg-white text-zinc-800 shadow-sm transition-[transform,colors] active:scale-[0.97]"
+                  className="fetch-home-map-icon-btn inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-zinc-200/90 bg-white text-zinc-800 transition-[transform,colors] active:scale-[0.97]"
                   aria-label="Open menu"
                   aria-expanded={sideMenuOpen}
                   aria-controls="fetch-home-map-side-menu"
@@ -252,7 +278,7 @@ function MapTimeWeatherOverlayInner({
               <div className="pointer-events-auto flex shrink-0 justify-end">
                 <button
                   type="button"
-                  className="fetch-home-map-help-btn inline-flex h-9 shrink-0 items-center justify-center rounded-full border border-zinc-200/90 bg-white px-3.5 text-[12px] font-semibold leading-none tracking-[-0.02em] text-zinc-800 shadow-sm transition-[transform,colors] active:scale-[0.97]"
+                  className="fetch-home-map-help-btn inline-flex h-9 shrink-0 items-center justify-center rounded-full border border-zinc-200/90 bg-white px-3.5 text-[12px] font-semibold leading-none tracking-[-0.02em] text-zinc-800 transition-[transform,colors] active:scale-[0.97]"
                   onClick={() => {
                     setSideMenuOpen(false)
                     setHelpOpen(true)
@@ -268,7 +294,7 @@ function MapTimeWeatherOverlayInner({
                 <button
                   type="button"
                   id="fetch-home-map-menu-trigger"
-                  className="fetch-home-map-icon-btn inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-zinc-200/90 bg-white text-zinc-800 shadow-sm transition-[transform,colors] active:scale-[0.97]"
+                  className="fetch-home-map-icon-btn inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-zinc-200/90 bg-white text-zinc-800 transition-[transform,colors] active:scale-[0.97]"
                   aria-label="Open menu"
                   aria-expanded={sideMenuOpen}
                   aria-controls="fetch-home-map-side-menu"
@@ -290,7 +316,7 @@ function MapTimeWeatherOverlayInner({
               <div className="pointer-events-auto flex justify-end">
                 <button
                   type="button"
-                  className="fetch-home-map-help-btn inline-flex h-10 shrink-0 items-center justify-center rounded-full border border-zinc-200/90 bg-white px-4 text-[13px] font-semibold leading-none tracking-[-0.02em] text-zinc-800 shadow-sm transition-[transform,colors] active:scale-[0.97]"
+                  className="fetch-home-map-help-btn inline-flex h-10 shrink-0 items-center justify-center rounded-full border border-zinc-200/90 bg-white px-4 text-[13px] font-semibold leading-none tracking-[-0.02em] text-zinc-800 transition-[transform,colors] active:scale-[0.97]"
                   onClick={() => {
                     setSideMenuOpen(false)
                     setHelpOpen(true)
@@ -302,6 +328,24 @@ function MapTimeWeatherOverlayInner({
             </>
           )}
         </div>
+        {mapHeaderAddressEntry && overlayContext === 'home' ? (
+          <div className="pointer-events-auto mx-auto w-full max-w-[min(100%,36rem)] shrink-0 px-4 pb-6 pt-1">
+            <button
+              type="button"
+              className="fetch-home-map-header-search-shell fetch-home-map-header-entry-btn flex min-h-[2.75rem] w-full cursor-pointer items-center gap-2.5 rounded-[0.875rem] border border-zinc-200/90 bg-white px-3.5 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-[background,transform,box-shadow] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/35"
+              onClick={mapHeaderAddressEntry.onOpen}
+              disabled={mapHeaderAddressEntry.disabled}
+              aria-label={mapHeaderAddressEntry.title}
+            >
+              <span className="fetch-home-map-header-search-shell__icon flex shrink-0 items-center justify-center">
+                <MapHeaderSearchIcon className="text-zinc-400" />
+              </span>
+              <span className="min-w-0 flex-1 truncate py-2 text-left text-[16px] font-medium leading-snug tracking-[-0.01em] text-zinc-600">
+                {mapHeaderAddressEntry.title}
+              </span>
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <div
@@ -422,7 +466,6 @@ function MapTimeWeatherOverlayInner({
                   setSideMenuOpen(false)
                   setHelpOpen(true)
                 }}
-                onActivity={isDriver ? undefined : () => setFeedPanel('activity')}
                 onAlerts={isDriver ? undefined : () => setFeedPanel('alerts')}
                 onLegal={isDriver ? undefined : () => setLegalOpen(true)}
                 alertsUnreadCount={alertsUnreadMenu}
@@ -534,68 +577,6 @@ function MapTimeWeatherOverlayInner({
                 >
                   Close
                 </button>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
-
-      {typeof document !== 'undefined' && feedPanel === 'activity'
-        ? createPortal(
-            <div className="fetch-home-map-activity-root fixed inset-0 z-[58] flex items-center justify-center p-4">
-              <button
-                type="button"
-                className="absolute inset-0 bg-black/45 backdrop-blur-md"
-                aria-label="Close activity"
-                onClick={() => setFeedPanel(null)}
-              />
-              <div
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="fetch-home-map-activity-title"
-                className="relative z-10 flex max-h-[min(80dvh,520px)] w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-white/[0.1] bg-[rgba(10,12,18,0.96)] shadow-[0_24px_64px_rgba(0,0,0,0.5)] backdrop-blur-xl"
-              >
-                <div className="border-b border-white/[0.08] px-5 py-4">
-                  <h2
-                    id="fetch-home-map-activity-title"
-                    className="text-[16px] font-semibold tracking-[-0.02em] text-white/[0.94]"
-                  >
-                    Activity
-                  </h2>
-                  <p className="mt-1 text-[12px] text-white/50">Recent jobs and payments on this device</p>
-                </div>
-                <ul className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
-                  {activityRows.length === 0 ? (
-                    <li className="px-2 py-8 text-center text-[13px] text-white/45">No activity yet</li>
-                  ) : (
-                    activityRows.map((row) => (
-                      <li
-                        key={row.id}
-                        className="mb-2 rounded-xl border border-white/[0.06] bg-white/[0.04] px-3 py-2.5"
-                      >
-                        <p className="text-[13px] font-semibold text-white/[0.9]">{row.title}</p>
-                        {row.subtitle ? (
-                          <p className="mt-0.5 text-[12px] text-white/55">{row.subtitle}</p>
-                        ) : null}
-                        <p className="mt-1 text-[10px] font-medium uppercase tracking-[0.12em] text-white/35">
-                          {new Date(row.at).toLocaleString(undefined, {
-                            dateStyle: 'medium',
-                            timeStyle: 'short',
-                          })}
-                        </p>
-                      </li>
-                    ))
-                  )}
-                </ul>
-                <div className="border-t border-white/[0.08] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-                  <button
-                    type="button"
-                    className="w-full rounded-xl bg-white/[0.08] py-2.5 text-[14px] font-semibold text-white/[0.88]"
-                    onClick={() => setFeedPanel(null)}
-                  >
-                    Close
-                  </button>
-                </div>
               </div>
             </div>,
             document.body,

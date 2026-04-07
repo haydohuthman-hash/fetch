@@ -39,7 +39,6 @@ Run API and app (`npm run dev:all`). Optional: two browsers (customer + driver).
 | `FETCH_REQUIRE_STRIPE_WEBHOOK=1` | Dispatch requires `paymentIntent.webhookConfirmedAt` when `provider === 'stripe'`. |
 | `STRIPE_SECRET_KEY` | Creates real `PaymentIntent`s on `POST /api/payments/intents` (AUD, metadata `bookingId` when set). |
 | `STRIPE_WEBHOOK_SECRET` | Verifies `POST /api/payments/webhook` (requires `STRIPE_SECRET_KEY` too). |
-| `FETCH_DEBUG_LOG=1` | Enables `agentDebugLog` NDJSON writes. |
 | `FETCH_AUTH_USERS_DB=1` | Enables `fetch_users` table, register/login, and password-backed customer sessions (requires `DATABASE_URL` + shared pool). |
 | `FETCH_STRICT_CUSTOMER_AUTH=1` | Stricter `assertCustomerCanAccessBooking` (requires authenticated customer; matches `customerUserId` when stored on the booking). |
 

@@ -3,6 +3,51 @@
 /* Fallback when --orb-glow is not set on a parent (e.g. shared input styles). */
 :root {
   --orb-glow: 244, 246, 250;
+  /* Centered phone column + bottom sheet geometry (shared with TS where noted). */
+  --fetch-home-frame-max-w: 430px;
+  --fetch-home-sheet-radius: 1.125rem;
+}
+
+/* Desktop / wide preview: letterboxed stage; fixed UI inside frame uses this as containing block. */
+.fetch-home-phone-stage {
+  display: flex;
+  min-height: 100dvh;
+  width: 100%;
+  justify-content: center;
+  align-items: flex-start;
+  background-color: #e4e7ec;
+}
+
+html[data-fetch-theme='light'] .fetch-home-phone-stage {
+  background-color: #e8eaef;
+}
+
+html[data-fetch-theme='dark'] .fetch-home-phone-stage {
+  background-color: #070708;
+}
+
+.fetch-home-phone-frame {
+  position: relative;
+  width: 100%;
+  max-width: var(--fetch-home-frame-max-w);
+  transform: translateZ(0);
+  isolation: isolate;
+  overflow-x: clip;
+  overflow-y: hidden;
+}
+
+@media (min-width: 440px) {
+  .fetch-home-phone-frame {
+    box-shadow:
+      0 0 0 1px rgba(15, 23, 42, 0.07),
+      0 20px 60px rgba(15, 23, 42, 0.12);
+  }
+
+  html[data-fetch-theme='dark'] .fetch-home-phone-frame {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.06),
+      0 20px 64px rgba(0, 0, 0, 0.45);
+  }
 }
 
 @theme {
@@ -3574,6 +3619,28 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   }
 }
 
+.fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-landing-section--intent .fetch-home-service-segment {
+  padding: 0.52rem 0.44rem 0.58rem;
+  gap: 0.32rem;
+}
+
+.fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-service-carousel-track {
+  padding-bottom: 0.52rem;
+}
+
+/*
+ * Camera / magic: left inset kept smaller so the rail reads farther left; right stays generous for magic.
+ */
+.fetch-home-booking-sheet[data-surface='intent'][data-intent-top-accessories='true'] .fetch-home-service-carousel {
+  scroll-padding-left: max(0.85rem, calc(env(safe-area-inset-left, 0px) + 0.55rem));
+  scroll-padding-right: max(2.85rem, calc(env(safe-area-inset-right, 0px) + 2.45rem));
+}
+
+.fetch-home-booking-sheet[data-surface='intent'][data-intent-top-accessories='true'] .fetch-home-service-carousel-track {
+  padding-left: max(0.82rem, env(safe-area-inset-left, 0px));
+  padding-right: max(2.85rem, env(safe-area-inset-right, 0px));
+}
+
 /* Sheet top handle: stronger grab bar + chevrons imply “pull up” when not at full snap */
 .fetch-home-booking-sheet__handle-bar {
   display: block;
@@ -3714,17 +3781,18 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  will-change: height, transform;
+  min-height: 0;
+  will-change: height, max-height;
 }
 
 .fetch-home-booking-sheet::before {
   content: '';
   position: absolute;
-  left: 10px;
-  right: 10px;
+  left: 8px;
+  right: 8px;
   top: 1px;
   height: 1px;
-  border-radius: 32px 32px 0 0;
+  border-radius: var(--fetch-home-sheet-radius) var(--fetch-home-sheet-radius) 0 0;
   background: linear-gradient(
     90deg,
     transparent 0%,
@@ -3735,6 +3803,24 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   );
   pointer-events: none;
   z-index: 3;
+}
+
+.fetch-home-booking-sheet[data-snap='full']::before {
+  left: 0;
+  right: 0;
+  border-radius: var(--fetch-home-sheet-radius) var(--fetch-home-sheet-radius) 0 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fetch-home-booking-sheet-outer {
+    transition: padding 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fetch-home-booking-sheet-outer {
+    transition: none;
+  }
 }
 
 /* Soft cyan / sky glow behind sheet top while Fetch speaks (sits under panel z-index) */
@@ -3879,7 +3965,7 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   display: none;
 }
 
-/* Glassy transparent sheet top fading into the body */
+/* Sheet top — soft fade (other surfaces); intent uses stronger frost below */
 .fetch-home-booking-sheet__top-frost {
   position: absolute;
   left: 0;
@@ -3896,22 +3982,41 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
     rgba(255, 255, 255, 0.22) 48%,
     rgba(255, 255, 255, 0) 100%
   );
+  backdrop-filter: blur(12px) saturate(1.08);
+  -webkit-backdrop-filter: blur(12px) saturate(1.08);
   mask-image: linear-gradient(180deg, black 0%, black 55%, transparent 100%);
   -webkit-mask-image: linear-gradient(180deg, black 0%, black 55%, transparent 100%);
 }
 
-/* Brain shortcut mic: horizontal center of first service card; higher than handle row. */
+/* Services home: light frost so map shows through; blur does the readability work */
+.fetch-home-booking-sheet[data-surface='intent'] .fetch-home-booking-sheet__top-frost {
+  height: min(48%, 9rem);
+  max-height: 11rem;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.28) 0%,
+    rgba(255, 255, 255, 0.14) 42%,
+    rgba(255, 255, 255, 0.04) 74%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  backdrop-filter: blur(26px) saturate(1.16);
+  -webkit-backdrop-filter: blur(26px) saturate(1.16);
+  mask-image: linear-gradient(180deg, black 0%, black 58%, transparent 100%);
+  -webkit-mask-image: linear-gradient(180deg, black 0%, black 58%, transparent 100%);
+}
+
+/* Brain shortcut mic / magic: tuck under handle bar, aligned with edge-shell service inset. */
 .fetch-home-booking-sheet[data-edge-shell='true'] .fetch-home-booking-sheet__top-left-slot {
   left: calc(
     max(0.65rem, env(safe-area-inset-left, 0px)) + clamp(2.675rem, 13.5vw, 3.5rem) - 1.325rem
   );
   right: auto;
-  top: 2.1rem;
+  top: 1.14rem;
 }
 
 @media (min-width: 640px) {
   .fetch-home-booking-sheet[data-edge-shell='true'] .fetch-home-booking-sheet__top-left-slot {
-    top: 2.2rem;
+    top: 1.26rem;
   }
 }
 
@@ -3920,12 +4025,62 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
     max(0.65rem, env(safe-area-inset-right, 0px)) + clamp(2.675rem, 13.5vw, 3.5rem) - 1.325rem
   );
   left: auto;
-  top: 2.1rem;
+  top: 1.14rem;
 }
 
 @media (min-width: 640px) {
   .fetch-home-booking-sheet[data-edge-shell='true'] .fetch-home-booking-sheet__top-right-slot {
-    top: 2.2rem;
+    top: 1.26rem;
+  }
+}
+
+/* Intent (all snaps): camera + magic sit lower than default edge-shell tuck */
+.fetch-home-booking-sheet[data-surface='intent'][data-edge-shell='true'] .fetch-home-booking-sheet__top-left-slot,
+.fetch-home-booking-sheet[data-surface='intent'][data-edge-shell='true'] .fetch-home-booking-sheet__top-right-slot {
+  top: 1.42rem;
+}
+
+@media (min-width: 640px) {
+  .fetch-home-booking-sheet[data-surface='intent'][data-edge-shell='true'] .fetch-home-booking-sheet__top-left-slot,
+  .fetch-home-booking-sheet[data-surface='intent'][data-edge-shell='true'] .fetch-home-booking-sheet__top-right-slot {
+    top: 1.56rem;
+  }
+}
+
+/* Intent compact: a bit lower still (handle + curved top) */
+.fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-booking-sheet__top-left-slot,
+.fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-booking-sheet__top-right-slot {
+  top: 1.88rem;
+}
+
+@media (min-width: 640px) {
+  .fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-booking-sheet__top-left-slot,
+  .fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-booking-sheet__top-right-slot {
+    top: 2.02rem;
+  }
+}
+
+/* Camera / magic are absolute on the panel; push sheet content down so service rail isn’t covered */
+.fetch-home-booking-sheet[data-intent-top-accessories='true'] .fetch-home-sheet-inner {
+  padding-top: 4.78rem;
+}
+
+@media (min-width: 640px) {
+  .fetch-home-booking-sheet[data-intent-top-accessories='true'] .fetch-home-sheet-inner {
+    padding-top: 4.92rem;
+  }
+}
+
+.fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'][data-intent-top-accessories='true']
+  .fetch-home-sheet-inner {
+  /* Clear camera / magic — tops align with slot `top` above */
+  padding-top: max(3.4rem, calc(1.88rem + 2.75rem - 0.35rem));
+}
+
+@media (min-width: 640px) {
+  .fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'][data-intent-top-accessories='true']
+    .fetch-home-sheet-inner {
+    padding-top: max(3.5rem, calc(2.02rem + 2.75rem - 0.35rem));
   }
 }
 
@@ -3948,7 +4103,8 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
  * (viewport-fit=cover). ::before sits behind sheet content; shell footer stays opaque white in fetch-theme.
  */
 @supports (-webkit-touch-callout: none) {
-  html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-booking-sheet-outer--edge::before {
+  html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-booking-sheet-outer--edge::before,
+  html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-booking-sheet-outer--fullbleed::before {
     content: '';
     position: absolute;
     left: 0;
@@ -3960,7 +4116,8 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
     z-index: 0;
   }
 
-  html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-booking-sheet-outer--edge > * {
+  html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-booking-sheet-outer--edge > *,
+  html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-booking-sheet-outer--fullbleed > * {
     position: relative;
     z-index: 1;
   }
@@ -3971,6 +4128,11 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   width: 100%;
   max-width: none;
   border-radius: 0;
+}
+
+.fetch-home-booking-sheet[data-shell-footer='true'] .fetch-home-booking-sheet__shell-footer-stack {
+  flex-shrink: 0;
+  flex-grow: 0;
 }
 
 /* Snap height ↔ subtle grey tier */
@@ -4057,8 +4219,8 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 }
 
 .fetch-home-booking-sheet__peek--maps-compact {
-  padding-top: 0.7rem !important;
-  padding-bottom: 0.1rem !important;
+  padding-top: 0.45rem !important;
+  padding-bottom: 0.2rem !important;
   gap: 0.5rem !important;
 }
 
@@ -4083,19 +4245,9 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   background: transparent;
 }
 
-/* Maps closed peek: upgraded search capsule only (no backdrop blur) */
+/* Maps closed peek: same shell treatment as home map header search (solid field) */
 .fetch-home-vision .fetch-maps-explore-search-shell--peek {
-  padding: 0.4rem 0.5rem 0.5rem;
-  border-radius: 1.1rem;
-  border: 1px solid rgba(255, 255, 255, 0.58);
-  background: linear-gradient(
-    165deg,
-    rgba(255, 255, 255, 0.94) 0%,
-    rgba(248, 250, 252, 0.9) 100%
-  );
-  box-shadow:
-    0 6px 22px rgba(15, 23, 42, 0.06),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  padding: 0;
 }
 
 .fetch-home-vision .fetch-apple-nav-route-panel--sheet {
@@ -4151,9 +4303,9 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   overflow: visible;
 }
 
-/* Maps compact closed: slightly taller peek so search + trailing mic don’t clip */
+/* Maps compact closed: peek fits search row (no side mic) */
 .fetch-home-booking-sheet[data-snap='closed'][data-maps-compact-peek='true'] {
-  max-height: 9.25rem;
+  max-height: 8.5rem;
 }
 
 .fetch-maps-explore-search-row {
@@ -4444,16 +4596,22 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   .fetch-home-booking-sheet:not(.fetch-home-booking-sheet--dragging) {
     transition:
       height 0.32s cubic-bezier(0.32, 0.72, 0, 1),
-      transform 0.32s cubic-bezier(0.32, 0.72, 0, 1),
+      max-height 0.32s cubic-bezier(0.32, 0.72, 0, 1),
       background-color 0.36s cubic-bezier(0.22, 0.88, 0.24, 1),
       border-color 0.36s cubic-bezier(0.22, 0.88, 0.24, 1),
       box-shadow 0.36s cubic-bezier(0.22, 0.88, 0.24, 1);
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .fetch-home-booking-sheet:not(.fetch-home-booking-sheet--dragging) {
+    transition: none;
+  }
+}
+
 /*
-  Snap stages: closed = peek · compact = content-hug (max ~58dvh) · half ~48dvh · full ~88dvh.
-  Nav-map chrome: compact tighter peek; half/full ~72dvh.
+  Snap stages: closed = peek (auto height ≤ cap) · compact/half/full = fixed panel height; inner scroll where enabled.
+  Nav-map chrome: compact ~20dvh; half/full ~72dvh (overrides below).
 */
 .fetch-home-booking-sheet[data-snap='closed'] {
   height: auto;
@@ -4466,12 +4624,18 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 }
 
 .fetch-home-booking-sheet[data-snap='closed'][data-shell-footer='true'][data-maps-compact-peek='true'] {
-  max-height: min(17.5rem, 66dvh);
+  max-height: min(16rem, 60dvh);
 }
 
 .fetch-home-booking-sheet[data-snap='compact'] {
-  height: auto;
+  height: min(58dvh, 34rem);
   max-height: min(58dvh, 34rem);
+}
+
+/* Intent home: compact sheet — taller stage for rail + promo */
+.fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] {
+  height: min(47dvh, 27.5rem);
+  max-height: min(47dvh, 27.5rem);
 }
 
 .fetch-home-booking-sheet[data-snap='half'] {
@@ -4482,6 +4646,11 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 .fetch-home-booking-sheet[data-snap='full'] {
   height: min(88dvh, 40rem);
   max-height: min(88dvh, 40rem);
+}
+
+/* Light home: map + sheet rounded corners sit on solid white (no gray seam) */
+html[data-fetch-theme='light'] .fetch-home-vision {
+  background-color: #ffffff;
 }
 
 /* Maps tab (HomeView homeSheetNavMapChrome) — stronger glass over map at every snap */
@@ -4525,9 +4694,9 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   max-height: 6rem;
 }
 
-/* Closed + address inset needs more headroom than default nav closed */
+/* Closed + address inset — tight peek with search + optional account */
 .fetch-home-booking-sheet[data-nav-map-chrome='true'][data-snap='closed'][data-maps-compact-peek='true'] {
-  max-height: min(9.5rem, 34dvh);
+  max-height: min(8.35rem, 31dvh);
 }
 
 /* Nav maps + bottom shell: closed must stay tall enough for handle + peek + footer */
@@ -4536,10 +4705,11 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 }
 
 .fetch-home-booking-sheet[data-nav-map-chrome='true'][data-snap='closed'][data-shell-footer='true'][data-maps-compact-peek='true'] {
-  max-height: min(17.5rem, 66dvh);
+  max-height: min(15.75rem, 58dvh);
 }
 
 .fetch-home-booking-sheet[data-nav-map-chrome='true'][data-snap='compact'] {
+  height: min(20dvh, 18rem);
   max-height: min(20dvh, 18rem);
 }
 
@@ -4748,15 +4918,30 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   border-radius: 46% 46% 26px 26px / 17% 17% 26px 26px;
   border: 1px solid rgba(255, 255, 255, 0.58);
   box-shadow: 0 -18px 56px rgba(15, 23, 42, 0.06);
+  /* Transparent frosted top: map bleeds through; body reads solid lower */
+  background-color: rgba(255, 255, 255, 0.04);
+  background-image: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.14) 0%,
+    rgba(255, 255, 255, 0.38) 12%,
+    rgba(255, 255, 255, 0.72) 26%,
+    rgba(255, 255, 255, 0.94) 40%,
+    #f8fafc 52%,
+    #fafbfc 100%
+  );
+  backdrop-filter: blur(18px) saturate(1.12);
+  -webkit-backdrop-filter: blur(18px) saturate(1.12);
 }
 
-.fetch-home-vision .fetch-home-booking-sheet[data-surface='intent'][data-edge-shell='true'] {
+.fetch-home-vision .fetch-home-booking-sheet[data-surface='intent'][data-edge-shell='true'][data-snap='full'] {
   border-radius: 46% 46% 0 0 / 17% 17% 0 0;
   border-bottom: none;
 }
 
-/* Maps edge shell: horizon curve only when closed */
-.fetch-home-vision .fetch-home-booking-sheet[data-surface='maps'][data-edge-shell='true'][data-snap='closed'] {
+/* Maps edge shell: horizon curve when closed without compact peek (explore uses rounded top below) */
+.fetch-home-vision .fetch-home-booking-sheet[data-surface='maps'][data-edge-shell='true'][data-snap='closed']:not(
+    [data-maps-compact-peek='true']
+  ) {
   border-radius: 42% 42% 0 0 / 15% 15% 0 0;
   border: 1px solid rgba(255, 255, 255, 0.45);
   box-shadow:
@@ -4765,13 +4950,31 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   border-bottom: none;
 }
 
-.fetch-home-vision .fetch-home-booking-sheet[data-surface='maps'][data-edge-shell='true']:not([data-snap='closed']) {
-  border-radius: 32px 32px 0 0;
+.fetch-home-vision .fetch-home-booking-sheet[data-surface='maps'][data-edge-shell='true'][data-snap='closed'][data-maps-compact-peek='true'] {
+  border-radius: var(--fetch-home-sheet-radius) var(--fetch-home-sheet-radius) 0 0;
   border: 1px solid rgba(255, 255, 255, 0.38);
   box-shadow:
     0 -12px 40px rgba(15, 23, 42, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
   border-bottom: none;
+}
+
+.fetch-home-vision .fetch-home-booking-sheet[data-surface='maps'][data-edge-shell='true'][data-snap='full'] {
+  border-radius: var(--fetch-home-sheet-radius) var(--fetch-home-sheet-radius) 0 0;
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  box-shadow:
+    0 -12px 40px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  border-bottom: none;
+}
+
+.fetch-home-vision .fetch-home-booking-sheet[data-surface='maps'][data-edge-shell='true'][data-snap='compact'],
+.fetch-home-vision .fetch-home-booking-sheet[data-surface='maps'][data-edge-shell='true'][data-snap='half'] {
+  border-radius: var(--fetch-home-sheet-radius);
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  box-shadow:
+    0 -12px 40px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 
 .fetch-home-vision .fetch-home-booking-sheet[data-surface='maps'][data-edge-shell='true'] .fetch-home-booking-sheet__handle {
@@ -4812,14 +5015,17 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   touch-action: none;
 }
 
-/* Intent closed peek: Uber-style hint — ~10% of promo image height peeks above bottom nav */
-.fetch-home-booking-sheet[data-snap='closed'][data-shell-footer='true'][data-intent-closed-peek='true'] {
+/* Intent closed peek: sheet height cap (legacy body-only peek without shell promo) */
+.fetch-home-booking-sheet[data-snap='closed'][data-shell-footer='true'][data-intent-closed-peek='true']:not(
+    [data-intent-shell-promo='true']
+  ) {
   max-height: min(12.5rem, 78dvh);
 }
 
-.fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true']
+/* Hide service rail only for legacy closed peek (promo lived in body). Shell promo: show service cards. */
+.fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true']:not([data-intent-shell-promo='true'])
   .fetch-home-intent-carousel-stack,
-.fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true']
+.fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true']:not([data-intent-shell-promo='true'])
   .fetch-home-intent-sheet-pull-strip {
   display: none;
 }
@@ -4829,22 +5035,27 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   display: none;
 }
 
-/* Decorative peek only — drags pass through to the sheet (see canInitiateSheetDrag). */
-.fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true'] .fetch-home-service-promo-wrap {
+/* Decorative promo peek under bottom nav — drags pass through (see canInitiateSheetDrag). */
+.fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true'][data-intent-shell-promo='true']
+  .fetch-home-booking-sheet__shell-footer-promo-peek
+  .fetch-home-service-promo-wrap {
   pointer-events: none;
 }
 
-.fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true'] .fetch-home-service-promo-carousel {
+.fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true'][data-intent-shell-promo='true']
+  .fetch-home-booking-sheet__shell-footer-promo-peek
+  .fetch-home-service-promo-carousel {
   touch-action: none;
   pointer-events: none;
 }
 
 /*
- * 10% of promo tile height — tile W ≈ max(11.75rem, (100cqi - gap) / 1.5).
- * Tile height = W × (--fetch-promo-nh / --fetch-promo-nw) from first image’s natural px (set in JS).
+ * ~10% of promo tile height — strip below bottom nav (tile W ≈ max(11.75rem, (100cqi - gap) / 1.5)).
  */
 @supports (width: 1cqi) {
-  .fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true'] .fetch-home-service-promo-clip {
+  .fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true'][data-intent-shell-promo='true']
+    .fetch-home-booking-sheet__shell-footer-promo-peek
+    .fetch-home-service-promo-clip {
     max-height: calc(
       0.1 * max(11.75rem, (100cqi - 0.625rem) / 1.5) * var(--fetch-promo-nh, 4) / var(--fetch-promo-nw, 5)
     );
@@ -4853,7 +5064,9 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 }
 
 @supports not (width: 1cqi) {
-  .fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true'] .fetch-home-service-promo-clip {
+  .fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true'][data-intent-shell-promo='true']
+    .fetch-home-booking-sheet__shell-footer-promo-peek
+    .fetch-home-service-promo-clip {
     max-height: calc(0.1 * 12rem * var(--fetch-promo-nh, 4) / var(--fetch-promo-nw, 5));
     overflow: hidden;
   }
@@ -4869,8 +5082,8 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 }
 
 @supports (width: 1cqi) {
-  .fetch-home-booking-sheet__body--intent-closed-peek,
-  .fetch-home-booking-sheet__scroll--intent-peek {
+  .fetch-home-booking-sheet:not([data-intent-shell-promo='true']) .fetch-home-booking-sheet__body--intent-closed-peek,
+  .fetch-home-booking-sheet:not([data-intent-shell-promo='true']) .fetch-home-booking-sheet__scroll--intent-peek {
     max-height: min(
       calc(
         0.1 * max(11.75rem, (100cqi - 0.625rem) / 1.5) * var(--fetch-promo-nh, 4) / var(--fetch-promo-nw, 5) + 0.45rem
@@ -4881,8 +5094,8 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 }
 
 @supports not (width: 1cqi) {
-  .fetch-home-booking-sheet__body--intent-closed-peek,
-  .fetch-home-booking-sheet__scroll--intent-peek {
+  .fetch-home-booking-sheet:not([data-intent-shell-promo='true']) .fetch-home-booking-sheet__body--intent-closed-peek,
+  .fetch-home-booking-sheet:not([data-intent-shell-promo='true']) .fetch-home-booking-sheet__scroll--intent-peek {
     max-height: min(calc(0.1 * 12rem * var(--fetch-promo-nh, 4) / var(--fetch-promo-nw, 5) + 0.45rem), 30dvh);
   }
 }
@@ -4906,7 +5119,7 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   box-shadow: 0 -10px 36px rgba(15, 23, 42, 0.07);
 }
 
-/* Shell nav: flat white, no seam above promo hint */
+/* Shell nav */
 .fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true'] .fetch-home-booking-sheet__shell-footer {
   position: relative;
   z-index: 6;
@@ -4917,10 +5130,53 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   background: #ffffff;
 }
 
+.fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true'][data-intent-shell-promo='true']
+  .fetch-home-booking-sheet__shell-footer {
+  margin-top: 0;
+}
+
 .fetch-home-vision
   .fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true']
   .fetch-home-booking-sheet__shell-footer {
   background: #ffffff;
+}
+
+/* Expanded sheet: full promo above bottom nav */
+.fetch-home-booking-sheet__shell-footer-backdrop {
+  container-type: inline-size;
+}
+
+/* Closed dock: ~10% promo slice sits below bottom nav (top of tile visible in strip) */
+.fetch-home-booking-sheet__shell-footer-promo-peek {
+  container-type: inline-size;
+}
+
+.fetch-home-booking-sheet__shell-footer-promo-peek .fetch-home-service-promo-card__img {
+  object-position: top center;
+}
+
+/* Closed + shell promo: body shows service cards only (rail + pull strip); promo is under nav */
+.fetch-home-booking-sheet[data-intent-shell-promo='true'][data-intent-closed-peek='true'][data-snap='closed']
+  .fetch-home-booking-sheet__body--intent-closed-peek,
+.fetch-home-booking-sheet[data-intent-shell-promo='true'][data-intent-closed-peek='true'][data-snap='closed']
+  .fetch-home-booking-sheet__scroll--intent-peek {
+  max-height: min(7.75rem, 36dvh) !important;
+  min-height: 0 !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  overflow-x: hidden !important;
+  overflow-y: hidden !important;
+  padding-top: 0 !important;
+  padding-bottom: 0.2rem !important;
+  margin: 0 !important;
+}
+
+.fetch-home-booking-sheet[data-snap='closed'][data-shell-footer='true'][data-intent-closed-peek='true'][data-intent-shell-promo='true'] {
+  max-height: min(23rem, 96dvh);
+}
+
+.fetch-home-booking-sheet:not([data-snap='closed']) .fetch-home-booking-sheet__shell-footer-backdrop .fetch-home-service-promo-clip {
+  max-height: none;
 }
 
 /* Horizontal promo — Uber Eats–style tiles, ~1.5 visible */
@@ -5184,7 +5440,7 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   }
 }
 
-/* Mic centered in the open band above the service cards */
+/* Legacy strip for centered accessory above service cards (unused; keep for layout experiments) */
 .fetch-home-intent-mic-strip {
   display: flex;
   width: 100%;
@@ -5199,7 +5455,7 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   transform: translateY(0.95rem);
 }
 
-.fetch-home-intent-mic-btn {
+.fetch-home-intent-camera-btn {
   display: flex;
   height: 2.65rem;
   width: 2.65rem;
@@ -5220,17 +5476,17 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   -webkit-tap-highlight-color: transparent;
 }
 
-.fetch-home-intent-mic-btn:hover {
+.fetch-home-intent-camera-btn:hover {
   box-shadow:
     0 8px 22px rgba(15, 23, 42, 0.09),
     inset 0 1px 0 rgba(255, 255, 255, 0.95);
 }
 
-.fetch-home-intent-mic-btn:active {
+.fetch-home-intent-camera-btn:active {
   transform: scale(0.96);
 }
 
-.fetch-home-intent-mic-btn:focus-visible {
+.fetch-home-intent-camera-btn:focus-visible {
   outline: 2px solid rgba(56, 189, 248, 0.45);
   outline-offset: 2px;
 }
@@ -5276,15 +5532,16 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   outline-offset: 2px;
 }
 
-/* Full-width bottom bar — home / maps / account (thinner dock). */
+/* Full-width bottom bar — home / maps / account (fixed row; safe-area on bottom). */
 .fetch-home-intent-bottom-nav {
   display: flex;
   width: 100%;
   align-items: stretch;
   justify-content: space-between;
   margin-top: 0;
-  padding: 0.24rem max(0.45rem, env(safe-area-inset-left, 0px)) 0.2rem
-    max(0.45rem, env(safe-area-inset-right, 0px));
+  min-height: calc(2.35rem + env(safe-area-inset-bottom, 0px));
+  padding: 0.24rem max(0.45rem, env(safe-area-inset-left, 0px))
+    max(0.28rem, env(safe-area-inset-bottom, 0px)) max(0.45rem, env(safe-area-inset-right, 0px));
   border-radius: 0;
   border: none;
   background: transparent;
@@ -5337,33 +5594,102 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   outline-offset: 2px;
 }
 
+/* Intent compact: dock breathes at the sheet bottom; icon row gets a hair more inset */
+.fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-booking-sheet__shell-footer {
+  padding-top: 0.42rem;
+  padding-bottom: max(0.22rem, env(safe-area-inset-bottom, 0px));
+}
+
+.fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-intent-bottom-nav {
+  min-height: calc(2.48rem + env(safe-area-inset-bottom, 0px));
+  margin-top: 0.12rem;
+  padding-top: 0.3rem;
+  padding-bottom: max(0.38rem, env(safe-area-inset-bottom, 0px));
+}
+
+.fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-intent-bottom-nav__icon {
+  padding: 0.2rem 0.26rem;
+  min-height: 2.3rem;
+  border-radius: 0.82rem;
+}
+
 .fetch-home-orb-dock {
   margin-bottom: 0.15rem;
 }
 
 .fetch-home-vision .fetch-home-booking-sheet[data-surface='intent'] .fetch-home-booking-sheet__body--compact {
-  /* Extra top room: orb sits lower (`fetch-home-orb-dock--intent-nudge`) */
-  padding-top: calc(6.5rem * 0.45 + 1.6rem);
+  /* Extra top room: orb sits lower (`fetch-home-orb-dock--intent-nudge`); floor keeps rail below handle band */
+  padding-top: max(4.15rem, calc(6.5rem * 0.45 + 1.6rem));
   padding-left: 0.65rem;
   padding-right: 0.65rem;
   padding-bottom: 0;
 }
 
+/* Compact intent: keep a floor below handle + frosted band so cards never tuck under the sheet header */
+.fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-booking-sheet__body--compact {
+  padding-top: max(2.95rem, calc(6.5rem * 0.34 + 0.72rem));
+  padding-bottom: 0.05rem;
+}
+
 .fetch-home-vision .fetch-home-booking-sheet[data-surface='intent'] .fetch-home-booking-sheet__scroll {
   padding-bottom: 0.55rem;
+  scroll-padding-top: 0.5rem;
+}
+
+.fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-booking-sheet__scroll {
+  padding-bottom: 0.3rem;
+}
+
+/* Services home: keep last service row clear of promo + bottom nav (same in-flow order as Maps body above dock) */
+.fetch-home-booking-sheet[data-shell-footer='true'][data-surface='intent'] .fetch-home-booking-sheet__scroll {
+  padding-bottom: max(0.85rem, env(safe-area-inset-bottom, 0px));
+}
+
+.fetch-home-booking-sheet[data-shell-footer='true'][data-surface='intent'][data-snap='compact']
+  .fetch-home-booking-sheet__scroll {
+  padding-bottom: 0.42rem;
+}
+
+/* Bottom-align intent landing in compact so cards + pull strip sit just above promo / shell nav */
+.fetch-home-booking-sheet[data-surface='intent'][data-snap='compact']
+  .fetch-home-sheet-inner:not(:has(.fetch-home-booking-step--stack)) {
+  flex: 1 1 0;
+  min-height: 0;
+  justify-content: flex-end;
+}
+
+.fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-landing--intent-tight {
+  width: 100%;
+  transform: translate(-0.68rem, 1.05rem);
+}
+
+@media (min-width: 640px) {
+  .fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-landing--intent-tight {
+    transform: translate(-0.76rem, 1.12rem);
+  }
 }
 
 /* Intent landing — compact so half sheet fits without inner scroll */
 .fetch-home-landing-section--intent {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
-  padding-top: 0.1rem;
+  gap: 0.68rem;
+  padding-top: 0.06rem;
+}
+
+.fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-landing-section--intent {
+  gap: 0.5rem;
+  padding-top: 0;
 }
 
 .fetch-home-landing-section--intent .fetch-home-service-rail-row {
-  margin-top: 0;
+  margin-top: 0.95rem;
   margin-bottom: 0.6rem;
+}
+
+.fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-landing-section--intent .fetch-home-service-rail-row {
+  margin-top: 0.55rem;
+  margin-bottom: 0.1rem;
 }
 
 .fetch-home-landing-section--intent .fetch-home-service-rail-row:has(.fetch-home-service-promo-wrap--eats) {
@@ -8618,6 +8944,18 @@ html[data-fetch-theme='dark'] .fetch-bootstrap-skel-system-header {
   );
   background-size: 200% 100%;
   animation: fetch-bootstrap-shimmer 1.5s ease-in-out infinite;
+}
+
+.fetch-bootstrap-skel-map-header-search {
+  border: 1px solid rgba(228, 228, 231, 0.9);
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+html[data-fetch-theme='dark'] .fetch-bootstrap-skel-map-header-search {
+  border: 1px solid rgba(228, 228, 231, 0.9);
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 html[data-fetch-theme='dark'] .fetch-bootstrap-skel-chip,

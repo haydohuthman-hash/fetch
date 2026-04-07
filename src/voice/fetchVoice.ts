@@ -69,6 +69,30 @@ let lastPlayByEvent = new Map<string, number>()
 let currentAudio: HTMLAudioElement | null = null
 const phraseBlobUrlCache = new Map<string, string>()
 
+/** Object URL from last `speakFetch` — revoked on stop / replace (MP3 from `POST /api/voice`). */
+let speakFetchObjectUrl: string | null = null
+/** Bumped in `stopCurrentPlayback` so in-flight `speakFetch` never plays after interrupt. */
+let speakFetchEpoch = 0
+
+function revokeSpeakFetchObjectUrl() {
+  if (speakFetchObjectUrl) {
+    try {
+      URL.revokeObjectURL(speakFetchObjectUrl)
+    } catch {
+      /* ignore */
+    }
+    speakFetchObjectUrl = null
+  }
+}
+
+function resolveTtsApiUrl(path: '/api/voice' | '/api/tts' | '/api/voice/tts'): string {
+  const voiceBaseOverride = import.meta.env.VITE_VOICE_API_BASE?.trim()
+  if (voiceBaseOverride) {
+    return `${voiceBaseOverride.replace(/\/$/, '')}${path}`
+  }
+  return fetchApiAbsoluteUrl(path)
+}
+
 /** Smoothed 0–1 lip-open drive from TTS RMS (or browser-TTS shim). Read by orb each frame. */
 let speechAmpSmoothed = 0
 let ttsAudioCtx: AudioContext | null = null
@@ -482,6 +506,8 @@ function stopBrowserSpeech() {
 }
 
 function stopCurrentPlayback() {
+  speakFetchEpoch++
+  revokeSpeakFetchObjectUrl()
   stopBrowserSpeech()
   stopBrowserLipShim()
   disconnectTtsAnalyser(true)
@@ -596,8 +622,8 @@ function speakWithBrowserTTS(
 }
 
 /**
- * Fetches MP3 from `/api/voice/tts` (Google Cloud TTS on the Node server).
- * URL: `VITE_VOICE_API_BASE` → else `fetchApiAbsoluteUrl('/api/voice/tts')`.
+ * Fetches MP3 from `POST /api/voice` (Google Cloud TTS on the server; key never sent to the client).
+ * Override base with `VITE_VOICE_API_BASE` when the voice API is not same-origin.
  */
 async function fetchGoogleProxyTtsDetailed(
   text: string,
@@ -608,14 +634,12 @@ async function fetchGoogleProxyTtsDetailed(
   }
 
   const voiceBaseOverride = import.meta.env.VITE_VOICE_API_BASE?.trim()
-  const ttsUrl = voiceBaseOverride
-    ? `${voiceBaseOverride.replace(/\/$/, '')}/api/voice/tts`
-    : fetchApiAbsoluteUrl('/api/voice/tts')
+  const ttsUrl = resolveTtsApiUrl('/api/voice')
   const proxyRouteLabel = voiceBaseOverride
     ? 'proxy (VITE_VOICE_API_BASE)'
     : import.meta.env.DEV
-      ? 'proxy (dev → Vite /api → 127.0.0.1:8787)'
-      : 'proxy (same-origin /api/voice/tts or VITE_FETCH_API_BASE_URL)'
+      ? 'proxy (Vite → /api/voice)'
+      : 'proxy (same-origin /api/voice)'
 
   voiceDevLog('[FetchVoice] attempting Google TTS proxy', {
     route: 'proxy',
@@ -786,7 +810,7 @@ async function playPhrase(
     try {
       await speakWithBrowserTTS(
         text,
-        ttsFailure ?? 'Google TTS proxy did not return audio (check server /api/voice/tts)',
+        ttsFailure ?? 'Google TTS proxy did not return audio (check server /api/voice)',
         perfRunId,
       )
     } catch {
@@ -896,6 +920,123 @@ async function playPhrase(
   }
 }
 
+/**
+ * Premium assistant voice: `POST /api/voice` → MP3 → play immediately.
+ * Stops any current speech (cloud or browser) first; overlapping calls cancel the previous fetch.
+ *
+ * @example
+ * await speakFetch("Driver found. He's 6 minutes away.")
+ *
+ * @example
+ * await speakFetch("What can I help you with today?")
+ */
+export async function speakFetch(text: string): Promise<void> {
+  const phrase = text.trim()
+  if (!phrase) {
+    voiceDevWarn('[Fetch voice] speakFetch skipped (empty)')
+    return
+  }
+
+  stopCurrentPlayback()
+  const myEpoch = speakFetchEpoch
+
+  const ttsUrl = resolveTtsApiUrl('/api/voice')
+  voiceDevLog('[FetchVoice] speakFetch →', ttsUrl)
+
+  try {
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), VOICE_FETCH_TIMEOUT_MS)
+    const res = await fetch(ttsUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'audio/mpeg',
+      },
+      signal: controller.signal,
+      body: JSON.stringify({ text: phrase }),
+    }).finally(() => window.clearTimeout(timeout))
+
+    if (myEpoch !== speakFetchEpoch) return
+
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '')
+      const detail = `TTS HTTP ${res.status}: ${errBody.slice(0, 200)}`
+      voiceDevWarn('[FetchVoice] speakFetch failed', detail)
+      voiceFlowFallbackText(phrase, detail)
+      return
+    }
+
+    const blob = await res.blob()
+    if (myEpoch !== speakFetchEpoch) return
+
+    revokeSpeakFetchObjectUrl()
+    const url = URL.createObjectURL(blob)
+    speakFetchObjectUrl = url
+
+    const audio = new Audio(url)
+    audio.volume = 0.8
+    audio.preload = 'auto'
+    currentAudio = audio
+    ensureTtsAudioContextResumed()
+    attachTtsAnalyser(audio)
+
+    const cleanup = () => {
+      if (currentAudio === audio) {
+        disconnectTtsAnalyser(true)
+        currentAudio = null
+        setSpeechPlaying(false)
+      }
+      if (speakFetchObjectUrl === url) {
+        try {
+          URL.revokeObjectURL(url)
+        } catch {
+          /* ignore */
+        }
+        speakFetchObjectUrl = null
+      }
+    }
+
+    audio.addEventListener(
+      'ended',
+      () => {
+        cleanup()
+      },
+      { once: true },
+    )
+    audio.addEventListener(
+      'error',
+      () => {
+        const msg = audio.error?.message ?? 'audio error'
+        voiceFlowDebug('playback_failed', { path: 'speakFetch', error: msg })
+        voiceFlowFallbackText(phrase, msg)
+        cleanup()
+      },
+      { once: true },
+    )
+
+    try {
+      await audio.play()
+      if (myEpoch !== speakFetchEpoch) {
+        audio.pause()
+        cleanup()
+        return
+      }
+      setSpeechPlaying(true)
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      voiceFlowDebug('playback_failed', { path: 'speakFetch_play', error: msg })
+      voiceFlowFallbackText(phrase, msg)
+      cleanup()
+    }
+  } catch (e) {
+    if (myEpoch !== speakFetchEpoch) return
+    const msg = e instanceof Error ? e.message : String(e)
+    if (e instanceof Error && e.name === 'AbortError') return
+    voiceDevWarn('[FetchVoice] speakFetch network error', msg)
+    voiceFlowFallbackText(phrase, msg)
+  }
+}
+
 export async function speakLine(text: string, options?: SpeakLineOptions): Promise<void> {
   const phrase = text.trim()
   if (!phrase) {
@@ -953,4 +1094,5 @@ export function __resetVoicePlaybackForTests() {
   lastPlayByEvent = new Map()
   speechPlayingListeners.clear()
   speechAmpSmoothed = 0
+  speakFetchEpoch = 0
 }

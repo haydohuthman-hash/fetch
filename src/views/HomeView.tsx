@@ -24,25 +24,31 @@ import {
   PlacesAddressAutocomplete,
   type ResolvedPlace,
 } from '../components/FetchHomeStepOne/PlacesAddressAutocomplete'
-import type { FetchOrbExpression } from '../components/JarvisNeuralOrb'
+import {
+  useFetchOrbVoiceLevel,
+  type FetchOrbExpression,
+} from '../components/JarvisNeuralOrb'
 import { FetchStripePaymentElement } from '../components/FetchStripePaymentElement'
 import { FetchVoiceCommandFab } from '../components/FetchVoiceCommandFab'
 import { AppleMapsNavRoutePanel } from '../components/AppleMapsNavRoutePanel'
 import { MapExploreToolbar } from '../components/MapExploreToolbar'
 import { MapsExploreSheet } from '../components/MapsExploreSheet'
 import { MysteryAdventurePanel } from '../components/MysteryAdventurePanel'
+import { FetchWonderPickerSheet } from '../components/FetchWonderPickerSheet'
 import { FetchStreetViewOverlay } from '../components/FetchStreetViewOverlay'
+import { HomeServiceInfoSheet } from '../components/HomeServiceInfoSheet'
+import { HomeServicePromoCarousel } from '../components/HomeServicePromoCarousel'
+import { HomeShellMarketplacePage } from '../components/HomeShellMarketplacePage'
 import { BookingCompletionSummary } from '../components/booking/BookingCompletionSummary'
 import { TripSheetCard } from '../components/booking/TripSheetCard'
 import { TripDriverStatusStrip } from '../components/booking/TripDriverStatusStrip'
 import { TripPriceEstimateStrip } from '../components/booking/TripPriceEstimateStrip'
 import {
   AccountNavIconFilled,
-  ActivityNavIconFilled,
   FetchEyesHomeIcon,
   MapsNavIconFilled,
+  MarketplaceNavIconFilled,
 } from '../components/icons/HomeShellNavIcons'
-import { HomeShellActivityPanel } from '../components/HomeShellActivityPanel'
 import { HomeServiceTypeIllustration } from '../components/icons/HomeServiceTypeIllustrations'
 import {
   postFetchAiChat,
@@ -81,6 +87,7 @@ import {
 } from '../lib/fetchBrainAccountSnapshot'
 import { resolveMemoryFocus } from '../lib/fetchBrainMemoryFocus'
 import { appendBrainLearningEvent, buildFetchBrainLearningContext } from '../lib/fetchBrainLearningStore'
+import type { HomeServiceLandingId } from '../lib/homeServiceInfoContent'
 import { detectBrainRestaurantIntent } from '../lib/fetchBrainPlacesIntent'
 import {
   applyDirectionsToBookingState,
@@ -144,6 +151,8 @@ import { useFetchVoice } from '../voice/FetchVoiceContext'
 import {
   ADVANCED_SERVICE_MENU_OPTIONS,
   HOME_INTENT_ORB_BUBBLE_HINT,
+  FETCH_IDLE_REMINDER_COPY,
+  IDLE_TO_FETCH_REMINDER_MS,
   IDLE_TO_SLEEPY_MS,
   junkLiveJobCopy,
   LANDING_PRIMARY_SERVICES,
@@ -157,6 +166,7 @@ import {
   fetchPlaceDetailsForMystery,
   pickRandomMysteryPoi,
   runAdventureNearbyBatch,
+  runRestaurantNearbyBatch,
   type BrainFieldPlaceCard,
   type ExploreMapPoi,
   type MysteryPlaceBundle,
@@ -166,7 +176,6 @@ import { buildHomeWelcomeLine } from '../lib/fetchWelcomeLine'
 import type { BookingPaymentIntent } from '../lib/assistant'
 import { firstNameFromDisplay, loadSession } from '../lib/fetchUserSession'
 import { appendHomeActivity, appendHomeAlert } from '../lib/homeActivityFeed'
-import { useFetchBootstrapping } from '../boot/FetchBootstrappingContext'
 import { HARDWARE_PRODUCTS } from '../lib/hardwareCatalog'
 import { loadSavedAddresses, type SavedAddress } from '../lib/savedAddresses'
 import {
@@ -306,7 +315,6 @@ export default function HomeView({
     voiceHoldPulseNonce,
     stopAssistantPlayback,
   } = useFetchVoice()
-  const homeBootstrapping = useFetchBootstrapping()
   const [bookingState, setBookingState] = useState<BookingState>(createInitialBookingState)
   const [mapsJsReady, setMapsJsReady] = useState(false)
   const [orbAwakened, setOrbAwakened] = useState(false)
@@ -318,6 +326,7 @@ export default function HomeView({
   const [brainSkipReveal, setBrainSkipReveal] = useState(false)
   /** Bumped when opening brain from home mic/orb — overlay auto-starts STT once. */
   const [brainAutoVoiceEpoch, setBrainAutoVoiceEpoch] = useState(0)
+  const [brainComposerFocusNonce, setBrainComposerFocusNonce] = useState(0)
   /** After each assistant TTS turn in booking-voice mode, overlay opens mic again (unless a sheet is up). */
   const [brainVoiceRelistenEpoch, setBrainVoiceRelistenEpoch] = useState(0)
   const brainBookingVoiceActiveRef = useRef(false)
@@ -334,6 +343,8 @@ export default function HomeView({
   /** Tracks post-deposit search gate so we only auto-surface home once per phase (see isPostDepositDriverSearchPhase). */
   const brainSearchSurfaceGateSyncedRef = useRef(false)
   const [brainSttListening, setBrainSttListening] = useState(false)
+  /** Mic level for orb reactivity only while brain dictation is active (user already granted mic). */
+  const homeOrbVoiceLevel = useFetchOrbVoiceLevel(brainSttListening)
   const [brainLastReply, setBrainLastReply] = useState<string | null>(null)
   /** Brain-only: waiting on Fetch AI (not home composer / voice hold). */
   const [brainAiPending, setBrainAiPending] = useState(false)
@@ -365,7 +376,9 @@ export default function HomeView({
   /** Map-forward mode from the sheet maps control (traffic + optional follow) without chat directions. */
   const [homeMapExploreMode, setHomeMapExploreMode] = useState(false)
   const [homeShellTab, setHomeShellTab] = useState<HomeShellTab>('services')
-  const [homeActivityRefresh, setHomeActivityRefresh] = useState(0)
+  const [serviceInfoLandingId, setServiceInfoLandingId] = useState<HomeServiceLandingId | null>(
+    null,
+  )
   const [chatBookingHintSource, setChatBookingHintSource] =
     useState<ChatBookingHintSource | null>(null)
   const [mapsExploreAddressExpanded, setMapsExploreAddressExpanded] = useState(false)
@@ -376,10 +389,16 @@ export default function HomeView({
   )
   type MysteryPanelState =
     | { mode: 'closed' }
-    | { mode: 'loading' }
-    | { mode: 'error'; message: string }
-    | { mode: 'ready'; bundle: MysteryPlaceBundle; fetchStory: string }
+    | { mode: 'loading'; flavor: 'adventure' | 'restaurant' }
+    | { mode: 'error'; flavor: 'adventure' | 'restaurant'; message: string }
+    | {
+        mode: 'ready'
+        flavor: 'adventure' | 'restaurant'
+        bundle: MysteryPlaceBundle
+        fetchStory: string
+      }
   const [mysteryPanel, setMysteryPanel] = useState<MysteryPanelState>({ mode: 'closed' })
+  const [wonderPickerOpen, setWonderPickerOpen] = useState(false)
 
   const [streetViewPosition, setStreetViewPosition] =
     useState<google.maps.LatLngLiteral | null>(null)
@@ -389,7 +408,10 @@ export default function HomeView({
     setMapsPeekHost((prev) => (prev === el ? prev : el))
   }, [])
   const [, setIntentAddressEntryActive] = useState(false)
+  const [idleRemindLong, setIdleRemindLong] = useState(false)
   const [idleLong, setIdleLong] = useState(false)
+  /** Arms dog ears for the 1m reminder; ears render only while that line is actually speaking. */
+  const [reminderLineEarsArmed, setReminderLineEarsArmed] = useState(false)
   const [wasSleepy, setWasSleepy] = useState(false)
   const [pendingConfirm, setPendingConfirm] = useState<{
     field: 'pickup' | 'dropoff'
@@ -571,6 +593,8 @@ export default function HomeView({
   const lastDirectionsKeyRef = useRef<string>('')
   const prevFlowStepRef = useRef(bookingState.flowStep)
   const sleepySpokenRef = useRef(false)
+  const idleReminderSpokenRef = useRef(false)
+  const reminderLineSpeechHeardRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const mapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ?? ''
   const { resolved: themeResolved } = useFetchTheme()
@@ -800,7 +824,11 @@ export default function HomeView({
 
   const bumpInteraction = useCallback(() => {
     lastInteractRef.current = Date.now()
+    setIdleRemindLong(false)
     setIdleLong(false)
+    idleReminderSpokenRef.current = false
+    setReminderLineEarsArmed(false)
+    reminderLineSpeechHeardRef.current = false
   }, [])
 
   useEffect(() => {
@@ -1498,8 +1526,13 @@ export default function HomeView({
     })
   }, [idleLong, wasSleepy, speakLine, playUiEvent])
 
+  /**
+   * Reveal the booking sheet as soon as Home mounts — do not wait for map bootstrap.
+   * The bootstrap overlay sits above (z-200); keeping `cardVisible` false until bootstrap
+   * ended left the sheet `visibility:hidden` + `opacity:0`, which reads as a blank app
+   * if map-ready never fires or bootstrap stalls.
+   */
   useEffect(() => {
-    if (homeBootstrapping) return
     let cancelled = false
     playUiEvent('activated')
     requestAnimationFrame(() => {
@@ -1523,7 +1556,7 @@ export default function HomeView({
     return () => {
       cancelled = true
     }
-  }, [homeBootstrapping, speakLine, playUiEvent])
+  }, [speakLine, playUiEvent])
 
   useEffect(() => {
     if (mapAttention === 'none' || mapAttention === 'navigation') return
@@ -1537,12 +1570,59 @@ export default function HomeView({
 
   useEffect(() => {
     const id = window.setInterval(() => {
-      const isLong = Date.now() - lastInteractRef.current > IDLE_TO_SLEEPY_MS
-      setIdleLong(isLong)
-      if (isLong) setWasSleepy(true)
+      const elapsed = Date.now() - lastInteractRef.current
+      setIdleRemindLong(elapsed > IDLE_TO_FETCH_REMINDER_MS)
+      const isSleepy = elapsed > IDLE_TO_SLEEPY_MS
+      setIdleLong(isSleepy)
+      if (isSleepy) setWasSleepy(true)
     }, 4000)
     return () => window.clearInterval(id)
   }, [])
+
+  useEffect(() => {
+    if (!idleRemindLong || idleLong) return
+    if (idleReminderSpokenRef.current) return
+    if (isSpeechPlaying || voiceHoldCaption) return
+    idleReminderSpokenRef.current = true
+    setReminderLineEarsArmed(true)
+    queueMicrotask(() => {
+      speakLine(FETCH_IDLE_REMINDER_COPY, {
+        debounceKey: 'fetch_idle_reminder_line',
+        debounceMs: 0,
+        withVoiceHold: true,
+      })
+    })
+  }, [
+    idleRemindLong,
+    idleLong,
+    isSpeechPlaying,
+    voiceHoldCaption,
+    speakLine,
+  ])
+
+  /** Dog ears only during the reminder TTS; disarm after it finishes (or if speech never starts). */
+  useEffect(() => {
+    if (!reminderLineEarsArmed) {
+      reminderLineSpeechHeardRef.current = false
+      return
+    }
+    if (isSpeechPlaying) {
+      reminderLineSpeechHeardRef.current = true
+    } else if (reminderLineSpeechHeardRef.current) {
+      setReminderLineEarsArmed(false)
+      reminderLineSpeechHeardRef.current = false
+    }
+  }, [isSpeechPlaying, reminderLineEarsArmed])
+
+  useEffect(() => {
+    if (!reminderLineEarsArmed) return
+    const t = window.setTimeout(() => {
+      if (!reminderLineSpeechHeardRef.current) {
+        setReminderLineEarsArmed(false)
+      }
+    }, 15_000)
+    return () => window.clearTimeout(t)
+  }, [reminderLineEarsArmed])
 
   useEffect(() => {
     if (!idleLong || sleepySpokenRef.current) return
@@ -1711,6 +1791,29 @@ export default function HomeView({
     setConfirmNonce((n) => n + 1)
     setMapAttention('pickup')
     bumpInteraction()
+  }, [bumpInteraction])
+
+  const onServiceInfoConfirmBooking = useCallback(
+    (jt: BookingJobType) => {
+      const line = LANDING_PRIMARY_SERVICES.find((o) => o.jobType === jt)?.fetchPersonalityExample
+      if (line) {
+        pendingServicePersonalityRef.current = line
+        setServicePersonalityLine(line)
+      }
+      commitJobTypeSelection(jt)
+      setSheetSnap('compact')
+    },
+    [commitJobTypeSelection],
+  )
+
+  const onIntentSheetPullExpand = useCallback(() => {
+    bumpInteraction()
+    setSheetSnap((s) => {
+      if (s === 'closed') return 'compact'
+      if (s === 'compact') return 'half'
+      if (s === 'half') return 'full'
+      return s
+    })
   }, [bumpInteraction])
 
   useEffect(() => {
@@ -2643,7 +2746,7 @@ export default function HomeView({
       setHomeMapExploreMode(false)
       setMapAttention('navigation')
       setMapFollowUser(true)
-      setSheetSnap('full')
+      setSheetSnap('half')
       return
     }
     const bookingNavStripActive =
@@ -2673,15 +2776,12 @@ export default function HomeView({
     (tab: HomeShellTab) => {
       bumpInteraction()
       setHomeShellTab(tab)
-      if (tab === 'activity') {
-        setHomeActivityRefresh((n) => n + 1)
-      }
       if (tab === 'maps') {
         if (!chatNavRoute) {
           setHomeMapExploreMode(true)
           setSheetSnap('closed')
         } else {
-          setSheetSnap('full')
+          setSheetSnap('half')
         }
       } else {
         if (!chatNavRoute) setHomeMapExploreMode(false)
@@ -2786,9 +2886,11 @@ export default function HomeView({
       playUiEvent('error')
       return
     }
+    setHomeShellTab('maps')
+    setSheetSnap('compact')
     bumpInteraction()
     playUiEvent('success')
-    setMysteryPanel({ mode: 'loading' })
+    setMysteryPanel({ mode: 'loading', flavor: 'adventure' })
     const preferAdventure = (list: ExploreMapPoi[]) => {
       const adv = list.filter((p) =>
         p.kind === 'park' || p.kind === 'natural' || p.kind === 'adventure',
@@ -2805,6 +2907,7 @@ export default function HomeView({
     if (!seed?.placeId) {
       setMysteryPanel({
         mode: 'error',
+        flavor: 'adventure',
         message:
           'No adventure spots nearby. Open the sheet and tap Parks or Find nearby, then try again.',
       })
@@ -2815,6 +2918,7 @@ export default function HomeView({
     if (!bundle) {
       setMysteryPanel({
         mode: 'error',
+        flavor: 'adventure',
         message: 'Could not load that place from Google. Try again.',
       })
       return
@@ -2836,17 +2940,112 @@ export default function HomeView({
           ...(mem ? { userMemory: mem } : {}),
         },
       })
-      setMysteryPanel({ mode: 'ready', bundle, fetchStory: reply })
+      setMysteryPanel({ mode: 'ready', flavor: 'adventure', bundle, fetchStory: reply })
     } catch {
       setMysteryPanel({
         mode: 'ready',
+        flavor: 'adventure',
         bundle,
         fetchStory:
           bundle.placeSummary ||
           'A mystery spot on your map — head over and see what you find.',
       })
     }
-  }, [bumpInteraction, explorePois, onShowPlaceOnMap, playUiEvent, speakLine, userMapLocation])
+  }, [
+    bumpInteraction,
+    explorePois,
+    onShowPlaceOnMap,
+    playUiEvent,
+    speakLine,
+    userMapLocation,
+    setHomeShellTab,
+    setSheetSnap,
+  ])
+
+  const handleRestaurantWonder = useCallback(async () => {
+    const loc = userMapLocation
+    const svc = mapPlacesSvcRef.current
+    if (!loc || !svc) {
+      void speakLine('Turn on location for a restaurant pick nearby.', {
+        debounceKey: 'restaurant_wonder_need_loc',
+        debounceMs: 2200,
+      })
+      playUiEvent('error')
+      return
+    }
+    setHomeShellTab('maps')
+    setSheetSnap('compact')
+    bumpInteraction()
+    playUiEvent('success')
+    setMysteryPanel({ mode: 'loading', flavor: 'restaurant' })
+    const preferFood = (list: ExploreMapPoi[]) => {
+      const dining = list.filter((p) => p.kind === 'food' || p.kind === 'cafe')
+      return dining.length ? dining : list
+    }
+    let candidates = preferFood(explorePois.filter((p) => p.placeId))
+    if (candidates.length < 2) {
+      const batch = await runRestaurantNearbyBatch(svc, loc)
+      if (batch.length) setExplorePois(batch)
+      candidates = preferFood(batch.filter((p) => p.placeId))
+    }
+    const seed = pickRandomMysteryPoi(candidates)
+    if (!seed?.placeId) {
+      setMysteryPanel({
+        mode: 'error',
+        flavor: 'restaurant',
+        message:
+          'No dining spots nearby with details. Open Maps, tap Food or Find nearby, then try again.',
+      })
+      return
+    }
+    onShowPlaceOnMap(seed.lat, seed.lng)
+    const bundle = await fetchPlaceDetailsForMystery(svc, seed.placeId)
+    if (!bundle) {
+      setMysteryPanel({
+        mode: 'error',
+        flavor: 'restaurant',
+        message: 'Could not load that place from Google. Try again.',
+      })
+      return
+    }
+    const messages: FetchAiChatMessage[] = [
+      {
+        role: 'user',
+        content: `You are Fetch. In 3–6 short sentences, describe what makes this venue a worthwhile meal stop — vibe, cuisine fit, and who it suits. Only build on the facts in the summary and address — do not invent opening hours, prices, or features not implied there.\n\nPlace name: ${bundle.name}\nSummary: ${bundle.placeSummary || bundle.formattedAddress || 'Unknown'}`,
+      },
+    ]
+    try {
+      const mem = buildFetchUserMemoryContext()
+      const { reply } = await postFetchAiChat(messages, {
+        locale: 'en-AU',
+        context: {
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          latitude: bundle.lat,
+          longitude: bundle.lng,
+          ...(mem ? { userMemory: mem } : {}),
+        },
+      })
+      setMysteryPanel({ mode: 'ready', flavor: 'restaurant', bundle, fetchStory: reply })
+    } catch {
+      setMysteryPanel({
+        mode: 'ready',
+        flavor: 'restaurant',
+        bundle,
+        fetchStory:
+          bundle.placeSummary ||
+          'A spot worth trying on your map — swing by and see if it’s your kind of meal.',
+      })
+    }
+  }, [
+    bumpInteraction,
+    explorePois,
+    onShowPlaceOnMap,
+    playUiEvent,
+    speakLine,
+    userMapLocation,
+    setHomeShellTab,
+    setSheetSnap,
+  ])
 
   const goBackToPickup = useCallback(() => {
     lastDirectionsKeyRef.current = ''
@@ -2870,6 +3069,26 @@ export default function HomeView({
     setMapAttention('pickup')
     bumpInteraction()
   }, [bumpInteraction])
+
+  /** Map header search line — open neural chat with keyboard focus (no tunnel). */
+  const openChatFromMapHeader = useCallback(() => {
+    bumpInteraction()
+    setPendingConfirm(null)
+    if (homeShellTab === 'maps' || homeShellTab === 'marketplace') {
+      setHomeShellTab('services')
+    }
+    setIntentAddressEntryActive(false)
+    setSheetSnap('closed')
+    brainBookingVoiceActiveRef.current = true
+    brainFieldPhotoPromptedRef.current = false
+    lastBrainFieldPriceKeyRef.current = ''
+    lastBrainAddressEchoKeyRef.current = ''
+    setBrainAutoVoiceEpoch((n) => n + 1)
+    setOrbAwakened(true)
+    setBrainSkipReveal(true)
+    setHomeBrainFlow('brain')
+    setBrainComposerFocusNonce((n) => n + 1)
+  }, [bumpInteraction, homeShellTab, setPendingConfirm, setHomeShellTab, setSheetSnap])
 
   const routePathFromState =
     bookingState.route?.path?.map((c) => ({ lat: c.lat, lng: c.lng })) ?? null
@@ -3220,6 +3439,9 @@ export default function HomeView({
   /** Maps tab: glassy sheet chrome, compact snaps, orb docked top-left over the map. */
   const homeSheetNavMapChrome = homeShellTab === 'maps'
   const orbTopLeftOnNavMap = homeShellTab === 'maps'
+  /** Closed sheet on Maps: minimal map chrome, no orb/toolbar, home-like peek search. */
+  const mapsClosedExplorePeek =
+    homeShellTab === 'maps' && chatNavRoute == null && sheetSnap === 'closed'
 
   useEffect(() => {
     if (homeSheetNavMapChrome) setHomeOrbBottomPx(null)
@@ -3348,6 +3570,56 @@ export default function HomeView({
     !showBuildingRoute &&
     !showLaborDetails
 
+  const mapHeaderAddressEntry = useMemo(() => {
+    if (!mapsApiKey) return null
+    if (homeBrainFlow != null) return null
+    if (showPickup || showDropoff || showConfirm) return null
+    if (chatNavRoute) return null
+
+    const pu =
+      bookingState.pickupAddressText?.trim() ||
+      bookingState.pickupPlace?.formattedAddress?.trim() ||
+      ''
+    const du =
+      bookingState.dropoffAddressText?.trim() ||
+      bookingState.dropoffPlace?.formattedAddress?.trim() ||
+      ''
+    const needDrop = Boolean(jobType && requiresDropoff(jobType))
+
+    let title = 'Ask Fetch anything…'
+    if (jobType && !bookingState.pickupCoords) {
+      title = 'Ask Fetch for a pickup address…'
+    } else if (jobType && needDrop && !bookingState.dropoffCoords) {
+      title = pu
+        ? `Add drop-off — ${pu.length > 36 ? `${pu.slice(0, 33)}…` : pu}`
+        : 'Ask Fetch for a drop-off address…'
+    } else if (pu || (needDrop && du)) {
+      const line = needDrop && du ? `${pu} · ${du}` : pu
+      title = line.length > 52 ? `${line.slice(0, 49)}…` : line
+    }
+
+    return {
+      title,
+      disabled: false,
+      onOpen: openChatFromMapHeader,
+    }
+  }, [
+    mapsApiKey,
+    homeBrainFlow,
+    showPickup,
+    showDropoff,
+    showConfirm,
+    chatNavRoute,
+    bookingState.pickupCoords,
+    bookingState.dropoffCoords,
+    bookingState.pickupAddressText,
+    bookingState.pickupPlace?.formattedAddress,
+    bookingState.dropoffAddressText,
+    bookingState.dropoffPlace?.formattedAddress,
+    jobType,
+    openChatFromMapHeader,
+  ])
+
   const orbExpression: FetchOrbExpression = useMemo(() => {
     const brainImmersive = homeBrainFlow === 'clarity' || homeBrainFlow === 'brain'
     if (isSpeechPlaying) return 'speaking'
@@ -3358,7 +3630,7 @@ export default function HomeView({
     if (mysteryPanel.mode === 'loading') return 'searching'
     if (
       bookingAddressSuggestOpen &&
-      (flowStep === 'pickup' || flowStep === 'dropoff')
+      (flowStep === 'pickup' || flowStep === 'dropoff' || showIntent)
     ) {
       return 'searching'
     }
@@ -3380,6 +3652,7 @@ export default function HomeView({
     mysteryPanel.mode,
     bookingAddressSuggestOpen,
     flowStep,
+    showIntent,
     idleLong,
     jobType,
     orbMapAttention,
@@ -3447,6 +3720,23 @@ export default function HomeView({
       tripSheetPhaseSuppressesHomeOrb(tripSheetPhase) &&
       homeShellTab === 'services',
     [uberTripCard, tripSheetPhase, homeShellTab],
+  )
+
+  /** Dog ears only while the 1m reminder line is audibly playing (same dock contexts as before). */
+  const fetchDogEarsActive = useMemo(
+    () =>
+      reminderLineEarsArmed &&
+      isSpeechPlaying &&
+      !suppressHomeOrbForTrip &&
+      !orbTopLeftOnNavMap &&
+      homeBrainFlow == null,
+    [
+      reminderLineEarsArmed,
+      isSpeechPlaying,
+      suppressHomeOrbForTrip,
+      orbTopLeftOnNavMap,
+      homeBrainFlow,
+    ],
   )
 
   useEffect(() => {
@@ -3716,7 +4006,6 @@ export default function HomeView({
     if (showBuildingRoute) return 'route'
     if (showPickup || showDropoff) return 'addresses'
     if (homeShellTab === 'maps') return 'maps'
-    if (homeShellTab === 'activity') return 'idle'
     if ((chatNavRoute || homeMapExploreMode) && showIntent) return 'route'
     if (showIntent) return 'intent'
     if (showPostScan) return 'working'
@@ -3752,7 +4041,7 @@ export default function HomeView({
     if (homeOrbBottomPx != null) {
       return `calc(${homeOrbBottomPx}px + ${orbH} + 0.85rem)`
     }
-    return `calc(max(1.1rem, env(safe-area-inset-bottom)) + min(58dvh, 34rem) + 8px + ${orbHalf} + 0.85rem)`
+    return `calc(max(1.1rem, env(safe-area-inset-bottom)) + min(47dvh, 27.5rem) + 8px + ${orbHalf} + 0.85rem)`
   }, [homeOrbBottomPx, orbTopLeftOnNavMap])
 
   useEffect(() => {
@@ -3766,34 +4055,16 @@ export default function HomeView({
   }, [showPostScan, sheetDisplayPricing, showScanner, sheetGestureActive])
 
   useEffect(() => {
-    if (sheetGestureActive) return
-    const suggestionsWantFull =
-      homeShellTab === 'maps' && mapsExploreAddressExpanded
-    if (suggestionsWantFull) {
-      setSheetSnap('full')
-      return
-    }
-    if (homeShellTab === 'maps') return
-    if (showIntent) setSheetSnap('compact')
-    if ((showPickup || showDropoff) && !bookingAddressSuggestOpen) setSheetSnap('compact')
-  }, [
-    sheetGestureActive,
-    homeShellTab,
-    mapsExploreAddressExpanded,
-    bookingAddressSuggestOpen,
-    showIntent,
-    showPickup,
-    showDropoff,
-  ])
-
-  useEffect(() => {
     if (!showPickup && !showDropoff) setBookingAddressSuggestOpen(false)
   }, [showPickup, showDropoff])
 
   useEffect(() => {
     if (sheetGestureActive) return
     if (homeShellTab === 'maps') return
-    if (bookingAddressSuggestOpen && (showPickup || showDropoff)) {
+    if (
+      bookingAddressSuggestOpen &&
+      (showPickup || showDropoff || (showIntent && mapsApiKey))
+    ) {
       setSheetSnap('full')
     }
   }, [
@@ -3802,6 +4073,8 @@ export default function HomeView({
     bookingAddressSuggestOpen,
     showPickup,
     showDropoff,
+    showIntent,
+    mapsApiKey,
   ])
 
   useEffect(() => {
@@ -3825,10 +4098,7 @@ export default function HomeView({
 
   const homeShellFooterNav = useMemo(
     () => (
-      <nav
-        className="fetch-home-intent-bottom-nav"
-        aria-label="Home, maps, activity, and account"
-      >
+      <nav className="fetch-home-intent-bottom-nav" aria-label="Home, maps, marketplace, and account">
         <button
           type="button"
           className={[
@@ -3844,7 +4114,7 @@ export default function HomeView({
             onPeekHomeClick()
           }}
         >
-          <FetchEyesHomeIcon className="h-7 w-7" />
+          <FetchEyesHomeIcon className="h-6 w-6" />
         </button>
         <button
           type="button"
@@ -3860,24 +4130,24 @@ export default function HomeView({
             onHomeShellTabChange('maps')
           }}
         >
-          <MapsNavIconFilled className="h-7 w-7" />
+          <MapsNavIconFilled className="h-6 w-6" />
         </button>
         <button
           type="button"
           className={[
             'fetch-home-intent-bottom-nav__icon',
-            homeShellTab === 'activity' ? 'fetch-home-intent-bottom-nav__icon--active' : '',
+            homeShellTab === 'marketplace' ? 'fetch-home-intent-bottom-nav__icon--active' : '',
           ]
             .filter(Boolean)
             .join(' ')}
-          aria-label="Activity"
-          aria-current={homeShellTab === 'activity' ? 'page' : undefined}
+          aria-label="Marketplace"
+          aria-current={homeShellTab === 'marketplace' ? 'page' : undefined}
           onClick={() => {
             bumpInteraction()
-            onHomeShellTabChange('activity')
+            onHomeShellTabChange('marketplace')
           }}
         >
-          <ActivityNavIconFilled className="h-7 w-7" />
+          <MarketplaceNavIconFilled className="h-6 w-6" />
         </button>
         <button
           type="button"
@@ -3888,7 +4158,7 @@ export default function HomeView({
             onAccountsClick()
           }}
         >
-          <AccountNavIconFilled className="h-7 w-7" />
+          <AccountNavIconFilled className="h-6 w-6" />
         </button>
       </nav>
     ),
@@ -4167,7 +4437,7 @@ export default function HomeView({
   const brainImmersive =
     homeBrainFlow === 'clarity' || homeBrainFlow === 'brain'
 
-  /** Services-tab booking after job pick: hide shell nav, account, mic, and closed peek chrome. */
+  /** Services-tab booking after job pick: hide shell nav, account, camera shortcut, and closed peek chrome. */
   const bookingSheetFocusMode = useMemo(
     () =>
       homeShellTab === 'services' &&
@@ -4184,6 +4454,39 @@ export default function HomeView({
     ],
   )
 
+  /** Bottom shell (tabs + nav) — stay visible on Maps even if Services is in booking focus mode */
+  const showHomeShellChrome = Boolean(
+    cardVisible &&
+      homeBrainFlow == null &&
+      !brainImmersive &&
+      (!bookingSheetFocusMode ||
+        homeShellTab === 'maps' ||
+        homeShellTab === 'marketplace'),
+  )
+
+  useEffect(() => {
+    if (sheetGestureActive) return
+    const suggestionsWantFull =
+      homeShellTab === 'maps' && mapsExploreAddressExpanded
+    if (suggestionsWantFull) {
+      setSheetSnap('half')
+      return
+    }
+    if (homeShellTab === 'maps') return
+    if (showIntent) setSheetSnap('compact')
+    if ((showPickup || showDropoff) && !bookingAddressSuggestOpen)
+      setSheetSnap('compact')
+  }, [
+    sheetGestureActive,
+    homeShellTab,
+    sheetSnap,
+    mapsExploreAddressExpanded,
+    bookingAddressSuggestOpen,
+    showIntent,
+    showPickup,
+    showDropoff,
+  ])
+
   const prevHomeShellTabRef = useRef<HomeShellTab>(homeShellTab)
   useEffect(() => {
     const prev = prevHomeShellTabRef.current
@@ -4198,9 +4501,11 @@ export default function HomeView({
   }, [homeShellTab, brainImmersive, speakLine])
 
   return (
+    <div className="fetch-home-phone-stage">
     <div
-      className="fetch-home-vision relative min-h-dvh w-full"
+      className="fetch-home-vision fetch-home-phone-frame relative h-dvh min-h-dvh w-full"
       style={homeVisionStyle}
+      data-home-shell-tab={homeShellTab}
       data-orb-tunnel={
         homeBrainFlow === 'tunnel' ? 'tunnel' : homeBrainFlow ? 'brain' : 'idle'
       }
@@ -4221,6 +4526,7 @@ export default function HomeView({
       ) : null}
 
       {homeBrainFlow == null || homeBrainFlow === 'tunnel' ? (
+        homeShellTab !== 'marketplace' ? (
         <>
         <FetchHomeStepOne
           onMapsJavaScriptReady={setMapsJsReady}
@@ -4269,9 +4575,12 @@ export default function HomeView({
           homeMapHardwareCatalog={HARDWARE_PRODUCTS}
           liveTrackingFit={chatNavRoute ? null : homeLiveTrackingFit}
           pickupLockInCelebrateKey={pickupLockInCelebrateKey}
+          mapHeaderAddressEntry={mapHeaderAddressEntry}
+          mapExploreMinimalChrome={mapsClosedExplorePeek}
         />
         {homeShellTab === 'maps' &&
         !chatNavRoute &&
+        !mapsClosedExplorePeek &&
         homeBrainFlow == null &&
         !streetViewPosition ? (
           <MapExploreToolbar
@@ -4282,9 +4591,11 @@ export default function HomeView({
           />
         ) : null}
         </>
+        ) : null
       ) : null}
 
-      {!brainImmersive ? (
+      {!brainImmersive && homeShellTab !== 'marketplace' ? (
+      <>
       <FetchHomeBookingSheet
         snap={sheetSnap}
         onSnapChange={setSheetSnap}
@@ -4304,15 +4615,9 @@ export default function HomeView({
         }
         homeShellTab={homeShellTab}
         onHomeShellTabChange={onHomeShellTabChange}
-        showHomeShellTabs={Boolean(
-          cardVisible && homeBrainFlow == null && !brainImmersive && !bookingSheetFocusMode,
-        )}
+        showHomeShellTabs={showHomeShellChrome}
         mapsPeekInsetRef={mapsPeekInsetRef}
-        mapsCompactPeek={
-          homeShellTab === 'maps' &&
-          chatNavRoute == null &&
-          sheetSnap === 'closed'
-        }
+        mapsCompactPeek={mapsClosedExplorePeek}
         navMapChrome={homeSheetNavMapChrome}
         hideExpandedHeaderChrome={Boolean(
           (showIntent && homeShellTab === 'services') ||
@@ -4322,12 +4627,25 @@ export default function HomeView({
         edgeToEdgeShell={Boolean(
           cardVisible && homeBrainFlow == null && !brainImmersive,
         )}
-        shellFooterNav={
-          cardVisible && homeBrainFlow == null && !brainImmersive && !bookingSheetFocusMode
-            ? homeShellFooterNav
-            : undefined
+        shellFooterNav={showHomeShellChrome ? homeShellFooterNav : undefined}
+        shellFooterBackdrop={
+          showHomeShellChrome &&
+          showIntent &&
+          homeShellTab === 'services' &&
+          !chatNavRoute ? (
+            <HomeServicePromoCarousel onSelectService={setServiceInfoLandingId} />
+          ) : undefined
         }
         suppressPeekBar={bookingSheetFocusMode}
+        intentClosedPeek={Boolean(
+          showIntent &&
+            homeShellTab === 'services' &&
+            sheetSnap === 'closed' &&
+            !chatNavRoute &&
+            cardVisible &&
+            homeBrainFlow == null &&
+            !brainImmersive,
+        )}
         topLeftAccessory={
           showIntent &&
           cardVisible &&
@@ -4336,8 +4654,8 @@ export default function HomeView({
           homeShellTab === 'services' ? (
             <button
               type="button"
-              className="fetch-home-intent-mic-btn"
-              aria-label="Speak for help"
+              className="fetch-home-intent-camera-btn"
+              aria-label="Open Fetch with a photo"
               onClick={() => {
                 openBrainFromHome()
               }}
@@ -4353,8 +4671,46 @@ export default function HomeView({
                 strokeLinejoin="round"
                 aria-hidden
               >
-                <path d="M12 16a4 4 0 0 0 4-4V8a4 4 0 1 0-8 0v4a4 4 0 0 0 4 4z" />
-                <path d="M19 11a7 7 0 0 1-14 0M12 19v2M8 22h8" />
+                <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
+                <circle cx="12" cy="13" r="3.25" />
+              </svg>
+            </button>
+          ) : undefined
+        }
+        topRightAccessory={
+          showIntent &&
+          cardVisible &&
+          homeBrainFlow == null &&
+          !brainImmersive &&
+          homeShellTab === 'services' ? (
+            <button
+              type="button"
+              className="fetch-home-intent-magic-btn"
+              aria-label="Surprise me"
+              onClick={() => {
+                bumpInteraction()
+                playUiEvent('success')
+                void speakLine('Pick a lane — Fetch will curate something nearby.', {
+                  debounceKey: 'fetch_wonder_open',
+                  debounceMs: 8000,
+                })
+                setWonderPickerOpen(true)
+              }}
+            >
+              <svg
+                width="19"
+                height="19"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M12 3v2M12 19v2M3 12h2M19 12h2" />
+                <path d="m5.6 5.6 1.4 1.4M17 17l1.4 1.4M17 7l1.4-1.4M5.6 18.4l1.4-1.4" />
+                <circle cx="12" cy="12" r="3.25" />
               </svg>
             </button>
           ) : undefined
@@ -4404,8 +4760,6 @@ export default function HomeView({
               mapsPeekHost={mapsPeekHost}
             />
           )
-        ) : homeShellTab === 'activity' ? (
-          <HomeShellActivityPanel refreshVersion={homeActivityRefresh} />
         ) : (
           <>
           {showConfirm && pendingConfirm ? (
@@ -4502,14 +4856,23 @@ export default function HomeView({
                               data-tone={opt.tone}
                               aria-label={opt.cardHeading}
                               onClick={() => {
+                                setServiceInfoLandingId(null)
                                 pendingServicePersonalityRef.current =
                                   opt.fetchPersonalityExample
                                 setServicePersonalityLine(
                                   opt.fetchPersonalityExample,
                                 )
                                 commitJobTypeSelection(opt.jobType)
+                                setSheetSnap('compact')
                               }}
-                              className="fetch-home-service-segment"
+                              className={[
+                                'fetch-home-service-segment',
+                                jobType === opt.jobType
+                                  ? 'fetch-home-service-segment--selected'
+                                  : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' ')}
                             >
                               <HomeServiceTypeIllustration
                                 jobType={opt.jobType}
@@ -4524,6 +4887,7 @@ export default function HomeView({
                       </div>
                     </div>
                   </div>
+                  <div className="fetch-home-intent-sheet-pull-strip" aria-hidden />
                 </div>
               </section>
             </div>
@@ -5477,15 +5841,30 @@ export default function HomeView({
           </>
         )}
       </FetchHomeBookingSheet>
+      </>
       ) : null}
 
-      {!brainImmersive && orbChatTurns.length > 0 ? (
+      {!brainImmersive &&
+      homeShellTab === 'marketplace' &&
+      cardVisible &&
+      homeBrainFlow == null ? (
+        <HomeShellMarketplacePage
+          bottomNav={showHomeShellChrome ? homeShellFooterNav : null}
+          hardwareProducts={HARDWARE_PRODUCTS}
+          onMenuAccount={onAccountNavigate}
+        />
+      ) : null}
+
+      {!brainImmersive &&
+      homeShellTab !== 'marketplace' &&
+      !mapsClosedExplorePeek &&
+      orbChatTurns.length > 0 ? (
         <div
           className={[
             'fetch-home-orb-chat-stack pointer-events-none fixed z-[57] flex flex-col',
             orbTopLeftOnNavMap
               ? 'left-3 right-3 w-auto max-w-none translate-x-0'
-              : 'left-1/2 w-[min(21rem,calc(100vw-1.75rem))] max-w-[min(21rem,calc(100vw-1.75rem))] -translate-x-1/2',
+              : 'left-1/2 w-[min(21rem,calc(100%-1.75rem))] max-w-[min(21rem,calc(100%-1.75rem))] -translate-x-1/2',
           ].join(' ')}
           style={{
             top: orbTopLeftOnNavMap
@@ -5524,7 +5903,9 @@ export default function HomeView({
         </div>
       ) : null}
 
-      {!brainImmersive ? (
+      {!brainImmersive &&
+      homeShellTab !== 'marketplace' &&
+      !mapsClosedExplorePeek ? (
         <div
           className={[
             'fetch-home-orb-sheet-follow pointer-events-none fixed z-[58] flex flex-col',
@@ -5541,7 +5922,7 @@ export default function HomeView({
                   bottom:
                     homeOrbBottomPx != null
                       ? `${homeOrbBottomPx}px`
-                      : 'calc(max(1.1rem, env(safe-area-inset-bottom)) + min(58dvh, 34rem) + 8px - 6.5rem * 0.5)',
+                      : 'calc(max(1.1rem, env(safe-area-inset-bottom)) + min(47dvh, 27.5rem) + 8px - 6.5rem * 0.5 + 12px)',
                 }
           }
         >
@@ -5554,7 +5935,7 @@ export default function HomeView({
             {orbEphemeralBubble ? (
               <div
                 className={[
-                  'fetch-home-orb-speech-bubble pointer-events-none absolute z-[1] w-[min(20rem,calc(100vw-2.5rem))] max-w-[min(20rem,calc(100vw-2.5rem))]',
+                  'fetch-home-orb-speech-bubble pointer-events-none absolute z-[1] w-[min(20rem,calc(100%-2.5rem))] max-w-[min(20rem,calc(100%-2.5rem))]',
                   orbTopLeftOnNavMap
                     ? 'left-0 top-full mt-2 translate-x-0'
                     : 'bottom-[calc(100%+0.65rem)] left-1/2 -translate-x-1/2',
@@ -5576,7 +5957,7 @@ export default function HomeView({
               !suppressHomeOrbForTrip &&
               intentOrbHintBubble ? (
               <div
-                className="fetch-home-orb-intent-hint-bubble pointer-events-none absolute bottom-[calc(100%+0.65rem)] left-1/2 z-[1] w-[min(18.5rem,calc(100vw-2.25rem))] max-w-[min(18.5rem,calc(100vw-2.25rem))] -translate-x-1/2"
+                className="fetch-home-orb-intent-hint-bubble pointer-events-none absolute bottom-[calc(100%+0.65rem)] left-1/2 z-[1] w-[min(18.5rem,calc(100%-2.25rem))] max-w-[min(18.5rem,calc(100%-2.25rem))] -translate-x-1/2"
                 role="status"
                 aria-live="polite"
               >
@@ -5585,35 +5966,86 @@ export default function HomeView({
                 </p>
               </div>
             ) : null}
-            {suppressHomeOrbForTrip ? (
-              <div
-                className={[
-                  'pointer-events-none shrink-0',
-                  orbTopLeftOnNavMap ? 'h-16 w-16' : 'h-[6.5rem] w-[6.5rem]',
-                ].join(' ')}
-                aria-hidden
-              />
-            ) : showIntent && !orbTopLeftOnNavMap ? (
-              <div className="fetch-home-orb-dock fetch-home-orb-dock--intent-nudge pointer-events-none flex flex-col items-center">
+            <>
+              {suppressHomeOrbForTrip ? (
                 <div
-                  className="fetch-home-orb-vision-halo pointer-events-none flex h-[6.5rem] w-[6.5rem] items-center justify-center"
+                  className={[
+                    'pointer-events-none shrink-0',
+                    orbTopLeftOnNavMap ? 'h-16 w-16' : 'h-[6.5rem] w-[6.5rem]',
+                  ].join(' ')}
+                  aria-hidden
+                />
+              ) : showIntent && !orbTopLeftOnNavMap ? (
+                <div className="fetch-home-orb-dock fetch-home-orb-dock--intent-nudge pointer-events-none flex flex-col items-center">
+                  <div
+                    className={[
+                      'fetch-home-orb-vision-halo pointer-events-none flex h-[6.5rem] w-[6.5rem] items-center justify-center',
+                      fetchDogEarsActive ? 'overflow-visible' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')}
+                    data-orb-idle={orbState === 'idle' && !isSpeechPlaying ? 'true' : undefined}
+                  >
+                    <FetchVoiceCommandFab
+                      homeSheetDock
+                      dogEars={fetchDogEarsActive}
+                      onboardingPulse={false}
+                      expression={orbExpression}
+                      orbState={orbState}
+                      pulseNonce={0}
+                      typingActive={false}
+                      awakened={orbAwakened}
+                      voiceLevel={homeOrbVoiceLevel}
+                      confirmationNonce={confirmNonce + voiceHoldPulseNonce}
+                      mapAttention={orbMapAttention}
+                      lookAtCard={Boolean(
+                        (orbChatTurns.length > 0 ||
+                          voiceHoldCaption ||
+                          orbEphemeralBubble ||
+                          intentOrbHintBubble) &&
+                          !isSpeechPlaying,
+                      )}
+                      glowColor={orbGlowColor}
+                      orbAppearance={themeResolved === 'light' ? 'day' : 'night'}
+                      autonomous={orbDockAutonomous}
+                      suspendAutonomous={Boolean(orbBurstExpression)}
+                      onOpen={openBrainFromHome}
+                      onSheetPullExpand={
+                        !brainImmersive && showIntent && cardVisible
+                          ? onIntentSheetPullExpand
+                          : undefined
+                      }
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className={[
+                    'fetch-home-orb-vision-halo pointer-events-none flex items-center justify-center',
+                    orbTopLeftOnNavMap ? 'h-16 w-16' : 'h-[6.5rem] w-[6.5rem]',
+                    fetchDogEarsActive ? 'overflow-visible' : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' ')}
                   data-orb-idle={orbState === 'idle' && !isSpeechPlaying ? 'true' : undefined}
                 >
                   <FetchVoiceCommandFab
                     homeSheetDock
+                    homeSheetDockCompact={orbTopLeftOnNavMap}
+                    dogEars={fetchDogEarsActive}
                     onboardingPulse={false}
                     expression={orbExpression}
                     orbState={orbState}
                     pulseNonce={0}
                     typingActive={false}
                     awakened={orbAwakened}
+                    voiceLevel={homeOrbVoiceLevel}
                     confirmationNonce={confirmNonce + voiceHoldPulseNonce}
                     mapAttention={orbMapAttention}
                     lookAtCard={Boolean(
                       (orbChatTurns.length > 0 ||
                         voiceHoldCaption ||
-                        orbEphemeralBubble ||
-                        intentOrbHintBubble) &&
+                        orbEphemeralBubble) &&
                         !isSpeechPlaying,
                     )}
                     glowColor={orbGlowColor}
@@ -5621,42 +6053,15 @@ export default function HomeView({
                     autonomous={orbDockAutonomous}
                     suspendAutonomous={Boolean(orbBurstExpression)}
                     onOpen={openBrainFromHome}
+                    onSheetPullExpand={
+                      !brainImmersive && showIntent && cardVisible && !orbTopLeftOnNavMap
+                        ? onIntentSheetPullExpand
+                        : undefined
+                    }
                   />
                 </div>
-              </div>
-            ) : (
-              <div
-                className={[
-                  'fetch-home-orb-vision-halo pointer-events-none flex items-center justify-center',
-                  orbTopLeftOnNavMap ? 'h-16 w-16' : 'h-[6.5rem] w-[6.5rem]',
-                ].join(' ')}
-                data-orb-idle={orbState === 'idle' && !isSpeechPlaying ? 'true' : undefined}
-              >
-                <FetchVoiceCommandFab
-                  homeSheetDock
-                  homeSheetDockCompact={orbTopLeftOnNavMap}
-                  onboardingPulse={false}
-                  expression={orbExpression}
-                  orbState={orbState}
-                  pulseNonce={0}
-                  typingActive={false}
-                  awakened={orbAwakened}
-                  confirmationNonce={confirmNonce + voiceHoldPulseNonce}
-                  mapAttention={orbMapAttention}
-                  lookAtCard={Boolean(
-                    (orbChatTurns.length > 0 ||
-                      voiceHoldCaption ||
-                      orbEphemeralBubble) &&
-                      !isSpeechPlaying,
-                  )}
-                  glowColor={orbGlowColor}
-                  orbAppearance={themeResolved === 'light' ? 'day' : 'night'}
-                  autonomous={orbDockAutonomous}
-                  suspendAutonomous={Boolean(orbBurstExpression)}
-                  onOpen={openBrainFromHome}
-                />
-              </div>
-            )}
+              )}
+            </>
           </div>
         </div>
       ) : null}
@@ -5697,12 +6102,34 @@ export default function HomeView({
           voiceRelistenEpoch={brainVoiceRelistenEpoch}
           onBrainPricePay={beginBrainFieldSecurePayment}
           onBrainPriceCourtesy={onBrainFieldPriceCourtesy}
+          focusComposerNonce={brainComposerFocusNonce}
         />
       ) : null}
+
+      <HomeServiceInfoSheet
+        open={serviceInfoLandingId != null}
+        landingId={serviceInfoLandingId}
+        onClose={() => setServiceInfoLandingId(null)}
+        onConfirmBooking={onServiceInfoConfirmBooking}
+      />
+
+      <FetchWonderPickerSheet
+        open={wonderPickerOpen}
+        onClose={() => setWonderPickerOpen(false)}
+        onPickAdventure={() => {
+          setWonderPickerOpen(false)
+          void handleMysteryAdventure()
+        }}
+        onPickRestaurant={() => {
+          setWonderPickerOpen(false)
+          void handleRestaurantWonder()
+        }}
+      />
 
       <MysteryAdventurePanel
         open={mysteryPanel.mode !== 'closed'}
         loading={mysteryPanel.mode === 'loading'}
+        experienceKind={mysteryPanel.mode === 'closed' ? 'adventure' : mysteryPanel.flavor}
         title={mysteryPanel.mode === 'ready' ? mysteryPanel.bundle.name : ''}
         formattedAddress={
           mysteryPanel.mode === 'ready'
@@ -5731,7 +6158,13 @@ export default function HomeView({
           })
           setMysteryPanel({ mode: 'closed' })
         }}
-        onAnother={() => void handleMysteryAdventure()}
+        onAnother={() => {
+          if (mysteryPanel.mode === 'ready' && mysteryPanel.flavor === 'restaurant') {
+            void handleRestaurantWonder()
+          } else {
+            void handleMysteryAdventure()
+          }
+        }}
       />
 
       {streetViewPosition && mapsJsReady ? (
@@ -5812,6 +6245,7 @@ export default function HomeView({
         document.body,
       )}
 
+    </div>
     </div>
   )
 }

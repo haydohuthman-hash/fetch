@@ -21,9 +21,21 @@ function previewGradient(style: HardwareProduct['previewStyle']) {
 export type FetchHardwareShopFlowProps = {
   product: HardwareProduct | null
   onDismiss: () => void
+  /** PaymentIntent metadata.type — default `hardware` (wall panels). */
+  paymentMetadataType?: 'hardware' | 'supply'
+  /** Detail-phase eyebrow (default: Wall panel / Supplies). */
+  detailEyebrow?: string
+  /** Hero gradient badge (default: Fetch hardware / Fetch supplies). */
+  heroBadge?: string
 }
 
-export function FetchHardwareShopFlow({ product, onDismiss }: FetchHardwareShopFlowProps) {
+export function FetchHardwareShopFlow({
+  product,
+  onDismiss,
+  paymentMetadataType = 'hardware',
+  detailEyebrow,
+  heroBadge,
+}: FetchHardwareShopFlowProps) {
   const [phase, setPhase] = useState<Phase>('detail')
   const [qty, setQty] = useState(1)
   const [busy, setBusy] = useState(false)
@@ -58,7 +70,7 @@ export function FetchHardwareShopFlow({ product, onDismiss }: FetchHardwareShopF
       const pi0 = await createPaymentIntent({
         bookingId: null,
         amount: lineTotal,
-        metadata: { type: 'hardware', sku: product.sku, qty },
+        metadata: { type: paymentMetadataType, sku: product.sku, qty },
       })
       if (pi0.provider === 'stripe') {
         if (!isStripePublishableConfigured()) {
@@ -98,7 +110,10 @@ export function FetchHardwareShopFlow({ product, onDismiss }: FetchHardwareShopF
         <div className="flex items-start justify-between gap-3 border-b border-white/[0.08] px-5 py-4 pt-[max(1rem,env(safe-area-inset-top))]">
           <div className="min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/45">
-              {phase === 'detail' ? 'Wall panel' : 'Checkout'}
+              {phase === 'detail'
+                ? detailEyebrow ??
+                  (paymentMetadataType === 'supply' ? 'Supplies' : 'Wall panel')
+                : 'Checkout'}
             </p>
             <h2
               id="fetch-hardware-shop-title"
@@ -128,7 +143,8 @@ export function FetchHardwareShopFlow({ product, onDismiss }: FetchHardwareShopF
               >
                 <div className="absolute inset-0 flex items-center justify-center">
                   <span className="text-[12px] font-semibold uppercase tracking-[0.2em] text-white/50">
-                    Fetch hardware
+                    {heroBadge ??
+                      (paymentMetadataType === 'supply' ? 'Fetch supplies' : 'Fetch hardware')}
                   </span>
                 </div>
               </div>

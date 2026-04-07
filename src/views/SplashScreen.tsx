@@ -6,7 +6,7 @@ type SplashScreenProps = {
 }
 
 /**
- * Cold open: eyes blink twice, widen awake, then wordmark — handoff to home + bootstrap.
+ * Cold open: eyes blink twice, then a wake pulse (open wider + brighten, hold alert) — wordmark, then home + bootstrap.
  */
 export default function SplashScreen({ onComplete }: SplashScreenProps) {
   const [phase, setPhase] = useState<'eyes' | 'waking' | 'logo'>('eyes')

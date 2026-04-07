@@ -11,7 +11,11 @@ import {
   type MapAccentRgb,
 } from './BookingMapReflection'
 import type { HardwareProduct } from '../../lib/hardwareCatalog'
-import { MapTimeWeatherOverlay, type MapNavStatusStrip } from './MapTimeWeatherOverlay'
+import {
+  MapTimeWeatherOverlay,
+  type MapHeaderAddressEntryProps,
+  type MapNavStatusStrip,
+} from './MapTimeWeatherOverlay'
 
 export type { LiveTrackingMapFit, MapAccentRgb } from './BookingMapReflection'
 
@@ -65,6 +69,13 @@ export type FetchHomeStepOneProps = {
   pickupLockInCelebrateKey?: number
   /** Compact banner above the map when a booking was started from Fetch chat. */
   chatBookingHintLabel?: string | null
+  /** Pickup / drop-off entry under map wordmark (customer home only). */
+  mapHeaderAddressEntry?: MapHeaderAddressEntryProps | null
+  /**
+   * Maps explore + sheet closed: hide fixed map header/search strip; map uses safe-area inset only.
+   * Search lives in the sheet peek (MapsExploreSheet portal).
+   */
+  mapExploreMinimalChrome?: boolean
 }
 
 /**
@@ -99,6 +110,8 @@ function FetchHomeStepOneInner({
   liveTrackingFit = null,
   pickupLockInCelebrateKey = 0,
   chatBookingHintLabel = null,
+  mapHeaderAddressEntry = null,
+  mapExploreMinimalChrome = false,
 }: FetchHomeStepOneProps) {
   const [map, setMap] = useState<google.maps.Map | null>(null)
   const mapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ?? ''
@@ -112,50 +125,69 @@ function FetchHomeStepOneInner({
     onMapInstance?.(map)
   }, [map, onMapInstance])
 
+  /** CSS faux map — no async loader; mark JS ready so parents don’t wait on Google/Mapbox. */
+  useEffect(() => {
+    if (mapboxToken || mapsApiKey) return
+    onMapsJavaScriptReady?.(true)
+  }, [mapboxToken, mapsApiKey, onMapsJavaScriptReady])
+
   const tunnelPhase = mapTunnelPhase === 'tunnel' ? 'tunnel' : 'off'
   const showRouteChrome =
     mapNavStrip != null ||
     (driverToPickupPath != null && driverToPickupPath.length >= 2)
   const showTrafficLayer = showRouteChrome && !suppressTrafficLayer
   const appleNavChrome = mapNavStrip?.navChrome === 'apple'
+  const mapHeaderEntryActive =
+    mapOverlayContext === 'home' && mapHeaderAddressEntry != null
+
+  const lightMapShell = theme === 'light'
 
   return (
     <div
       className={[
-        'relative h-full min-h-dvh w-full',
+        'relative h-full min-h-0 w-full',
         mapboxToken
-          ? 'overflow-x-clip overflow-y-visible bg-transparent'
+          ? lightMapShell
+            ? 'overflow-x-clip overflow-y-visible bg-white'
+            : 'overflow-x-clip overflow-y-visible bg-transparent'
           : 'overflow-hidden bg-white',
       ].join(' ')}
     >
       <div
         className={[
-          'fetch-home-map-tunnel-layer absolute inset-0 flex flex-col will-change-[filter,transform]',
-          mapboxToken ? 'min-h-dvh' : 'min-h-0',
+          'fetch-home-map-tunnel-layer absolute inset-0 flex min-h-0 flex-col will-change-[filter,transform]',
+          mapboxToken ? 'min-h-full' : 'min-h-0',
           tunnelPhase === 'tunnel' ? 'fetch-home-map-tunnel-layer--active' : '',
         ].join(' ')}
         data-map-tunnel={tunnelPhase}
         role="presentation"
         style={
           {
-            ['--fetch-map-header-h' as string]:
-              'calc(env(safe-area-inset-top, 0px) + 3.5rem)',
+            ['--fetch-map-header-h' as string]: mapExploreMinimalChrome
+              ? 'env(safe-area-inset-top, 0px)'
+              : mapHeaderEntryActive
+                ? 'calc(env(safe-area-inset-top, 0px) + 6.75rem)'
+                : 'calc(env(safe-area-inset-top, 0px) + 3.5rem)',
           } as CSSProperties
         }
       >
         <div
           className={[
-            'fetch-home-map-viewport relative z-0 mt-[var(--fetch-map-header-h)] flex-1',
-            mapboxToken
-              ? 'min-h-[calc(100dvh-var(--fetch-map-header-h))] overflow-visible rounded-none bg-transparent shadow-none ring-0'
-              : 'min-h-0 overflow-hidden rounded-t-[1.375rem] bg-white shadow-[0_-4px_28px_rgba(15,23,42,0.05)] ring-1 ring-white',
+            'fetch-home-map-viewport relative z-0 mt-[var(--fetch-map-header-h)] min-h-0 flex-1',
+            mapExploreMinimalChrome
+              ? 'overflow-hidden rounded-t-none bg-white shadow-none ring-0'
+              : mapboxToken
+                ? lightMapShell
+                  ? 'overflow-hidden rounded-t-[1.375rem] bg-white shadow-[0_-4px_28px_rgba(15,23,42,0.05)] ring-1 ring-white'
+                  : 'overflow-hidden rounded-t-[1.375rem] bg-transparent shadow-none ring-0'
+                : 'overflow-hidden rounded-t-[1.375rem] bg-white shadow-[0_-4px_28px_rgba(15,23,42,0.05)] ring-1 ring-white',
           ].join(' ')}
           role="presentation"
         >
           <div
             className={[
-              'absolute inset-0 z-0 min-h-full w-full',
-              mapboxToken ? 'overflow-visible' : 'overflow-hidden rounded-t-[1.375rem]',
+              'absolute inset-0 z-0 min-h-full w-full overflow-hidden',
+              mapExploreMinimalChrome ? 'rounded-t-none' : 'rounded-t-[1.375rem]',
             ].join(' ')}
             role="presentation"
             aria-label="Job map preview"
@@ -233,13 +265,18 @@ function FetchHomeStepOneInner({
               </p>
             </div>
           ) : null}
-          <MapTimeWeatherOverlay
-            navStrip={mapNavStrip}
-            onMenuAccount={onHomeMapMenuAccount}
-            hardwareProducts={homeMapHardwareCatalog}
-            overlayContext={mapOverlayContext}
-            onDriverExit={onDriverMapExit}
-          />
+          {!mapExploreMinimalChrome ? (
+            <MapTimeWeatherOverlay
+              navStrip={mapNavStrip}
+              onMenuAccount={onHomeMapMenuAccount}
+              hardwareProducts={homeMapHardwareCatalog}
+              overlayContext={mapOverlayContext}
+              onDriverExit={onDriverMapExit}
+              mapHeaderAddressEntry={
+                mapHeaderEntryActive ? mapHeaderAddressEntry : null
+              }
+            />
+          ) : null}
         </div>
       </div>
     </div>

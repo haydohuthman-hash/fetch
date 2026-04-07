@@ -9,3 +9,7 @@ dist
 *.log
 .DS_Store
 Thumbs.db
+
+# OpenAI-generated marketplace supply PNGs (run npm run generate:supply-images)
+public/supplies/*.png
+public/supplies/*.webp

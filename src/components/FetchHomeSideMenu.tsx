@@ -9,7 +9,6 @@ export type FetchHomeSideMenuProps = {
   /** e.g. Back to home — shown before Account when set. */
   primaryNav?: { label: string; onClick: () => void }
   onHelp: () => void
-  onActivity?: () => void
   onAlerts?: () => void
   onLegal?: () => void
   alertsUnreadCount?: number
@@ -37,7 +36,6 @@ export function FetchHomeSideMenu({
   onAccount,
   primaryNav,
   onHelp,
-  onActivity,
   onAlerts,
   onLegal,
   alertsUnreadCount = 0,
@@ -94,18 +92,6 @@ export function FetchHomeSideMenu({
             }}
           >
             Account
-          </button>
-        ) : null}
-        {onActivity ? (
-          <button
-            type="button"
-            className="rounded-xl px-4 py-3 text-left text-[14px] font-medium text-white/[0.9] transition-colors hover:bg-white/[0.06]"
-            onClick={() => {
-              onClose()
-              onActivity()
-            }}
-          >
-            Activity
           </button>
         ) : null}
         {onAlerts ? (

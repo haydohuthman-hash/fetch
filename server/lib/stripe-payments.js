@@ -57,8 +57,8 @@ export function stripeMetadataForIntent(bookingId, intentMetadata) {
   const meta = {}
   if (bookingId) meta.bookingId = bookingId
   if (intentMetadata && typeof intentMetadata === 'object') {
-    if (intentMetadata.type === 'hardware') {
-      meta.checkout = 'hardware'
+    if (intentMetadata.type === 'hardware' || intentMetadata.type === 'supply') {
+      meta.checkout = intentMetadata.type === 'supply' ? 'supply' : 'hardware'
       if (typeof intentMetadata.sku === 'string') meta.sku = intentMetadata.sku.slice(0, 120)
       const qty = intentMetadata.qty
       meta.qty =

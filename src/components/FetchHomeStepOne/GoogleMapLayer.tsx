@@ -92,6 +92,20 @@ export function GoogleMapLayer({
     [onMapReady, onJavaScriptReady],
   )
 
+  /** Let the app shell dismiss bootstrap when Maps fails or hangs (prod keys / network). */
+  useEffect(() => {
+    if (!loadError) return
+    onJavaScriptReady?.(true)
+  }, [loadError, onJavaScriptReady])
+
+  useEffect(() => {
+    if (loadError || isLoaded) return
+    const t = window.setTimeout(() => {
+      onJavaScriptReady?.(true)
+    }, 22_000)
+    return () => window.clearTimeout(t)
+  }, [loadError, isLoaded, onJavaScriptReady])
+
   useEffect(() => {
     if (!mapInstance) return
     mapInstance.setOptions({
@@ -100,10 +114,16 @@ export function GoogleMapLayer({
     })
   }, [mapInstance, mapStyles, theme])
 
+  const placeholderBg =
+    theme === 'light'
+      ? '#ffffff'
+      : 'var(--fetch-map-placeholder-bg,#0e0f12)'
+
   if (loadError) {
     return (
       <div
-        className="absolute inset-0 flex items-center justify-center bg-[var(--fetch-map-placeholder-bg,#0e0f12)] px-4 text-center text-[13px] text-fetch-muted"
+        className="absolute inset-0 flex items-center justify-center px-4 text-center text-[13px] text-fetch-muted"
+        style={{ backgroundColor: placeholderBg }}
         role="alert"
       >
         Map could not load.
@@ -114,7 +134,8 @@ export function GoogleMapLayer({
   if (!isLoaded) {
     return (
       <div
-        className="absolute inset-0 bg-[var(--fetch-map-placeholder-bg,#0e0f12)]"
+        className="absolute inset-0"
+        style={{ backgroundColor: placeholderBg }}
         aria-busy
         aria-label="Loading map"
       />
@@ -123,7 +144,7 @@ export function GoogleMapLayer({
 
   return (
     <GoogleMap
-      mapContainerClassName="absolute inset-0 h-full w-full"
+      mapContainerClassName="absolute inset-0 h-full w-full overflow-hidden rounded-t-[1.375rem]"
       center={BRISBANE_CENTER}
       zoom={11}
       onLoad={onLoad}

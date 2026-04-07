@@ -78,6 +78,8 @@ export type FetchBrainMemoryOverlayProps = {
   autoVoiceEpoch?: number
   /** Booking voice: after assistant TTS, open mic again (no bump when a choice sheet is shown). */
   voiceRelistenEpoch?: number
+  /** Increment (e.g. from map search tap) to move focus into the chat composer. */
+  focusComposerNonce?: number
   /** Neural-field exact quote: opens Stripe / demo checkout from the booking sheet. */
   onBrainPricePay?: () => void
   /** Apply courtesy discount and refresh the quote bubble. */
@@ -123,6 +125,7 @@ export function FetchBrainMemoryOverlay({
   onNewBrainChat,
   autoVoiceEpoch = 0,
   voiceRelistenEpoch = 0,
+  focusComposerNonce = 0,
   onBrainPricePay,
   onBrainPriceCourtesy,
 }: FetchBrainMemoryOverlayProps) {
@@ -777,6 +780,15 @@ export function FetchBrainMemoryOverlay({
     ta.style.height = '0px'
     ta.style.height = `${Math.min(112, Math.max(40, ta.scrollHeight))}px`
   }, [brainDraft])
+
+  useEffect(() => {
+    if (focusComposerNonce < 1) return
+    if (flowPhase !== 'brain') return
+    const t = window.setTimeout(() => {
+      textareaRef.current?.focus()
+    }, 50)
+    return () => window.clearTimeout(t)
+  }, [focusComposerNonce, flowPhase])
 
   return (
     <div

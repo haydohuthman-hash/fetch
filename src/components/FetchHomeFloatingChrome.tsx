@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { useFetchVoice } from '../voice/FetchVoiceContext'
 import { VoiceMuteControl } from './FetchHomeStepOne/VoiceMuteControl'
 
-export type AppTab = 'home' | 'activity' | 'notifications' | 'account'
+export type AppTab = 'home' | 'notifications' | 'account'
 
 function HomeIcon({ className }: { className?: string }) {
   return (
@@ -13,20 +13,6 @@ function HomeIcon({ className }: { className?: string }) {
         strokeWidth="1.6"
         strokeLinejoin="round"
       />
-    </svg>
-  )
-}
-
-function ActivityIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M12 6v6l4 2"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinecap="round"
-      />
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.6" />
     </svg>
   )
 }
@@ -71,7 +57,6 @@ type FetchHomeTopBubbleBarProps = {
 export function FetchHomeTopBubbleBar({ tab, onTab, unreadCount }: FetchHomeTopBubbleBarProps) {
   const items: { id: AppTab; label: string; icon: ReactNode }[] = [
     { id: 'home', label: 'Home', icon: <HomeIcon /> },
-    { id: 'activity', label: 'Activity', icon: <ActivityIcon /> },
     { id: 'notifications', label: 'Alerts', icon: <BellIcon /> },
     { id: 'account', label: 'Account', icon: <UserIcon /> },
   ]

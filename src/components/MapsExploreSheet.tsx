@@ -630,7 +630,9 @@ export function MapsExploreSheet({
       </label>
       <div className="fetch-maps-explore-search-row flex min-w-0 items-stretch gap-1.5">
         <div className="fetch-maps-explore-search-inner relative min-w-0 flex-1">
-          <MapsExploreSearchIcon className="fetch-maps-explore-input-icon absolute left-3 top-1/2 z-[1] h-[18px] w-[18px] -translate-y-1/2" />
+          {!usePeekPortal ? (
+            <MapsExploreSearchIcon className="fetch-maps-explore-input-icon absolute left-3 top-1/2 z-[1] h-[18px] w-[18px] -translate-y-1/2" />
+          ) : null}
           <input
             ref={inputRef}
             id="fetch-maps-address-input"
@@ -652,7 +654,7 @@ export function MapsExploreSheet({
             autoComplete="off"
             className={
               usePeekPortal
-                ? 'fetch-home-address-input fetch-maps-explore-input fetch-home-stage-field-input fetch-stage-text-input w-full rounded-xl border py-2.5 pl-10 pr-11 text-[15px] font-semibold leading-snug tracking-[-0.01em] shadow-sm outline-none ring-0'
+                ? 'fetch-home-address-input fetch-maps-explore-input fetch-home-stage-field-input fetch-stage-text-input w-full border-0 bg-transparent py-2 pl-0 pr-9 text-[15px] font-medium leading-snug tracking-[-0.01em] shadow-none outline-none ring-0 focus:border-0 focus:ring-0'
                 : 'fetch-home-address-input fetch-maps-explore-input fetch-home-stage-field-input fetch-stage-text-input w-full rounded-2xl border py-3 pl-10 pr-11 text-[16px] font-semibold leading-snug tracking-[-0.01em] shadow-sm outline-none ring-0'
             }
             data-sheet-no-drag
@@ -660,7 +662,7 @@ export function MapsExploreSheet({
           {addressInput.trim() ? (
             <button
               type="button"
-              className="fetch-maps-explore-input-clear absolute right-1.5 top-1/2 z-[1] -translate-y-1/2 rounded-full p-1.5"
+              className="fetch-maps-explore-input-clear absolute right-0.5 top-1/2 z-[1] -translate-y-1/2 rounded-full p-1.5"
               aria-label="Clear"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => {
@@ -671,7 +673,7 @@ export function MapsExploreSheet({
             >
               ×
             </button>
-          ) : (
+          ) : !usePeekPortal ? (
             <button
               type="button"
               className={[
@@ -688,7 +690,7 @@ export function MapsExploreSheet({
             >
               <MapsExploreMicIcon className="mx-auto block" />
             </button>
-          )}
+          ) : null}
           {placeSuggestionsVisible ? (
             <ul
               className="fetch-maps-explore-suggestions absolute left-0 right-0 top-full z-[80] mt-1 max-h-52 overflow-y-auto rounded-2xl border py-1 shadow-lg"
@@ -725,7 +727,7 @@ export function MapsExploreSheet({
       }
     >
       {usePeekPortal ? (
-        <div className="fetch-maps-explore-search-shell fetch-maps-explore-search-shell--peek">
+        <div className="fetch-home-map-header-search-shell fetch-maps-explore-search-shell--peek flex min-h-[2.5rem] w-full items-center rounded-[var(--fetch-home-sheet-radius)] px-3">
           {addressSearchFields}
         </div>
       ) : (

@@ -1,0 +1,37 @@
+/** Server-side AUD prices for supply SKUs — must match client `src/lib/suppliesCatalog.ts`. */
+
+/** @type {Record<string, number>} */
+export const SUPPLY_SKU_PRICE_AUD = {
+  SUPPLY_CLEAN_PRO_KIT: 48,
+  SUPPLY_CLEAN_FLOOR_SYS: 72,
+  SUPPLY_CLEAN_STICK_VAC: 118,
+  SUPPLY_CLEAN_SPRAY_TRIO: 36,
+  SUPPLY_CLEAN_MICRO_BULK: 34,
+  SUPPLY_CLEAN_GLOVES_NITRILE: 28,
+  SUPPLY_CLEAN_DEGREASE: 22,
+  SUPPLY_CLEAN_TOILET_SYS: 31,
+  SUPPLY_CLEAN_GLASS_PRO: 26,
+  SUPPLY_CLEAN_ODOUR_NEUT: 19,
+  SUPPLY_CLEAN_MOP_PADS_8: 24,
+  SUPPLY_PACK_MOVE_KIT_S: 89,
+  SUPPLY_PACK_FRAGILE: 56,
+  SUPPLY_PACK_TAPE_KIT: 42,
+  SUPPLY_PACK_PAD_BLANKET: 78,
+  SUPPLY_PACK_WARDROBE_BOX: 64,
+  SUPPLY_PACK_PAPER_10KG: 38,
+  SUPPLY_PACK_STRETCH_WRAP: 29,
+  SUPPLY_PACK_MARKER_SET: 16,
+  SUPPLY_PACK_MATTRESS_BAG: 18,
+  SUPPLY_PACK_ROPE_TIE: 22,
+  SUPPLY_PACK_BUBBLE_NARROW: 35,
+  SUPPLY_PACK_UTILITY_BLADES: 12,
+}
+
+/**
+ * @param {string} sku
+ * @returns {number | undefined}
+ */
+export function getSupplySkuPriceAud(sku) {
+  if (!sku || typeof sku !== 'string') return undefined
+  return SUPPLY_SKU_PRICE_AUD[sku]
+}

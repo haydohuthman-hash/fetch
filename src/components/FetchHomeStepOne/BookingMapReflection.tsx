@@ -10,6 +10,7 @@ import type { BookingStage } from '../../lib/assistant'
 import type { LiveTrackingLegPhase } from '../../lib/booking/liveTrackingLeg'
 import { haversineMeters } from '../../lib/homeDirections'
 import type { ExploreMapPoi } from '../../lib/mapsExplorePlaces'
+import { playUiFeedback } from '../../voice/fetchFeedback'
 import {
   fitPickupAndDriver,
   fitPickupAndDropoff,
@@ -318,17 +319,28 @@ export function BookingMapReflection({
     revealTimersRef.current = []
   }
 
-  const runPinDropRing = (center: google.maps.LatLngLiteral) => {
+  const runPinDropRing = (
+    center: google.maps.LatLngLiteral,
+    mode: 'standard' | 'massive' = 'standard',
+  ) => {
+    const massive = mode === 'massive'
     setPinDropRingCenter(center)
-    setPinDropRingRadius(14)
-    setPinDropRingOpacity(0.62)
-    setPinDropFillRadius(10)
-    setPinDropFillOpacity(0.34)
-    setPinDropRing2Radius(12)
+    setPinDropRingRadius(massive ? 26 : 14)
+    setPinDropRingOpacity(massive ? 0.78 : 0.62)
+    setPinDropFillRadius(massive ? 18 : 10)
+    setPinDropFillOpacity(massive ? 0.48 : 0.34)
+    setPinDropRing2Radius(massive ? 22 : 12)
     setPinDropRing2Opacity(0)
     if (pinDropRingTimer.current != null) window.clearInterval(pinDropRingTimer.current)
     const started = Date.now()
-    const DUR = 1680
+    const DUR = massive ? 2800 : 1680
+    const r0 = massive ? 26 : 14
+    const r1Expand = massive ? 1120 : 340
+    const r2Start = massive ? 20 : 10
+    const r2Expand = massive ? 980 : 300
+    const burstMs = massive ? 520 : 400
+    const lag = massive ? 320 : 200
+    const tick = massive ? 40 : 48
     pinDropRingTimer.current = window.setInterval(() => {
       const elapsed = Date.now() - started
       if (elapsed > DUR) {
@@ -344,20 +356,22 @@ export function BookingMapReflection({
         return
       }
       const t = elapsed / DUR
-      const easeOut = 1 - Math.pow(1 - Math.min(1, t), 2.42)
-      setPinDropRingRadius(14 + easeOut * 340)
-      setPinDropRingOpacity(0.62 * Math.pow(1 - t, 0.66))
-      const burst = Math.sin((Math.min(1, elapsed / 400) * Math.PI) / 2)
-      setPinDropFillRadius(8 + burst * 118 + t * 55)
-      setPinDropFillOpacity(0.38 * burst * (1 - t * 0.92))
-      const lag = 200
+      const easeOut = 1 - Math.pow(1 - Math.min(1, t), massive ? 2.05 : 2.42)
+      const ringOp0 = massive ? 0.78 : 0.62
+      setPinDropRingRadius(r0 + easeOut * r1Expand)
+      setPinDropRingOpacity(ringOp0 * Math.pow(1 - t, massive ? 0.55 : 0.66))
+      const burst = Math.sin((Math.min(1, elapsed / burstMs) * Math.PI) / 2)
+      const fillBurst = massive ? 240 : 118
+      const fillDrift = massive ? 85 : 55
+      setPinDropFillRadius((massive ? 12 : 8) + burst * fillBurst + t * fillDrift)
+      setPinDropFillOpacity((massive ? 0.5 : 0.38) * burst * (1 - t * (massive ? 0.88 : 0.92)))
       const t2 = Math.max(0, elapsed - lag) / (DUR - lag)
       if (elapsed >= lag) {
-        const e2 = 1 - Math.pow(1 - Math.min(1, t2), 2.15)
-        setPinDropRing2Radius(10 + e2 * 300)
-        setPinDropRing2Opacity(0.48 * Math.pow(1 - t2, 0.74))
+        const e2 = 1 - Math.pow(1 - Math.min(1, t2), massive ? 1.95 : 2.15)
+        setPinDropRing2Radius(r2Start + e2 * r2Expand)
+        setPinDropRing2Opacity((massive ? 0.58 : 0.48) * Math.pow(1 - t2, massive ? 0.62 : 0.74))
       }
-    }, 48)
+    }, tick)
   }
 
   const runLockInGoldBurst = (center: google.maps.LatLngLiteral) => {
@@ -614,8 +628,8 @@ export function BookingMapReflection({
     }
 
     setShowPickupPin(false)
-    runConversationPulse(pickupPos)
-    runPinDropRing(pickupPos)
+    playUiFeedback('pin_drop')
+    runPinDropRing(pickupPos, 'massive')
     const showPin = window.setTimeout(() => setShowPickupPin(true), 220)
     const cameraZoom = window.setTimeout(() => {
       if (!map || suspendCameraAutomation) return
@@ -623,7 +637,8 @@ export function BookingMapReflection({
       map.setZoom(16)
       try { map.setTilt(60) } catch { /* vector only */ }
       try { map.setHeading(40) } catch { /* vector only */ }
-      const nudge = () => nudgeMapCenterTowardTop(map, 0.34)
+      /* Pin sits top-center: pan geographic center down so pickup reads under the sheet lip */
+      const nudge = () => nudgeMapCenterTowardTop(map, 0.48)
       requestAnimationFrame(() => requestAnimationFrame(nudge))
     }, 300)
     revealTimersRef.current.push(showPin, cameraZoom)

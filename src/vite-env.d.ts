@@ -1,9 +1,12 @@
 /// <reference types="vite/client" />
 
 /**
- * TTS: `POST /api/tts` and `POST /api/voice/tts` use Google Cloud Text-to-Speech when
- * `GOOGLE_TEXT_TO_SPEECH_API_KEY`, `GOOGLE_CLOUD_API_KEY`, or `GOOGLE_TTS_API_KEY` is set in server `.env`.
- * Optional server env: `GOOGLE_TTS_VOICE` (default `en-US-Chirp-HD-D`; falls back to Neural2 if unavailable).
+ * **Server-only (Vercel / Node)** — never `VITE_*`:
+ * - `OPENAI_API_KEY`, optional `ANTHROPIC_API_KEY` → `POST /api/chat`, `/api/chat/stream`
+ * - `GOOGLE_TEXT_TO_SPEECH_API_KEY` | `GOOGLE_CLOUD_API_KEY` | `GOOGLE_TTS_API_KEY` → `POST /api/voice` (aliases: `/api/tts`, `/api/voice/tts`)
+ * - Optional: `GOOGLE_TTS_VOICE` (default `en-US-Chirp-HD-D`)
+ *
+ * **Client** calls same-origin `/api/*` only. Speech-to-text uses the browser Web Speech API after mic permission (no server STT).
  */
 interface ImportMetaEnv {
   readonly VITE_GOOGLE_MAPS_API_KEY?: string
@@ -38,6 +41,8 @@ interface ImportMetaEnv {
    * When `1`, Account screen uses `POST /api/auth/register` and `/login` (requires server `FETCH_AUTH_USERS_DB=1` + Postgres).
    */
   readonly VITE_FETCH_AUTH_USERS_DB?: string
+  /** Override photo scan URL; default is same-origin `POST /api/scan`. */
+  readonly VITE_SCAN_API_URL?: string
 }
 
 interface ImportMeta {

@@ -1,5 +1,5 @@
 /**
- * Optional structured booking hints from `/api/fetch-ai/chat` (validated client + server).
+ * Optional structured booking hints from `POST /api/chat` (validated client + server).
  * Client geocodes address strings; never trust raw coordinates from the model in v1.
  */
 import { countSpecialtySlugs, normalizeSpecialtySlug } from './booking/specialtyItemCatalog'
