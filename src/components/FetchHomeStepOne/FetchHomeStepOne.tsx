@@ -2,6 +2,8 @@ import { memo, useEffect, useState, type CSSProperties } from 'react'
 import type { BookingStage } from '../../lib/assistant'
 import { useFetchTheme } from '../../theme/FetchThemeContext'
 import { FakeMapBackground } from './FakeMapBackground'
+import { SeqLockMapShowcase } from '../SeqLockMapShowcase'
+import { SeqLockMapStatusHud } from '../SeqLockMapStatusHud'
 import { GoogleMapLayer } from './GoogleMapLayer'
 import { MapboxMapLayer } from './MapboxMapLayer'
 import type { ExploreMapPoi } from '../../lib/mapsExplorePlaces'
@@ -13,6 +15,7 @@ import {
 import type { HardwareProduct } from '../../lib/hardwareCatalog'
 import {
   MapTimeWeatherOverlay,
+  type MapBackBubbleProps,
   type MapHeaderAddressEntryProps,
   type MapNavStatusStrip,
 } from './MapTimeWeatherOverlay'
@@ -26,6 +29,10 @@ export type FetchHomeStepOneProps = {
   pickupCoords?: google.maps.LatLngLiteral | null
   dropoffCoords?: google.maps.LatLngLiteral | null
   routePath?: google.maps.LatLngLiteral[] | null
+  /** Dashed geodesic while real Directions path is loading. */
+  bookingRouteProvisional?: boolean
+  /** Extra fitBounds padding when framing pickup + drop-off (compact photo step). */
+  pickupDropoffMapFitPadding?: google.maps.Padding | null
   /** Drives map chrome (pins / route animations). */
   mapStage?: BookingStage
   /** Pin drop pulse + marker tint — match booking stage glow. */
@@ -76,8 +83,15 @@ export type FetchHomeStepOneProps = {
    * Search lives in the sheet peek (MapsExploreSheet portal).
    */
   mapExploreMinimalChrome?: boolean
+  /** Services booking sheet: collapse top map inset + hide system header (see `mapBackBubble`). */
+  mapBookingTopMinimal?: boolean
+  mapBackBubble?: MapBackBubbleProps | null
   /** Maps tab: square top edge on map viewport (no rounded card lip). */
   squareMapTopCorners?: boolean
+  /** Immersive SVG demo when region-locked and no Google Maps API key. */
+  mapRegionLockedShowcase?: boolean
+  /** Status pill on the real map during SEQ lock demo (requires Maps key). */
+  mapRegionLockedStatusLine?: string | null
 }
 
 /**
@@ -90,6 +104,8 @@ function FetchHomeStepOneInner({
   pickupCoords = null,
   dropoffCoords = null,
   routePath = null,
+  bookingRouteProvisional = false,
+  pickupDropoffMapFitPadding = null,
   mapStage = 'idle',
   mapAccentRgb,
   userLocationCoords = null,
@@ -114,7 +130,11 @@ function FetchHomeStepOneInner({
   chatBookingHintLabel = null,
   mapHeaderAddressEntry = null,
   mapExploreMinimalChrome = false,
+  mapBookingTopMinimal = false,
+  mapBackBubble = null,
   squareMapTopCorners = false,
+  mapRegionLockedShowcase = false,
+  mapRegionLockedStatusLine = null,
 }: FetchHomeStepOneProps) {
   const [map, setMap] = useState<google.maps.Map | null>(null)
   const mapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ?? ''
@@ -142,18 +162,25 @@ function FetchHomeStepOneInner({
   const appleNavChrome = mapNavStrip?.navChrome === 'apple'
   const mapHeaderEntryActive =
     mapOverlayContext === 'home' && mapHeaderAddressEntry != null
+  const mapHeaderEntryInline = mapHeaderAddressEntry?.presentation === 'inline'
 
   const lightMapShell = theme === 'light'
-  const mapViewportSquareTop = mapExploreMinimalChrome || squareMapTopCorners
+  const mapTopTreatAsMinimal = mapExploreMinimalChrome || mapBookingTopMinimal
+  const mapViewportSquareTop = mapTopTreatAsMinimal || squareMapTopCorners
+  const showMapTimeWeatherOverlay =
+    mapOverlayContext === 'driver' || !mapExploreMinimalChrome || mapBookingTopMinimal
+  const hideMapSystemHeader = mapOverlayContext === 'home' && mapBookingTopMinimal
 
-  const mapHeaderChromeH = mapExploreMinimalChrome
+  const mapHeaderChromeH = mapTopTreatAsMinimal
     ? 'env(safe-area-inset-top, 0px)'
     : 'calc(env(safe-area-inset-top, 0px) + 3.5rem)'
   /** Nav / ETA strip: clears floating search when present (search sits on map below header). */
-  const mapNavChromeTop = mapExploreMinimalChrome
+  const mapNavChromeTop = mapTopTreatAsMinimal
     ? 'max(0.375rem, env(safe-area-inset-top, 0px))'
     : mapHeaderEntryActive
-      ? 'calc(env(safe-area-inset-top, 0px) + 3.5rem + 0.45rem + 2.875rem + 0.5rem)'
+      ? mapHeaderEntryInline
+        ? 'calc(env(safe-area-inset-top, 0px) + 3.5rem + 0.4rem + 1.35rem + 0.35rem)'
+        : 'calc(env(safe-area-inset-top, 0px) + 3.5rem + 0.45rem + 2.875rem + 0.5rem)'
       : 'calc(env(safe-area-inset-top, 0px) + 3.5rem + 0.375rem)'
 
   return (
@@ -224,6 +251,8 @@ function FetchHomeStepOneInner({
                   pickupCoords={pickupCoords}
                   dropoffCoords={dropoffCoords}
                   routePath={routePath}
+                  provisionalRoute={bookingRouteProvisional}
+                  pickupDropoffFitPadding={pickupDropoffMapFitPadding}
                   map={map}
                   stage={mapStage}
                   accentRgb={mapAccentRgb}
@@ -276,7 +305,7 @@ function FetchHomeStepOneInner({
               </p>
             </div>
           ) : null}
-          {!mapExploreMinimalChrome ? (
+          {showMapTimeWeatherOverlay ? (
             <MapTimeWeatherOverlay
               navStrip={mapNavStrip}
               onMenuAccount={onHomeMapMenuAccount}
@@ -286,6 +315,21 @@ function FetchHomeStepOneInner({
               mapHeaderAddressEntry={
                 mapHeaderEntryActive ? mapHeaderAddressEntry : null
               }
+              hideSystemHeader={hideMapSystemHeader}
+              mapBackBubble={hideMapSystemHeader ? mapBackBubble : null}
+            />
+          ) : null}
+          {mapRegionLockedShowcase ? (
+            <SeqLockMapShowcase
+              variant={lightMapShell ? 'light' : 'dark'}
+              className={mapViewportSquareTop ? 'rounded-t-none' : 'rounded-t-[1.375rem]'}
+            />
+          ) : null}
+          {mapRegionLockedStatusLine ? (
+            <SeqLockMapStatusHud
+              line={mapRegionLockedStatusLine}
+              variant={lightMapShell ? 'light' : 'dark'}
+              className={mapViewportSquareTop ? 'rounded-t-none' : 'rounded-t-[1.375rem]'}
             />
           ) : null}
         </div>

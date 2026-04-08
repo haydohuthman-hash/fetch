@@ -12,11 +12,43 @@ import { haversineMeters } from '../../lib/homeDirections'
 import type { ExploreMapPoi } from '../../lib/mapsExplorePlaces'
 import { playUiFeedback } from '../../voice/fetchFeedback'
 import {
+  PICKUP_DROPOFF_SHEET_FIT_PADDING,
   fitPickupAndDriver,
   fitPickupAndDropoff,
   fitPickupDropoffAndDriver,
   nudgeMapCenterTowardTop,
 } from './brisbaneMap'
+
+function pointAlongPolyline(
+  path: google.maps.LatLngLiteral[],
+  t: number,
+): google.maps.LatLngLiteral | null {
+  if (path.length < 2) return null
+  const u = Math.max(0, Math.min(1, t))
+  let total = 0
+  const segLens: number[] = []
+  for (let i = 0; i < path.length - 1; i++) {
+    const len = haversineMeters(path[i]!, path[i + 1]!)
+    segLens.push(len)
+    total += len
+  }
+  if (total < 0.5) return path[0] ?? null
+  let dist = u * total
+  for (let i = 0; i < segLens.length; i++) {
+    const sl = segLens[i]!
+    if (dist <= sl || i === segLens.length - 1) {
+      const ratio = sl < 0.5 ? 0 : Math.min(1, dist / sl)
+      const a = path[i]!
+      const b = path[i + 1]!
+      return {
+        lat: a.lat + (b.lat - a.lat) * ratio,
+        lng: a.lng + (b.lng - a.lng) * ratio,
+      }
+    }
+    dist -= sl
+  }
+  return path[path.length - 1] ?? null
+}
 
 function isAdventureClusterKind(kind: ExploreMapPoi['kind']): boolean {
   return kind === 'park' || kind === 'natural' || kind === 'adventure'
@@ -49,6 +81,8 @@ type BookingMapReflectionProps = {
   pickupCoords?: google.maps.LatLngLiteral | null
   dropoffCoords?: google.maps.LatLngLiteral | null
   routePath?: google.maps.LatLngLiteral[] | null
+  /** Straight-line placeholder while Google Directions is loading (two-point path). */
+  provisionalRoute?: boolean
   map: google.maps.Map | null
   stage: BookingStage
   /** Pin rings, pulses, marker fill — match booking stage. */
@@ -75,6 +109,8 @@ type BookingMapReflectionProps = {
   liveTrackingFit?: LiveTrackingMapFit | null
   /** Increment when the user confirms pickup so lock-in fanfare runs even if coords match the preview. */
   pickupLockInCelebrateKey?: number
+  /** Optional fitBounds padding for pickup+drop-off (e.g. taller bottom inset when the sheet is short). */
+  pickupDropoffFitPadding?: google.maps.Padding | null
 }
 
 /**
@@ -87,6 +123,7 @@ export function BookingMapReflection({
   pickupCoords = null,
   dropoffCoords = null,
   routePath: realRoutePath = null,
+  provisionalRoute = false,
   map,
   stage,
   accentRgb: accentRgbProp,
@@ -101,6 +138,7 @@ export function BookingMapReflection({
   droppedPinCoords = null,
   liveTrackingFit = null,
   pickupLockInCelebrateKey = 0,
+  pickupDropoffFitPadding = null,
 }: BookingMapReflectionProps) {
   const accentRgb = accentRgbProp ?? DEFAULT_ACCENT
   const accentHex = useMemo(
@@ -152,6 +190,11 @@ export function BookingMapReflection({
   const [showDriverMarker, setShowDriverMarker] = useState(false)
   const [driverMarkerOpacity, setDriverMarkerOpacity] = useState(0)
   const [driverMarkerScale, setDriverMarkerScale] = useState(0.86)
+  const [routeLoadPulseT, setRouteLoadPulseT] = useState<number | null>(null)
+  const prevProvisionalRouteRef = useRef(provisionalRoute)
+  const realRoutePathRef = useRef(realRoutePath)
+  realRoutePathRef.current = realRoutePath
+
   const routeAnimTimer = useRef<number | null>(null)
   const searchSweepTimer = useRef<number | null>(null)
   const searchPulseTimer = useRef<number | null>(null)
@@ -527,6 +570,31 @@ export function BookingMapReflection({
   }, [realRoutePath])
 
   useEffect(() => {
+    const wasProv = prevProvisionalRouteRef.current
+    prevProvisionalRouteRef.current = provisionalRoute
+    if (!wasProv || provisionalRoute) return
+    const path = realRoutePathRef.current
+    if (!path || path.length < 2) return
+    let raf = 0
+    const t0 = performance.now()
+    const duration = 2800
+    const tick = (now: number) => {
+      const u = (now - t0) / duration
+      if (u >= 1) {
+        setRouteLoadPulseT(null)
+        return
+      }
+      setRouteLoadPulseT(u)
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => {
+      cancelAnimationFrame(raf)
+      setRouteLoadPulseT(null)
+    }
+  }, [provisionalRoute])
+
+  useEffect(() => {
     if (suspendCameraAutomation) return
     if (navigationRouteActive && cameraFollowUser) return
     if (!map) return
@@ -549,7 +617,12 @@ export function BookingMapReflection({
     }
 
     if (!pickupPos || !dropoffPos) return
-    fitPickupAndDropoff(map, pickupPos, dropoffPos)
+    fitPickupAndDropoff(
+      map,
+      pickupPos,
+      dropoffPos,
+      pickupDropoffFitPadding ?? PICKUP_DROPOFF_SHEET_FIT_PADDING,
+    )
   }, [
     suspendCameraAutomation,
     navigationRouteActive,
@@ -559,6 +632,10 @@ export function BookingMapReflection({
     pickupPos?.lng,
     dropoffPos?.lat,
     dropoffPos?.lng,
+    pickupDropoffFitPadding?.top,
+    pickupDropoffFitPadding?.right,
+    pickupDropoffFitPadding?.bottom,
+    pickupDropoffFitPadding?.left,
     realRoutePath,
     liveTrackingFit?.driver.lat,
     liveTrackingFit?.driver.lng,
@@ -962,6 +1039,19 @@ export function BookingMapReflection({
     pickupPos &&
     haversineMeters(userLocationCoords, pickupPos) < 52
 
+  const routeLoadPulseGfx = useMemo(() => {
+    if (routeLoadPulseT == null || !realRoutePath || realRoutePath.length < 2) return null
+    const u = routeLoadPulseT
+    const cycles = 2.35
+    const phase = (u * cycles) % 1
+    const travel = phase * phase * (3 - 2 * phase)
+    const pos = pointAlongPolyline(realRoutePath, travel)
+    if (!pos) return null
+    const envelope = u > 0.88 ? 1 - (u - 0.88) / 0.12 : 1
+    const opacity = envelope * Math.pow(Math.sin(phase * Math.PI), 1.15) * 0.42
+    return { pos, opacity }
+  }, [routeLoadPulseT, realRoutePath])
+
   return (
     <>
       {routeRevealCenter && routeRevealOpacity > 0 ? (
@@ -1009,11 +1099,43 @@ export function BookingMapReflection({
           path={routePath}
           options={{
             strokeColor: navigationRouteActive ? '#0A84FF' : accentHex,
-            strokeOpacity: navigationRouteActive ? 0.94 : 0.88,
-            strokeWeight: navigationRouteActive ? 5.5 : 4,
+            strokeOpacity: provisionalRoute
+              ? 0.52
+              : navigationRouteActive
+                ? 0.94
+                : 0.88,
+            strokeWeight: provisionalRoute ? 3 : navigationRouteActive ? 5.5 : 4,
             zIndex: navigationRouteActive ? 1 : 2,
             clickable: false,
             geodesic: true,
+            ...(provisionalRoute
+              ? {
+                  icons: [
+                    {
+                      icon: {
+                        path: 'M 0,-0.5 0,0.5',
+                        strokeOpacity: 1,
+                        scale: 2,
+                      },
+                      offset: '0',
+                      repeat: '10px',
+                    },
+                  ],
+                }
+              : {}),
+          }}
+        />
+      ) : null}
+      {routeLoadPulseGfx ? (
+        <Circle
+          center={routeLoadPulseGfx.pos}
+          radius={40}
+          options={{
+            fillColor: accentHex,
+            fillOpacity: routeLoadPulseGfx.opacity,
+            strokeOpacity: 0,
+            clickable: false,
+            zIndex: 5,
           }}
         />
       ) : null}

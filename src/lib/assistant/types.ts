@@ -43,6 +43,8 @@ export type BookingRoute = {
   path?: BookingCoords[]
   distanceMeters?: number
   durationSeconds?: number
+  /** True while path is a straight placeholder until Google Directions returns. */
+  provisional?: boolean
 }
 
 /** Bump when quote math or inputs change materially (audit / support). */

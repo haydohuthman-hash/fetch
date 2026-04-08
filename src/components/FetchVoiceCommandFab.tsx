@@ -35,6 +35,8 @@ export function FetchVoiceCommandFab({
   onSheetPullExpand,
   /** While HomeView plays the 1m idle reminder line — black dog ears above the orb during that TTS only. */
   dogEars = false,
+  /** Booking / payment dock: neutral face, no speaking pulse or listening ring. */
+  minimalDockPresentation = false,
 }: {
   onOpen: () => void
   id?: string
@@ -58,6 +60,7 @@ export function FetchVoiceCommandFab({
   suspendAutonomous?: boolean
   onSheetPullExpand?: () => void
   dogEars?: boolean
+  minimalDockPresentation?: boolean
 }) {
   const { isSpeechPlaying, muted, playUiEvent } = useFetchVoice()
   const [pulseActive, setPulseActive] = useState(false)
@@ -104,17 +107,19 @@ export function FetchVoiceCommandFab({
   const resolvedActivity =
     expression === 'listening' ? Math.max(resolvedActivityCore, 0.56) : resolvedActivityCore
 
-  const speakingVisual =
-    expression === 'speaking' ||
-    expression === 'excited' ||
-    expression === 'surprised' ||
-    orbState === 'responding' ||
-    orbState === 'speaking' ||
-    orbState === 'processing' ||
-    orbState === 'thinking' ||
-    (!orbState && !expression && speaking)
+  const speakingVisual = minimalDockPresentation
+    ? false
+    : expression === 'speaking' ||
+        expression === 'excited' ||
+        expression === 'surprised' ||
+        orbState === 'responding' ||
+        orbState === 'speaking' ||
+        orbState === 'processing' ||
+        orbState === 'thinking' ||
+        (!orbState && !expression && speaking)
 
-  const listeningVisual = expression === 'listening' && !speakingVisual
+  const listeningVisual =
+    !minimalDockPresentation && expression === 'listening' && !speakingVisual
 
   const looksDormant =
     !speaking &&
@@ -204,15 +209,17 @@ export function FetchVoiceCommandFab({
         <JarvisNeuralOrb
           expression={expression}
           state={resolvedState}
-          speaking={speaking}
-          activity={resolvedActivity}
-          voiceLevel={voiceLevel}
+          speaking={minimalDockPresentation ? false : speaking}
+          activity={minimalDockPresentation ? 0.08 : resolvedActivity}
+          voiceLevel={minimalDockPresentation ? 0 : voiceLevel}
           awakened={awakened}
           confirmationNonce={confirmationNonce}
           mapAttention={mapAttention}
           lookAtCard={lookAtCard && !lookDown}
           lookDown={lookDown}
-          glowColor={glowColor}
+          glowColor={
+            minimalDockPresentation ? { r: 120, g: 122, b: 130 } : glowColor
+          }
           orbAppearance={orbAppearance}
           autonomous={autonomous}
           suspendAutonomous={suspendAutonomous}

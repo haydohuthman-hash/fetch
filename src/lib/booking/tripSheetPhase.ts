@@ -6,8 +6,25 @@ import {
 } from './bookingWireConstants'
 
 /**
- * Uber-style trip card phase: derived only from existing booking state + the same
- * UI flags HomeView uses for step visibility (no new server contract).
+ * Uber-style trip card phase: derived only from booking state + the same UI flags
+ * [`HomeView`](../../views/HomeView.tsx) uses for step visibility (no extra server contract).
+ *
+ * Phase meanings (user-facing copy lives in the sheet, not here):
+ * - **idle_intent** — service picker / intent landing.
+ * - **confirm_pin** — reserved for pin confirmation flows.
+ * - **pickup_address** / **dropoff_address** — address capture (single or dual).
+ * - **labor_details** — helper / cleaning hours + task type.
+ * - **building_route** — `flowStep === 'route'` before route metrics are ready (transitional).
+ * - **confirm_route** — route + addresses ready, optional “continue to scan” before `jobDetailsStarted`.
+ * - **job_scan** — photo / item capture step.
+ * - **quote_loading** — post-scan, pricing not yet on the sheet.
+ * - **review_price** — quote visible, user has not completed payment.
+ * - **pay_checkout** — Stripe embedded checkout active (`stripeCheckoutActive`).
+ * - **dispatch_pending** — paid + `confirmed`, pre-driver or pre-live UI.
+ * - **matching** / **driver_assigned** / **en_route** / **arrived** / **in_progress** — live pipeline.
+ * - **completed** / **match_failed** — terminal live outcomes.
+ *
+ * @see docs/booking-flow-design.md (repo root)
  */
 export type TripSheetPhase =
   | 'idle_intent'

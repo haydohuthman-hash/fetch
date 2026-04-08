@@ -9,27 +9,54 @@ import {
   type PointerEvent,
 } from 'react'
 import { createPortal } from 'react-dom'
+import { useNavigate } from 'react-router-dom'
 import type { HardwareProduct } from '../lib/hardwareCatalog'
 import {
+  MARKETPLACE_SUPPLY_CATEGORY_IDS,
   SUPPLY_PRODUCTS,
   bundleRetailTotalAud,
   getMarketplaceBundleForCategory,
-  getSupplyProductsByCategory,
   resolveBundleProducts,
   type MarketplaceBundleDef,
   type SupplyCategoryId,
   type SupplyProduct,
 } from '../lib/suppliesCatalog'
+import {
+  fetchPublicStoreCategories,
+  getStaticFallbackStoreCategories,
+  type StorePublicCategory,
+  type StorePublicSubcategory,
+} from '../lib/storeCategoriesPublic'
 import { waitForPaymentIntentServerConfirmed } from '../lib/booking/api'
 import { confirmDemoPaymentIntent, isStripePublishableConfigured } from '../lib/paymentCheckout'
-import { storeCheckout, syncCheckoutCustomerSession } from '../lib/storeApi'
-import { FetchEyesMarketplaceIntroIcon } from './icons/HomeShellNavIcons'
+import { fetchStoreCatalog, storeCheckout, syncCheckoutCustomerSession, type StoreCatalogProduct } from '../lib/storeApi'
+import { publicProductToSupplyProduct } from '../lib/publicProduct'
+import { useFetchProducts } from '../lib/useFetchProducts'
+import { FetchShopModeSegment } from './FetchShopModeSegment'
+import { AccountNavIconFilled, FetchEyesMarketplaceIntroIcon } from './icons/HomeShellNavIcons'
+import type { HomeShellTabRequest } from './profile/FetchProfileSheet'
 import { FetchStripePaymentElement } from './FetchStripePaymentElement'
+import {
+  DrinksFreezerSplash,
+  DRINKS_FREEZER_SPLASH_MS,
+  playDrinksFreezerStormSound,
+} from './DrinksFreezerSplash'
+
+export type MarketplaceDropsProductHandoff = {
+  productId: string
+  /** `sheet` opens product detail; `buyNow` adds one to cart and opens cart. */
+  mode: 'sheet' | 'buyNow'
+}
 
 export type HomeShellMarketplacePageProps = {
   bottomNav: React.ReactNode
   hardwareProducts: readonly HardwareProduct[]
   onMenuAccount?: () => void
+  /** Switch to peer listings (Buy & sell) from the shop header segment. */
+  onRequestHomeShellTab?: (tab: HomeShellTabRequest) => void
+  /** From Drops: open a store product or jump to cart. */
+  dropsProductHandoff?: MarketplaceDropsProductHandoff | null
+  onDropsProductHandoffConsumed?: () => void
 }
 
 function formatAud(n: number): string {
@@ -51,18 +78,6 @@ const CATEGORY_HEADLINE: Record<SupplyCategoryId, string> = {
   laundry: 'Laundry',
   storage: 'Storage',
 }
-
-const MARKETPLACE_CATEGORY_ORDER: { id: SupplyCategoryId; label: string }[] = [
-  { id: 'drinks', label: 'Drinks' },
-  { id: 'cleaning', label: 'Cleaning' },
-  { id: 'packing', label: 'Moving' },
-  { id: 'kitchen', label: 'Kitchen' },
-  { id: 'bedroom', label: 'Bedroom' },
-  { id: 'bathroom', label: 'Bath' },
-  { id: 'livingRoom', label: 'Living' },
-  { id: 'laundry', label: 'Laundry' },
-  { id: 'storage', label: 'Storage' },
-]
 
 /** Title + what’s in the category (under each wide promo card). Delivery line is shared below. */
 const CATEGORY_BANNER_LINES: Record<SupplyCategoryId, readonly [string, string]> = {
@@ -106,7 +121,175 @@ const CATEGORY_BANNER_LINES: Record<SupplyCategoryId, readonly [string, string]>
 
 const MARKETPLACE_DELIVERY_PROMO = 'Tomorrow or next day delivery available.'
 
-function categoryBannerImageSrc(id: SupplyCategoryId): string | null {
+const SUBCATEGORY_GENERAL_SLUG = 'general'
+
+function pickQuickMarketplaceSubcategories(subs: StorePublicSubcategory[]): StorePublicSubcategory[] {
+  const sorted = [...subs].sort((a, b) => a.sort_order - b.sort_order || a.label.localeCompare(b.label))
+  const nonGeneral = sorted.filter((s) => s.slug !== SUBCATEGORY_GENERAL_SLUG)
+  if (nonGeneral.length >= 2) return nonGeneral.slice(0, 2)
+  if (nonGeneral.length === 1) return nonGeneral
+  return sorted.slice(0, 2)
+}
+
+function marketplaceSubcategoryThumbUrls(
+  catalog: SupplyProduct[] | null,
+  categoryId: string,
+  subcategoryId: string,
+): string[] {
+  const list = (catalog ?? SUPPLY_PRODUCTS).filter(
+    (p) =>
+      p.categoryId === categoryId &&
+      p.subcategoryId === subcategoryId &&
+      (p.coverImageUrl ?? '').trim().length > 0,
+  )
+  return list.slice(0, 3).map((p) => p.coverImageUrl.trim())
+}
+
+function MarketplaceQuickSubRow({
+  label,
+  thumbs,
+  onNavigate,
+}: {
+  label: string
+  thumbs: string[]
+  onNavigate: () => void
+}) {
+  const slots = [0, 1, 2] as const
+  return (
+    <button
+      type="button"
+      onClick={onNavigate}
+      className="w-full rounded-xl border border-zinc-200/90 bg-white px-2.5 py-2 text-left shadow-[0_1px_0_rgba(15,23,42,0.04)] transition-[opacity,transform] active:scale-[0.99] active:opacity-90"
+    >
+      <div className="flex min-h-[1.25rem] min-w-0 max-w-full items-center gap-1">
+        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-tight tracking-tight text-zinc-900">
+          {label}
+        </span>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          className="shrink-0 text-zinc-500"
+          aria-hidden
+        >
+          <path
+            d="M9 6l6 6-6 6"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </div>
+      <div className="mt-2 grid grid-cols-3 gap-1.5">
+        {slots.map((i) => {
+          const src = thumbs[i]
+          return (
+            <div
+              key={i}
+              className="aspect-square overflow-hidden rounded-md bg-zinc-50 ring-1 ring-zinc-200/70"
+            >
+              {src ? (
+                <img src={src} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
+              ) : null}
+            </div>
+          )
+        })}
+      </div>
+    </button>
+  )
+}
+
+function isSupplyCategoryId(id: string): id is SupplyCategoryId {
+  return (MARKETPLACE_SUPPLY_CATEGORY_IDS as readonly string[]).includes(id)
+}
+
+function hashStringHue(s: string): number {
+  let h = 0
+  for (let i = 0; i < s.length; i += 1) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0
+  return Math.abs(h) % 360
+}
+
+function CategoryGenericBannerGradient({ id, label }: { id: string; label: string }) {
+  const hue = hashStringHue(id)
+  const h2 = (hue + 48) % 360
+  const h3 = (hue + 96) % 360
+  return (
+    <div
+      className="flex h-full w-full items-center justify-center bg-gradient-to-br"
+      style={{
+        background: `linear-gradient(to bottom right, hsl(${hue} 52% 88%), hsl(${h2} 42% 92%), hsl(${h3} 38% 95%))`,
+      }}
+      aria-hidden
+    >
+      <span className="px-6 text-center text-[15px] font-bold tracking-tight text-zinc-800/75">{label}</span>
+    </div>
+  )
+}
+
+const showMarketplaceAdminEntry =
+  import.meta.env.DEV || import.meta.env.VITE_SHOW_STORE_ADMIN === '1'
+
+function apiCatalogRowToSupplyProduct(row: StoreCatalogProduct, staticP: SupplyProduct | undefined): SupplyProduct {
+  const compare =
+    row.compareAtAud != null && Number.isFinite(row.compareAtAud) && row.compareAtAud > 0
+      ? row.compareAtAud
+      : undefined
+  const ext = {
+    ...(row.productSource === 'amazon' ? { productSource: 'amazon' as const } : {}),
+    ...(row.externalListing ? { externalListing: true as const } : {}),
+    ...(row.affiliateUrl?.trim() ? { affiliateUrl: row.affiliateUrl.trim() } : {}),
+    ...(row.asin ? { asin: row.asin } : {}),
+  }
+  if (staticP) {
+    return {
+      ...staticP,
+      priceAud: row.priceAud,
+      title: row.title,
+      subtitle: row.subtitle,
+      coverImageUrl: row.coverImageUrl,
+      description: row.description?.trim() || staticP.description,
+      ...(row.subcategoryId ? { subcategoryId: row.subcategoryId } : {}),
+      ...(row.subcategoryLabel ? { subcategoryLabel: row.subcategoryLabel } : {}),
+      ...(compare != null ? { compareAtAud: compare } : {}),
+      ...ext,
+    }
+  }
+  return {
+    id: row.id,
+    sku: row.sku,
+    title: row.title,
+    subtitle: row.subtitle,
+    priceAud: row.priceAud,
+    categoryId: row.categoryId,
+    previewStyle: 'slate',
+    specs: [row.subtitle],
+    description: row.description?.trim() || row.subtitle,
+    coverImageUrl: row.coverImageUrl,
+    ...(row.subcategoryId ? { subcategoryId: row.subcategoryId } : {}),
+    ...(row.subcategoryLabel ? { subcategoryLabel: row.subcategoryLabel } : {}),
+    ...(compare != null ? { compareAtAud: compare } : {}),
+    ...ext,
+  }
+}
+
+function supplyProductShowsCompare(p: SupplyProduct): boolean {
+  const was = p.compareAtAud ?? 0
+  const now = p.priceAud
+  return was > 0 && (now <= 0 || was > now)
+}
+
+function isExternalAffiliateProduct(p: SupplyProduct): boolean {
+  return Boolean(p.externalListing && (p.affiliateUrl ?? '').trim())
+}
+
+function formatListingPriceAud(p: SupplyProduct): string {
+  if (isExternalAffiliateProduct(p) && p.priceAud <= 0) return 'See on Amazon'
+  return formatAud(p.priceAud)
+}
+
+function categoryBannerImageSrc(id: SupplyCategoryId | string): string | null {
   if (id === 'drinks') return '/marketplace/drinks-bundle-banner.png'
   if (id === 'cleaning') return '/marketplace/clean-bundle-banner.png'
   if (id === 'packing') return '/marketplace/moving-bundle-banner.png'
@@ -119,7 +302,10 @@ function categoryBannerImageSrc(id: SupplyCategoryId): string | null {
   return null
 }
 
-function CategoryBannerGradient({ id }: { id: SupplyCategoryId }) {
+function CategoryBannerGradient({ id, label }: { id: string; label: string }) {
+  if (!isSupplyCategoryId(id)) {
+    return <CategoryGenericBannerGradient id={id} label={label} />
+  }
   const tone: Record<SupplyCategoryId, string> = {
     drinks: 'from-rose-100/85 via-orange-50/75 to-amber-50/85',
     cleaning: 'from-emerald-100/90 via-teal-50/80 to-cyan-50/90',
@@ -164,6 +350,62 @@ function CartIcon({ className = '' }: { className?: string }) {
         strokeLinejoin="round"
       />
     </svg>
+  )
+}
+
+function MarketplaceBrowseHeaderActions({
+  cartItemCount,
+  onCart,
+  onAccount,
+  showAdmin,
+  onAdmin,
+}: {
+  cartItemCount: number
+  onCart: () => void
+  onAccount?: () => void
+  showAdmin?: boolean
+  onAdmin?: () => void
+}) {
+  const cartLabel =
+    cartItemCount > 0
+      ? `Open cart, ${cartItemCount} item${cartItemCount === 1 ? '' : 's'}`
+      : 'Open cart'
+
+  return (
+    <div className="flex shrink-0 items-center gap-0.5">
+      {showAdmin && onAdmin ? (
+        <button
+          type="button"
+          onClick={onAdmin}
+          className="mr-0.5 rounded-full px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wide text-violet-700 active:bg-violet-50"
+        >
+          Admin
+        </button>
+      ) : null}
+      <button
+        type="button"
+        className="relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-zinc-800 transition-colors active:scale-[0.97] active:bg-zinc-100"
+        aria-label={cartLabel}
+        onClick={onCart}
+      >
+        <CartIcon />
+        {cartItemCount > 0 ? (
+          <span className="absolute right-0.5 top-0.5 flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-zinc-900 px-1 text-[9px] font-bold tabular-nums text-white">
+            {cartItemCount > 99 ? '99+' : cartItemCount}
+          </span>
+        ) : null}
+      </button>
+      {onAccount ? (
+        <button
+          type="button"
+          onClick={onAccount}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-zinc-800 transition-colors active:scale-[0.97] active:bg-zinc-100"
+          aria-label="Profile"
+        >
+          <AccountNavIconFilled className="h-6 w-6" />
+        </button>
+      ) : null}
+    </div>
   )
 }
 
@@ -242,7 +484,7 @@ function MarketplaceBrowseBootSkeleton() {
         <header className="shrink-0 border-b border-zinc-200/80 bg-white px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top,0px))]">
           <div className="flex items-center gap-2.5">
             <div className="h-9 w-9 shrink-0 rounded-2xl bg-zinc-200/75" />
-            <div className="h-7 w-16 rounded-lg bg-zinc-200/80" />
+            <div className="h-7 w-[5.5rem] rounded-lg bg-zinc-200/80" />
           </div>
         </header>
 
@@ -298,9 +540,26 @@ const SupplyProductThumb = memo(function SupplyProductThumb({
 type MarketplaceSubView = 'browse' | 'cart' | 'checkout' | 'orderComplete'
 type MarketplaceBrowseShelf = 'categories' | 'products'
 
-function HomeShellMarketplacePageInner({ bottomNav }: HomeShellMarketplacePageProps) {
-  const [category, setCategory] = useState<SupplyCategoryId>('drinks')
+function HomeShellMarketplacePageInner({
+  bottomNav,
+  onMenuAccount,
+  onRequestHomeShellTab,
+  dropsProductHandoff = null,
+  onDropsProductHandoffConsumed,
+}: HomeShellMarketplacePageProps) {
+  const navigate = useNavigate()
+  const {
+    loading: productsApiLoading,
+    error: productsApiError,
+    products: apiProductList,
+    retry: retryApiProducts,
+  } = useFetchProducts()
+
+  const [category, setCategory] = useState<string>('drinks')
+  const [shopCategories, setShopCategories] = useState<StorePublicCategory[]>(() => getStaticFallbackStoreCategories())
+  const [productTagFilter, setProductTagFilter] = useState('')
   const [browseShelf, setBrowseShelf] = useState<MarketplaceBrowseShelf>('categories')
+  const [drinksFreezerSplashOpen, setDrinksFreezerSplashOpen] = useState(false)
   const [cartQtyById, setCartQtyById] = useState<Record<string, number>>({})
   const [subView, setSubView] = useState<MarketplaceSubView>('browse')
   const [productSheet, setProductSheet] = useState<SupplyProduct | null>(null)
@@ -319,20 +578,104 @@ function HomeShellMarketplacePageInner({ bottomNav }: HomeShellMarketplacePagePr
   const [cartEnterLoading, setCartEnterLoading] = useState(false)
   const [cartOpenSeq, setCartOpenSeq] = useState(0)
   const [marketplaceBootLoading, setMarketplaceBootLoading] = useState(true)
+  const [catalogProducts, setCatalogProducts] = useState<SupplyProduct[] | null>(null)
+  const [pendingScrollSubcategoryId, setPendingScrollSubcategoryId] = useState<string | null>(null)
 
-  const productById = useMemo(
-    () => new Map(SUPPLY_PRODUCTS.map((p) => [p.id, p] as const)),
-    [],
+  const applyFallbackCatalog = useCallback(async () => {
+    try {
+      const rows = await fetchStoreCatalog()
+      const staticById = new Map(SUPPLY_PRODUCTS.map((p) => [p.id, p]))
+      setCatalogProducts(rows.map((row) => apiCatalogRowToSupplyProduct(row, staticById.get(row.id))))
+    } catch {
+      setCatalogProducts([...SUPPLY_PRODUCTS])
+    }
+  }, [])
+
+  useEffect(() => {
+    if (productsApiLoading) return
+    void (async () => {
+      if (apiProductList.length > 0) {
+        setCatalogProducts(apiProductList.map(publicProductToSupplyProduct))
+      } else {
+        await applyFallbackCatalog()
+      }
+    })()
+  }, [productsApiLoading, apiProductList, applyFallbackCatalog])
+
+  useEffect(() => {
+    void fetchPublicStoreCategories().then((r) => setShopCategories(r.categories))
+  }, [])
+
+  const categoryListSorted = useMemo(
+    () => [...shopCategories].sort((a, b) => a.sort_order - b.sort_order || a.id.localeCompare(b.id)),
+    [shopCategories],
   )
 
-  const products = useMemo(() => getSupplyProductsByCategory(category), [category])
+  const currentCategoryRow = useMemo(
+    () => shopCategories.find((c) => c.id === category),
+    [shopCategories, category],
+  )
+
+  const categoryTitle = useMemo(() => {
+    if (currentCategoryRow?.label) return currentCategoryRow.label
+    if (isSupplyCategoryId(category)) return CATEGORY_HEADLINE[category]
+    return category
+  }, [currentCategoryRow, category])
+
+  const productById = useMemo(() => {
+    const list = catalogProducts ?? [...SUPPLY_PRODUCTS]
+    return new Map(list.map((p) => [p.id, p] as const))
+  }, [catalogProducts])
+
+  const products = useMemo(() => {
+    const list = catalogProducts ?? [...SUPPLY_PRODUCTS]
+    let rows = list.filter((p) => p.categoryId === category)
+    const q = productTagFilter.trim().toLowerCase()
+    if (q) {
+      rows = rows.filter((p) => (p.tags ?? []).some((t) => t.toLowerCase().includes(q)))
+    }
+    return rows
+  }, [catalogProducts, category, productTagFilter])
+
+  const productCarousels = useMemo(() => {
+    const groups = new Map<string, SupplyProduct[]>()
+    for (const p of products) {
+      const label = (p.subcategoryLabel && p.subcategoryLabel.trim()) || 'All products'
+      const arr = groups.get(label) ?? []
+      arr.push(p)
+      groups.set(label, arr)
+    }
+    const titles = [...groups.keys()].sort((a, b) => {
+      const pri = (t: string) => (t === 'General' || t === 'All products' ? 0 : 1)
+      const pa = pri(a)
+      const pb = pri(b)
+      if (pa !== pb) return pa - pb
+      return a.localeCompare(b)
+    })
+    return titles.map((title) => {
+      const items = groups.get(title)!
+      const subcategoryId = items[0]?.subcategoryId ?? null
+      return { title, items, subcategoryId }
+    })
+  }, [products])
+
+  useEffect(() => {
+    if (browseShelf !== 'products' || !pendingScrollSubcategoryId) return
+    const target = pendingScrollSubcategoryId
+    const timer = window.setTimeout(() => {
+      const el = document.querySelector(`[data-fetch-marketplace-sub-id="${target}"]`)
+      el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      setPendingScrollSubcategoryId(null)
+    }, 140)
+    return () => window.clearTimeout(timer)
+  }, [browseShelf, pendingScrollSubcategoryId, productCarousels])
 
   const cartLines = useMemo(() => {
     const out: { product: SupplyProduct; qty: number }[] = []
     for (const [id, qty] of Object.entries(cartQtyById)) {
       if (qty <= 0) continue
       const product = productById.get(id)
-      if (product) out.push({ product, qty })
+      if (product && !isExternalAffiliateProduct(product)) out.push({ product, qty })
     }
     return out
   }, [cartQtyById, productById])
@@ -348,6 +691,7 @@ function HomeShellMarketplacePageInner({ bottomNav }: HomeShellMarketplacePagePr
   )
 
   const addOne = useCallback((p: SupplyProduct) => {
+    if (isExternalAffiliateProduct(p)) return
     setCartQtyById((prev) => ({ ...prev, [p.id]: (prev[p.id] ?? 0) + 1 }))
   }, [])
 
@@ -360,7 +704,10 @@ function HomeShellMarketplacePageInner({ bottomNav }: HomeShellMarketplacePagePr
     })
   }, [])
 
-  const activeBundle = useMemo(() => getMarketplaceBundleForCategory(category), [category])
+  const activeBundle = useMemo(
+    () => (isSupplyCategoryId(category) ? getMarketplaceBundleForCategory(category) : null),
+    [category],
+  )
   const activeBundleProducts = useMemo(
     () => (activeBundle ? resolveBundleProducts(activeBundle, productById) : []),
     [activeBundle, productById],
@@ -399,12 +746,76 @@ function HomeShellMarketplacePageInner({ bottomNav }: HomeShellMarketplacePagePr
     setCheckoutError(null)
     setSubView('browse')
     setBrowseShelf('categories')
+    setPendingScrollSubcategoryId(null)
   }, [])
+
+  const finishDrinksFreezerSplash = useCallback(() => {
+    setDrinksFreezerSplashOpen(false)
+    setCategory('drinks')
+    setBrowseShelf('products')
+  }, [])
+
+  const openCategoryBrowse = useCallback(
+    (categoryId: string, opts?: { scrollSubId?: string; directToProducts?: boolean }) => {
+      if (categoryId === 'drinks' && !opts?.directToProducts) {
+        const reducedMotion =
+          typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        playDrinksFreezerStormSound({
+          durationMs: reducedMotion ? 0 : DRINKS_FREEZER_SPLASH_MS,
+          reducedMotion,
+        })
+        setDrinksFreezerSplashOpen(true)
+        return
+      }
+      setCategory(categoryId)
+      setProductTagFilter('')
+      if (opts?.scrollSubId) setPendingScrollSubcategoryId(opts.scrollSubId)
+      setBrowseShelf('products')
+    },
+    [],
+  )
   const goCart = useCallback(() => {
     setCartEnterLoading(true)
     setCartOpenSeq((n) => n + 1)
     setSubView('cart')
   }, [])
+
+  const dropsProductHandoffDoneRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!dropsProductHandoff) {
+      dropsProductHandoffDoneRef.current = null
+      return
+    }
+    const sig = `${dropsProductHandoff.productId}:${dropsProductHandoff.mode}`
+    if (dropsProductHandoffDoneRef.current === sig) return
+    const p = productById.get(dropsProductHandoff.productId)
+    if (!p) {
+      onDropsProductHandoffConsumed?.()
+      return
+    }
+    dropsProductHandoffDoneRef.current = sig
+    setBundleSheet(null)
+    setCompletedOrderId(null)
+    setStripeStoreCheckout(null)
+    setCheckoutError(null)
+    setSubView('browse')
+    openCategoryBrowse(p.categoryId, { directToProducts: true })
+    if (dropsProductHandoff.mode === 'sheet' || isExternalAffiliateProduct(p)) {
+      setProductSheet(p)
+    } else {
+      addOne(p)
+      goCart()
+    }
+    onDropsProductHandoffConsumed?.()
+  }, [
+    dropsProductHandoff,
+    productById,
+    openCategoryBrowse,
+    addOne,
+    goCart,
+    onDropsProductHandoffConsumed,
+  ])
+
   const goCheckout = useCallback(() => setSubView('checkout'), [])
 
   const placeStoreOrder = useCallback(async () => {
@@ -517,15 +928,21 @@ function HomeShellMarketplacePageInner({ bottomNav }: HomeShellMarketplacePagePr
     checkoutEmail.trim().length > 0 &&
     checkoutAddress.trim().length > 0
 
-  const browseProductBannerSrc = categoryBannerImageSrc(category)
+  const browseProductBannerSrc = useMemo(() => {
+    const hero = currentCategoryRow?.hero_image_url?.trim()
+    if (hero) return hero
+    if (isSupplyCategoryId(category)) return categoryBannerImageSrc(category)
+    return null
+  }, [currentCategoryRow, category])
 
   return (
     <div
       className="fetch-home-marketplace-page absolute inset-0 z-[60] flex min-h-0 flex-col bg-white"
       role="main"
-      aria-label="Fetch supplies marketplace"
+      aria-label="Fetch Shop supplies marketplace"
       aria-busy={marketplaceBootLoading}
     >
+        <DrinksFreezerSplash open={drinksFreezerSplashOpen} onFinished={finishDrinksFreezerSplash} />
         {marketplaceBootLoading ? (
           <MarketplaceBrowseBootSkeleton />
         ) : (
@@ -537,24 +954,32 @@ function HomeShellMarketplacePageInner({ bottomNav }: HomeShellMarketplacePagePr
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex min-w-0 flex-1 items-center gap-2.5">
                       <FetchEyesMarketplaceIntroIcon className="h-9 w-9 shrink-0 text-zinc-900" />
-                      <span className="fetch-home-map-brand-logo text-[1.35rem] font-bold leading-none tracking-[-0.03em] text-zinc-900">
-                        Fetch
-                      </span>
-                    </div>
-                    {cartItemCount > 0 ? (
-                      <button
-                        type="button"
-                        className="relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-zinc-800 transition-colors active:scale-[0.97] active:bg-zinc-100"
-                        aria-label={`Open cart, ${cartItemCount} items`}
-                        onClick={goCart}
-                      >
-                        <CartIcon />
-                        <span className="absolute right-0.5 top-0.5 flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-zinc-900 px-1 text-[9px] font-bold tabular-nums text-white">
-                          {cartItemCount > 99 ? '99+' : cartItemCount}
+                      <div className="flex min-w-0 items-baseline gap-1.5">
+                        <span className="fetch-home-map-brand-logo text-[1.35rem] font-bold leading-none tracking-[-0.03em] text-zinc-900">
+                          Fetch
                         </span>
-                      </button>
-                    ) : null}
+                        <span className="text-[1.1rem] font-semibold leading-none tracking-[-0.02em] text-zinc-500">
+                          Shop
+                        </span>
+                      </div>
+                    </div>
+                    <MarketplaceBrowseHeaderActions
+                      cartItemCount={cartItemCount}
+                      onCart={goCart}
+                      onAccount={onMenuAccount}
+                      showAdmin={showMarketplaceAdminEntry}
+                      onAdmin={() => navigate('/admin/products')}
+                    />
                   </div>
+                  {onRequestHomeShellTab ? (
+                    <FetchShopModeSegment
+                      className="mt-3"
+                      active="supplies"
+                      onChange={(mode) => {
+                        if (mode === 'peer') onRequestHomeShellTab('buySell')
+                      }}
+                    />
+                  ) : null}
                 </header>
               ) : (
                 <header className="relative shrink-0 border-b border-zinc-200/80 bg-white px-3 pb-3 pt-[max(0.75rem,env(safe-area-inset-top,0px))]">
@@ -576,22 +1001,27 @@ function HomeShellMarketplacePageInner({ bottomNav }: HomeShellMarketplacePagePr
                       </svg>
                     </button>
                     <h1 className="fetch-home-map-brand-logo min-w-0 flex-1 text-[1.2rem] font-bold leading-tight tracking-[-0.03em] text-zinc-900">
-                      {CATEGORY_HEADLINE[category]}
+                      {categoryTitle}
                     </h1>
-                    {cartItemCount > 0 ? (
-                      <button
-                        type="button"
-                        className="relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-zinc-800 transition-colors active:scale-[0.97] active:bg-zinc-100"
-                        aria-label={`Open cart, ${cartItemCount} items`}
-                        onClick={goCart}
-                      >
-                        <CartIcon />
-                        <span className="absolute right-0.5 top-0.5 flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full bg-zinc-900 px-1 text-[9px] font-bold tabular-nums text-white">
-                          {cartItemCount > 99 ? '99+' : cartItemCount}
-                        </span>
-                      </button>
-                    ) : null}
+                    <MarketplaceBrowseHeaderActions
+                      cartItemCount={cartItemCount}
+                      onCart={goCart}
+                      onAccount={onMenuAccount}
+                      showAdmin={showMarketplaceAdminEntry}
+                      onAdmin={() => navigate('/admin/products')}
+                    />
                   </div>
+                  <label className="mt-2 block px-1">
+                    <span className="sr-only">Filter products by tag</span>
+                    <input
+                      type="search"
+                      enterKeyHint="search"
+                      className="w-full rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2 text-[14px] text-zinc-900 placeholder:text-zinc-400"
+                      placeholder="Filter by tag…"
+                      value={productTagFilter}
+                      onChange={(e) => setProductTagFilter(e.target.value)}
+                    />
+                  </label>
                 </header>
               )
             ) : subView === 'cart' ? (
@@ -660,46 +1090,91 @@ function HomeShellMarketplacePageInner({ bottomNav }: HomeShellMarketplacePagePr
                 <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white">
                   <div className="fetch-home-marketplace-grid-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden [-webkit-overflow-scrolling:touch] px-4 pt-4">
                     <div className="flex flex-col gap-10 pb-[max(1rem,env(safe-area-inset-bottom,0px))]">
-                      {MARKETPLACE_CATEGORY_ORDER.map((row) => {
-                        const [line1, line2] = CATEGORY_BANNER_LINES[row.id]
-                        const deliveryLine = MARKETPLACE_DELIVERY_PROMO
-                        const imgSrc = categoryBannerImageSrc(row.id)
-                        return (
+                      {productsApiError ? (
+                        <div className="rounded-2xl border border-amber-200/90 bg-amber-50 px-4 py-3">
+                          <p className="text-[13px] font-bold text-amber-950">Could not load live catalog</p>
+                          <p className="mt-1 text-[12px] leading-snug text-amber-900/85">{productsApiError}</p>
                           <button
-                            key={row.id}
                             type="button"
-                            onClick={() => {
-                              setCategory(row.id)
-                              setBrowseShelf('products')
-                            }}
-                            className="block w-full cursor-pointer border-0 bg-transparent p-0 text-left transition-opacity active:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
-                            aria-label={`${row.label} supplies. ${deliveryLine} ${line2}`}
+                            className="mt-3 rounded-xl bg-amber-950 px-4 py-2 text-[12px] font-bold text-white active:opacity-90"
+                            onClick={() => void retryApiProducts()}
                           >
-                            <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-zinc-100 ring-1 ring-zinc-200/80">
-                              {imgSrc ? (
-                                <img
-                                  src={imgSrc}
-                                  alt=""
-                                  className="h-full w-full object-cover"
-                                  decoding="async"
-                                  sizes="100vw"
-                                />
-                              ) : (
-                                <CategoryBannerGradient id={row.id} />
-                              )}
-                            </div>
-                            <div className="mt-3 space-y-1.5 px-0.5">
-                              <p className="text-[22px] font-bold leading-tight tracking-[-0.03em] text-zinc-900">
-                                {line1}
-                              </p>
-                              <p className="text-[13px] font-semibold leading-snug text-emerald-900/90 [text-wrap:pretty]">
-                                {deliveryLine}
-                              </p>
-                              <p className="text-[13px] font-medium leading-snug text-zinc-600 [text-wrap:pretty]">
-                                {line2}
-                              </p>
-                            </div>
+                            Retry
                           </button>
+                        </div>
+                      ) : null}
+                      {categoryListSorted.map((row) => {
+                        const known = isSupplyCategoryId(row.id)
+                        const [line1, line2] = known
+                          ? CATEGORY_BANNER_LINES[row.id as SupplyCategoryId]
+                          : [
+                              row.label,
+                              row.short_description?.trim() ||
+                                `${row.label} — curated supplies delivered fast.`,
+                            ]
+                        const deliveryLine = MARKETPLACE_DELIVERY_PROMO
+                        const imgSrc =
+                          row.hero_image_url?.trim() ||
+                          (known ? categoryBannerImageSrc(row.id) : null)
+                        const quickSubs = pickQuickMarketplaceSubcategories(row.subcategories ?? [])
+                        return (
+                          <div key={row.id} className="w-full">
+                            <button
+                              type="button"
+                              onClick={() => openCategoryBrowse(row.id)}
+                              className="block w-full cursor-pointer border-0 bg-transparent p-0 text-left transition-opacity active:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
+                              aria-label={`${row.label} category hero`}
+                            >
+                              <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-zinc-100 ring-1 ring-zinc-200/80">
+                                {imgSrc ? (
+                                  <img
+                                    src={imgSrc}
+                                    alt=""
+                                    className="h-full w-full object-cover"
+                                    decoding="async"
+                                    sizes="100vw"
+                                  />
+                                ) : (
+                                  <CategoryBannerGradient id={row.id} label={row.label} />
+                                )}
+                              </div>
+                            </button>
+                            {quickSubs.length > 0 ? (
+                              <div className="mt-2 flex flex-col gap-2 px-0.5">
+                                {quickSubs.map((sub) => (
+                                  <MarketplaceQuickSubRow
+                                    key={sub.id}
+                                    label={sub.label}
+                                    thumbs={marketplaceSubcategoryThumbUrls(catalogProducts, row.id, sub.id)}
+                                    onNavigate={() =>
+                                      openCategoryBrowse(row.id, {
+                                        directToProducts: true,
+                                        scrollSubId: sub.id,
+                                      })
+                                    }
+                                  />
+                                ))}
+                              </div>
+                            ) : null}
+                            <button
+                              type="button"
+                              onClick={() => openCategoryBrowse(row.id)}
+                              className="mt-3 block w-full cursor-pointer border-0 bg-transparent p-0 text-left transition-opacity active:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
+                              aria-label={`${row.label} supplies. ${deliveryLine} ${line2}`}
+                            >
+                              <div className="space-y-1.5 px-0.5">
+                                <p className="text-[22px] font-bold leading-tight tracking-[-0.03em] text-zinc-900">
+                                  {line1}
+                                </p>
+                                <p className="text-[13px] font-semibold leading-snug text-emerald-900/90 [text-wrap:pretty]">
+                                  {deliveryLine}
+                                </p>
+                                <p className="text-[13px] font-medium leading-snug text-zinc-600 [text-wrap:pretty]">
+                                  {line2}
+                                </p>
+                              </div>
+                            </button>
+                          </div>
                         )
                       })}
                     </div>
@@ -768,56 +1243,103 @@ function HomeShellMarketplacePageInner({ bottomNav }: HomeShellMarketplacePagePr
                         )
                       ) : null}
 
-                      <div className="grid grid-cols-2 gap-1.5 px-2.5 py-2.5 pb-2">
+                      <div className="space-y-5 px-0 py-2.5 pb-4">
                         {products.length === 0 ? (
-                          <p className="col-span-2 py-10 text-center text-[13px] font-medium text-zinc-500">
+                          <p className="py-10 text-center text-[13px] font-medium text-zinc-500">
                             No products in this category.
                           </p>
                         ) : (
-                          products.map((p) => (
-                            <article
-                              key={p.id}
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => setProductSheet(p)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter' || e.key === ' ') {
-                                  e.preventDefault()
-                                  setProductSheet(p)
-                                }
-                              }}
-                              className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-transparent bg-white ring-zinc-200/80 transition-[box-shadow,ring] focus-visible:outline focus-visible:ring-2 active:bg-zinc-50/80"
+                          productCarousels.map(({ title, items, subcategoryId }) => (
+                            <section
+                              key={title}
+                              role="region"
+                              aria-label={`${title} products`}
+                              className="min-w-0"
+                              data-fetch-marketplace-sub-id={subcategoryId ?? ''}
                             >
-                              <div className="relative flex aspect-square w-full shrink-0 items-center justify-center bg-zinc-50/80">
-                                <SupplyProductThumb
-                                  src={p.coverImageUrl}
-                                  alt={p.title}
-                                  className="max-h-full max-w-full object-contain object-center p-2"
-                                />
-                                <button
-                                  type="button"
-                                  className="absolute bottom-1 right-1 z-[1] flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200/90 bg-white text-[16px] font-semibold leading-none text-zinc-900 shadow-sm shadow-zinc-900/10 transition-[transform,colors] active:scale-95 active:bg-zinc-50"
-                                  aria-label={`Quick add ${p.title} to cart`}
-                                  onClick={(ev) => {
-                                    ev.stopPropagation()
-                                    addOne(p)
-                                  }}
-                                >
-                                  +
-                                </button>
+                              <h2 className="pl-4 pr-3 pb-2 text-[15px] font-bold tracking-tight text-zinc-900">
+                                {title}
+                              </h2>
+                              <div className="flex gap-2 overflow-x-auto overflow-y-hidden scroll-smooth pb-1 pl-4 pr-3 pt-0.5 [-webkit-overflow-scrolling:touch] [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden snap-x snap-mandatory">
+                                {items.map((p) => (
+                                  <article
+                                    key={p.id}
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() => setProductSheet(p)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault()
+                                        setProductSheet(p)
+                                      }
+                                    }}
+                                    className="flex w-[44vw] max-w-[200px] shrink-0 snap-start flex-col overflow-hidden rounded-xl bg-white transition-[box-shadow,ring] focus-visible:outline focus-visible:ring-2 active:bg-zinc-50/80"
+                                  >
+                                    <div className="relative flex aspect-square w-full shrink-0 items-center justify-center bg-zinc-50/80">
+                                      <SupplyProductThumb
+                                        src={p.coverImageUrl}
+                                        alt={p.title}
+                                        className="max-h-full max-w-full object-contain object-center p-2"
+                                      />
+                                      {isExternalAffiliateProduct(p) && p.affiliateUrl ? (
+                                        <a
+                                          href={p.affiliateUrl}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="absolute bottom-1 right-1 z-[1] flex h-7 min-w-7 items-center justify-center rounded-lg border border-amber-200/90 bg-amber-50 px-1 text-[10px] font-extrabold leading-none text-amber-950 shadow-sm shadow-zinc-900/10 transition-[transform,colors] active:scale-95"
+                                          aria-label={`View ${p.title} on Amazon`}
+                                          onClick={(ev) => ev.stopPropagation()}
+                                        >
+                                          Amazon
+                                        </a>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          className="absolute bottom-1 right-1 z-[1] flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200/90 bg-white text-[16px] font-semibold leading-none text-zinc-900 shadow-sm shadow-zinc-900/10 transition-[transform,colors] active:scale-95 active:bg-zinc-50"
+                                          aria-label={`Quick add ${p.title} to cart`}
+                                          onClick={(ev) => {
+                                            ev.stopPropagation()
+                                            addOne(p)
+                                          }}
+                                        >
+                                          +
+                                        </button>
+                                      )}
+                                    </div>
+                                    <div className="flex min-h-0 flex-1 flex-col px-2 pb-2 pt-1.5">
+                                      <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0">
+                                        {supplyProductShowsCompare(p) ? (
+                                          <span className="text-[11px] font-bold tabular-nums text-zinc-400 line-through decoration-zinc-300">
+                                            {formatAud(p.compareAtAud ?? 0)}
+                                          </span>
+                                        ) : null}
+                                        <p className="text-[14px] font-extrabold leading-none tabular-nums tracking-tight text-zinc-900">
+                                          {formatListingPriceAud(p)}
+                                        </p>
+                                        {supplyProductShowsCompare(p) && p.compareAtAud && p.priceAud > 0 ? (
+                                          <span className="text-[9px] font-extrabold text-emerald-700">
+                                            −
+                                            {Math.min(
+                                              99,
+                                              Math.round(
+                                                ((p.compareAtAud - p.priceAud) / p.compareAtAud) * 100,
+                                              ),
+                                            )}
+                                            %
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                      <h3 className="mt-1 line-clamp-2 min-w-0 text-[11px] font-bold leading-snug tracking-tight text-zinc-900">
+                                        {p.title}
+                                      </h3>
+                                      <p className="mt-1 line-clamp-2 text-[10px] font-medium leading-snug text-zinc-500">
+                                        {p.subtitle}
+                                      </p>
+                                    </div>
+                                  </article>
+                                ))}
                               </div>
-                              <div className="flex min-h-0 flex-1 flex-col px-2 pb-2 pt-1.5">
-                                <p className="text-[14px] font-extrabold leading-none tabular-nums tracking-tight text-zinc-900">
-                                  {formatAud(p.priceAud)}
-                                </p>
-                                <h2 className="mt-1 line-clamp-2 min-w-0 text-[11px] font-bold leading-snug tracking-tight text-zinc-900">
-                                  {p.title}
-                                </h2>
-                                <p className="mt-1 line-clamp-2 text-[10px] font-medium leading-snug text-zinc-500">
-                                  {p.subtitle}
-                                </p>
-                              </div>
-                            </article>
+                            </section>
                           ))
                         )}
                       </div>
@@ -1114,6 +1636,8 @@ function HomeShellMarketplacePageInner({ bottomNav }: HomeShellMarketplacePagePr
           </div>
         ) : null}
 
+
+
       {bundleSheet && sheetBundleProducts.length > 0
         ? createPortal(
             <div className="fixed inset-0 z-[200] flex flex-col justify-end" role="presentation">
@@ -1255,9 +1779,31 @@ function HomeShellMarketplacePageInner({ bottomNav }: HomeShellMarketplacePagePr
                       className="max-h-[12rem] w-full object-contain object-center p-4"
                     />
                   </div>
-                  <p className="mt-3 text-[1.35rem] font-extrabold tabular-nums tracking-tight text-zinc-900">
-                    {formatAud(productSheet.priceAud)}
-                  </p>
+                  <div className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                    {supplyProductShowsCompare(productSheet) ? (
+                      <span className="text-[1.05rem] font-bold tabular-nums text-zinc-400 line-through decoration-zinc-300">
+                        {formatAud(productSheet.compareAtAud ?? 0)}
+                      </span>
+                    ) : null}
+                    <span className="text-[1.35rem] font-extrabold tabular-nums tracking-tight text-zinc-900">
+                      {formatListingPriceAud(productSheet)}
+                    </span>
+                    {supplyProductShowsCompare(productSheet) &&
+                    productSheet.compareAtAud &&
+                    productSheet.priceAud > 0 ? (
+                      <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[12px] font-extrabold text-emerald-900">
+                        Save{' '}
+                        {Math.min(
+                          99,
+                          Math.round(
+                            ((productSheet.compareAtAud - productSheet.priceAud) / productSheet.compareAtAud) *
+                              100,
+                          ),
+                        )}
+                        %
+                      </span>
+                    ) : null}
+                  </div>
                   <h2
                     id="fetch-marketplace-product-sheet-title"
                     className="mt-1 text-[1.2rem] font-bold leading-tight tracking-[-0.03em] text-zinc-900"
@@ -1273,55 +1819,73 @@ function HomeShellMarketplacePageInner({ bottomNav }: HomeShellMarketplacePagePr
                     ))}
                   </ul>
                   <div className="mt-5 flex flex-col gap-2">
-                    <button
-                      type="button"
-                      className="w-full rounded-xl bg-zinc-900 py-3.5 text-[15px] font-semibold text-white active:opacity-90"
-                      onClick={() => {
-                        addOne(productSheet)
-                      }}
-                    >
-                      Add to cart
-                    </button>
-                    {(cartQtyById[productSheet.id] ?? 0) > 0 ? (
-                      <div className="flex items-center justify-center gap-3 rounded-xl border border-zinc-200/90 bg-zinc-50/80 py-2">
-                        <span className="text-[13px] font-semibold text-zinc-600">In cart</span>
-                        <div className="flex items-center gap-1 rounded-lg bg-white p-0.5 ring-1 ring-zinc-200/80">
-                          <button
-                            type="button"
-                            className="flex h-9 w-9 items-center justify-center rounded-md text-[17px] font-semibold text-zinc-700 active:bg-zinc-100"
-                            aria-label="Decrease quantity"
-                            onClick={() =>
-                              setQty(productSheet.id, (cartQtyById[productSheet.id] ?? 0) - 1)
-                            }
-                          >
-                            −
-                          </button>
-                          <span className="min-w-[1.5rem] text-center text-[15px] font-bold tabular-nums text-zinc-900">
-                            {cartQtyById[productSheet.id] ?? 0}
-                          </span>
-                          <button
-                            type="button"
-                            className="flex h-9 w-9 items-center justify-center rounded-md text-[17px] font-semibold text-zinc-700 active:bg-zinc-100"
-                            aria-label="Increase quantity"
-                            onClick={() =>
-                              setQty(productSheet.id, (cartQtyById[productSheet.id] ?? 0) + 1)
-                            }
-                          >
-                            +
-                          </button>
-                        </div>
-                      </div>
-                    ) : null}
-                    <button
-                      type="button"
-                      className="w-full py-2 text-[14px] font-semibold text-zinc-600 active:text-zinc-900"
-                      onClick={() => {
-                        setProductSheet(null)
-                        goCart()
-                      }}
-                    >
-                      View cart
-                    </button>
+                    {isExternalAffiliateProduct(productSheet) && productSheet.affiliateUrl ? (
+                      <>
+                        <a
+                          href={productSheet.affiliateUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex w-full items-center justify-center rounded-xl bg-amber-500 py-3.5 text-[15px] font-semibold text-amber-950 active:opacity-90"
+                        >
+                          View on Amazon
+                        </a>
+                        <p className="text-center text-[11px] font-medium leading-snug text-zinc-500">
+                          Opens in a new tab. Purchases may support Fetch via our affiliate link.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          className="w-full rounded-xl bg-zinc-900 py-3.5 text-[15px] font-semibold text-white active:opacity-90"
+                          onClick={() => {
+                            addOne(productSheet)
+                          }}
+                        >
+                          Add to cart
+                        </button>
+                        {(cartQtyById[productSheet.id] ?? 0) > 0 ? (
+                          <div className="flex items-center justify-center gap-3 rounded-xl border border-zinc-200/90 bg-zinc-50/80 py-2">
+                            <span className="text-[13px] font-semibold text-zinc-600">In cart</span>
+                            <div className="flex items-center gap-1 rounded-lg bg-white p-0.5 ring-1 ring-zinc-200/80">
+                              <button
+                                type="button"
+                                className="flex h-9 w-9 items-center justify-center rounded-md text-[17px] font-semibold text-zinc-700 active:bg-zinc-100"
+                                aria-label="Decrease quantity"
+                                onClick={() =>
+                                  setQty(productSheet.id, (cartQtyById[productSheet.id] ?? 0) - 1)
+                                }
+                              >
+                                −
+                              </button>
+                              <span className="min-w-[1.5rem] text-center text-[15px] font-bold tabular-nums text-zinc-900">
+                                {cartQtyById[productSheet.id] ?? 0}
+                              </span>
+                              <button
+                                type="button"
+                                className="flex h-9 w-9 items-center justify-center rounded-md text-[17px] font-semibold text-zinc-700 active:bg-zinc-100"
+                                aria-label="Increase quantity"
+                                onClick={() =>
+                                  setQty(productSheet.id, (cartQtyById[productSheet.id] ?? 0) + 1)
+                                }
+                              >
+                                +
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="w-full py-2 text-[14px] font-semibold text-zinc-600 active:text-zinc-900"
+                          onClick={() => {
+                            setProductSheet(null)
+                            goCart()
+                          }}
+                        >
+                          View cart
+                        </button>
+                      </>
+                    )}
                     <button
                       type="button"
                       className="w-full py-2 text-[13px] font-semibold text-zinc-500 active:text-zinc-800"

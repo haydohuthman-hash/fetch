@@ -6,6 +6,43 @@ function makeId(prefix) {
 }
 
 /**
+ * @param {unknown} l
+ */
+function normalizeListingRow(l) {
+  if (!l || typeof l !== 'object') return /** @type {any} */ (l)
+  const o = /** @type {Record<string, unknown>} */ (l)
+  const saleMode = o.saleMode === 'auction' ? 'auction' : 'fixed'
+  const ends = typeof o.auctionEndsAt === 'number' && Number.isFinite(o.auctionEndsAt) ? o.auctionEndsAt : null
+  const profileAuthorId =
+    typeof o.profileAuthorId === 'string' && o.profileAuthorId.trim()
+      ? o.profileAuthorId.trim().slice(0, 128)
+      : null
+  const profileDisplayName =
+    typeof o.profileDisplayName === 'string' && o.profileDisplayName.trim()
+      ? o.profileDisplayName.trim().slice(0, 64)
+      : null
+  const profileAvatar =
+    typeof o.profileAvatar === 'string' && o.profileAvatar.trim()
+      ? o.profileAvatar.trim().slice(0, 120)
+      : null
+  return {
+    ...o,
+    profileAuthorId,
+    profileDisplayName,
+    profileAvatar,
+    saleMode,
+    auctionEndsAt: saleMode === 'auction' ? ends : null,
+    reserveCents: saleMode === 'auction' ? Math.max(0, Math.round(Number(o.reserveCents) || 0)) : 0,
+    minBidIncrementCents:
+      saleMode === 'auction' ? Math.max(1, Math.round(Number(o.minBidIncrementCents) || 50)) : 50,
+    auctionHighBidCents: Math.max(0, Math.round(Number(o.auctionHighBidCents) || 0)),
+    auctionHighBidderKey: o.auctionHighBidderKey ? String(o.auctionHighBidderKey) : null,
+    auctionClosed: Boolean(o.auctionClosed),
+    bids: Array.isArray(o.bids) ? o.bids : [],
+  }
+}
+
+/**
  * Single JSON file: listings, seller Stripe accounts, listing orders, earnings ledger.
  * @param {string} filePath
  */
@@ -17,7 +54,7 @@ export function createPeerListingsStore(filePath) {
       const raw = await fs.readFile(resolved, 'utf8')
       const p = JSON.parse(raw)
       return {
-        listings: Array.isArray(p.listings) ? p.listings : [],
+        listings: Array.isArray(p.listings) ? p.listings.map(normalizeListingRow) : [],
         sellers: Array.isArray(p.sellers) ? p.sellers : [],
         listingOrders: Array.isArray(p.listingOrders) ? p.listingOrders : [],
         ledger: Array.isArray(p.ledger) ? p.ledger : [],
@@ -48,12 +85,26 @@ export function createPeerListingsStore(filePath) {
       const { listings } = await readAll()
       let rows = listings.filter((l) => !status || l.status === status)
       if (q && typeof q === 'string' && q.trim()) {
-        const n = q.trim().toLowerCase()
-        rows = rows.filter(
-          (l) =>
-            (l.title && String(l.title).toLowerCase().includes(n)) ||
-            (l.description && String(l.description).toLowerCase().includes(n)),
-        )
+        const raw = q.trim().toLowerCase()
+        const tokens = raw.split(/\s+/).filter((t) => t.length > 0)
+        rows = rows.filter((l) => {
+          const hay = [
+            l.title,
+            l.description,
+            l.keywords,
+            l.sku,
+            l.locationLabel,
+            l.category,
+            l.condition,
+            l.compareAtCents != null && l.compareAtCents > 0
+              ? `was ${(l.compareAtCents / 100).toFixed(0)} compare retail`
+              : '',
+          ]
+            .map((x) => String(x ?? '').toLowerCase())
+            .join(' \t ')
+          if (hay.includes(raw)) return true
+          return tokens.length > 0 && tokens.every((t) => hay.includes(t))
+        })
       }
       if (category && typeof category === 'string') {
         rows = rows.filter((l) => l.category === category)
@@ -91,8 +142,50 @@ export function createPeerListingsStore(filePath) {
       return null
     },
 
-    async createListing({ sellerUserId, sellerEmail, title, description, priceAud, category, condition }) {
+    async createListing({
+      sellerUserId,
+      sellerEmail,
+      title,
+      description,
+      priceAud,
+      compareAtCents: compareAtCentsIn,
+      category,
+      condition,
+      keywords,
+      locationLabel,
+      sku,
+      acceptsOffers,
+      fetchDelivery,
+      saleMode,
+      auctionEndsAt,
+      reserveCents: reserveIn,
+      minBidIncrementCents: minIncIn,
+      profileAuthorId,
+      profileDisplayName,
+      profileAvatar,
+    }) {
       const data = await readAll()
+      const skuTrim = String(sku || '').trim().slice(0, 64)
+      const priceCents = Math.max(0, Math.round(Number(priceAud) * 100)) || 0
+      let compareAtCents = 0
+      if (compareAtCentsIn != null && Number.isFinite(Number(compareAtCentsIn))) {
+        const c = Math.max(0, Math.round(Number(compareAtCentsIn)))
+        if (c > 0) compareAtCents = c
+      }
+      if (priceCents === 0 || (compareAtCents > 0 && priceCents > 0 && compareAtCents <= priceCents)) {
+        compareAtCents = 0
+      }
+      const mode = saleMode === 'auction' ? 'auction' : 'fixed'
+      const endsRaw = Number(auctionEndsAt)
+      const auctionEnds =
+        mode === 'auction' && Number.isFinite(endsRaw) && endsRaw > Date.now() ? Math.round(endsRaw) : null
+      let reserve = 0
+      if (mode === 'auction') {
+        const r = Number(reserveIn)
+        reserve = Number.isFinite(r) && r >= 0 ? Math.round(r) : priceCents
+      }
+      const minInc =
+        mode === 'auction' ? Math.max(50, Math.round(Number(minIncIn) || 100)) : 100
       const listing = {
         id: makeId('lst'),
         createdAt: Date.now(),
@@ -101,11 +194,37 @@ export function createPeerListingsStore(filePath) {
         sellerEmail: sellerEmail || null,
         title: String(title || '').slice(0, 200),
         description: String(description || '').slice(0, 8000),
-        priceCents: Math.max(0, Math.round(Number(priceAud) * 100)) || 0,
+        priceCents,
+        compareAtCents,
         category: String(category || 'general').slice(0, 64),
         condition: String(condition || 'used').slice(0, 32),
+        keywords: String(keywords || '').slice(0, 2000),
+        locationLabel: String(locationLabel || '').slice(0, 200),
+        sku: skuTrim || null,
+        acceptsOffers: Boolean(acceptsOffers),
+        fetchDelivery: Boolean(fetchDelivery),
         status: 'draft',
         images: [],
+        saleMode: mode,
+        auctionEndsAt: auctionEnds,
+        reserveCents: mode === 'auction' ? Math.max(0, reserve) : 0,
+        minBidIncrementCents: minInc,
+        auctionHighBidCents: 0,
+        auctionHighBidderKey: null,
+        auctionClosed: false,
+        bids: [],
+        profileAuthorId:
+          profileAuthorId && String(profileAuthorId).trim()
+            ? String(profileAuthorId).trim().slice(0, 128)
+            : null,
+        profileDisplayName:
+          profileDisplayName && String(profileDisplayName).trim()
+            ? String(profileDisplayName).trim().slice(0, 64)
+            : null,
+        profileAvatar:
+          profileAvatar && String(profileAvatar).trim()
+            ? String(profileAvatar).trim().slice(0, 120)
+            : null,
       }
       data.listings.unshift(listing)
       await writeAll(data)
@@ -122,8 +241,51 @@ export function createPeerListingsStore(filePath) {
       if (patch.title != null) next.title = String(patch.title).slice(0, 200)
       if (patch.description != null) next.description = String(patch.description).slice(0, 8000)
       if (patch.priceAud != null) next.priceCents = Math.max(0, Math.round(Number(patch.priceAud) * 100))
+      if (patch.compareAtCents !== undefined) {
+        const c = Math.max(0, Math.round(Number(patch.compareAtCents)))
+        next.compareAtCents = Number.isFinite(c) && c > 0 ? c : 0
+      }
+      if (patch.compareAtPriceAud !== undefined) {
+        const c = Math.max(0, Math.round(Number(patch.compareAtPriceAud) * 100))
+        next.compareAtCents = Number.isFinite(c) && c > 0 ? c : 0
+      }
       if (patch.category != null) next.category = String(patch.category).slice(0, 64)
       if (patch.condition != null) next.condition = String(patch.condition).slice(0, 32)
+      if (patch.keywords != null) next.keywords = String(patch.keywords).slice(0, 2000)
+      if (patch.locationLabel != null) next.locationLabel = String(patch.locationLabel).slice(0, 200)
+      if (patch.sku !== undefined) {
+        const s = String(patch.sku ?? '').trim().slice(0, 64)
+        next.sku = s || null
+      }
+      if (patch.acceptsOffers != null) next.acceptsOffers = Boolean(patch.acceptsOffers)
+      if (patch.fetchDelivery != null) next.fetchDelivery = Boolean(patch.fetchDelivery)
+      if (patch.saleMode === 'auction' || patch.saleMode === 'fixed') next.saleMode = patch.saleMode
+      if (patch.auctionEndsAt !== undefined) {
+        const t = Number(patch.auctionEndsAt)
+        next.auctionEndsAt =
+          next.saleMode === 'auction' && Number.isFinite(t) && t > Date.now() ? Math.round(t) : null
+      }
+      if (patch.reserveCents !== undefined && next.saleMode === 'auction') {
+        next.reserveCents = Math.max(0, Math.round(Number(patch.reserveCents) || 0))
+      }
+      if (patch.minBidIncrementCents !== undefined && next.saleMode === 'auction') {
+        next.minBidIncrementCents = Math.max(1, Math.round(Number(patch.minBidIncrementCents) || 50))
+      }
+      if (patch.profileAuthorId !== undefined) {
+        const s = String(patch.profileAuthorId ?? '').trim().slice(0, 128)
+        next.profileAuthorId = s || null
+      }
+      if (patch.profileDisplayName !== undefined) {
+        const s = String(patch.profileDisplayName ?? '').trim().slice(0, 64)
+        next.profileDisplayName = s || null
+      }
+      if (patch.profileAvatar !== undefined) {
+        const s = String(patch.profileAvatar ?? '').trim().slice(0, 120)
+        next.profileAvatar = s || null
+      }
+      const pc = next.priceCents ?? 0
+      const cc = next.compareAtCents ?? 0
+      if (pc === 0 || (cc > 0 && pc > 0 && cc <= pc)) next.compareAtCents = 0
       data.listings[idx] = next
       await writeAll(data)
       return { listing: next }
@@ -250,6 +412,66 @@ export function createPeerListingsStore(filePath) {
       if (from) rows = rows.filter((e) => e.createdAt >= Number(from))
       if (to) rows = rows.filter((e) => e.createdAt <= Number(to))
       return rows
+    },
+
+    /**
+     * @param {{ listingId: string, bidderKey: string, amountCents: number, stripePaymentIntentId?: string | null }} p
+     */
+    async placeBid(p) {
+      const data = await readAll()
+      const idx = data.listings.findIndex((l) => l.id === p.listingId)
+      if (idx < 0) return { error: 'listing_not_found' }
+      const l = normalizeListingRow(data.listings[idx])
+      if (l.status !== 'published') return { error: 'listing_not_available' }
+      if (l.saleMode !== 'auction') return { error: 'not_auction' }
+      if (l.auctionClosed) return { error: 'auction_closed' }
+      const now = Date.now()
+      if (l.auctionEndsAt && now > l.auctionEndsAt) return { error: 'auction_ended' }
+      const sk = sellerKey(l.sellerUserId, l.sellerEmail)
+      if (sk && sk === p.bidderKey) return { error: 'cannot_bid_own_listing' }
+      const reserve = l.reserveCents || 0
+      const high = l.auctionHighBidCents || 0
+      const inc = l.minBidIncrementCents || 50
+      const amount = Math.round(Number(p.amountCents))
+      if (!Number.isFinite(amount) || amount < 1) return { error: 'invalid_amount' }
+      if (high === 0) {
+        if (amount < reserve) return { error: 'below_reserve' }
+      } else if (amount < high + inc) {
+        return { error: 'bid_too_low' }
+      }
+      const bids = Array.isArray(l.bids) ? [...l.bids] : []
+      bids.unshift({
+        bidderKey: p.bidderKey,
+        amountCents: amount,
+        createdAt: now,
+        stripePaymentIntentId: p.stripePaymentIntentId || null,
+        status: p.stripePaymentIntentId ? 'authorized' : 'simulated',
+      })
+      const next = {
+        ...l,
+        auctionHighBidCents: amount,
+        auctionHighBidderKey: p.bidderKey,
+        bids,
+        updatedAt: now,
+      }
+      data.listings[idx] = next
+      await writeAll(data)
+      return { listing: next }
+    },
+
+    async closeExpiredAuctions() {
+      const data = await readAll()
+      const now = Date.now()
+      let changed = false
+      for (let i = 0; i < data.listings.length; i++) {
+        const l = normalizeListingRow(data.listings[i])
+        if (l.saleMode !== 'auction' || l.auctionClosed) continue
+        if (l.auctionEndsAt && now > l.auctionEndsAt) {
+          data.listings[i] = { ...l, auctionClosed: true, updatedAt: now }
+          changed = true
+        }
+      }
+      if (changed) await writeAll(data)
     },
   }
 }

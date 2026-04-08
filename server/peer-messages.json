@@ -1,0 +1,106 @@
+{
+  "threads": [
+    {
+      "id": "thr_1775649837860_3wa4o4ie",
+      "kind": "listing",
+      "listingId": "lst_demo_20260205_01",
+      "buyerKey": "em:haydenbanksy@icloud.com",
+      "sellerKey": "em:demo.peer01@fetch.demo",
+      "participantKeys": [
+        "em:demo.peer01@fetch.demo",
+        "em:haydenbanksy@icloud.com"
+      ],
+      "createdAt": 1775649837859,
+      "updatedAt": 1775649837859,
+      "lastMessagePreview": "",
+      "lastMessageAt": 0,
+      "unreadByParticipant": {
+        "em:haydenbanksy@icloud.com": 0,
+        "em:demo.peer01@fetch.demo": 0
+      }
+    },
+    {
+      "id": "thr_1775645697522_q9jzrehk",
+      "kind": "listing",
+      "listingId": "lst_demo_20260205_11",
+      "buyerKey": "em:haydenbanksy@icloud.com",
+      "sellerKey": "em:demo.peer11@fetch.demo",
+      "participantKeys": [
+        "em:demo.peer11@fetch.demo",
+        "em:haydenbanksy@icloud.com"
+      ],
+      "createdAt": 1775645697522,
+      "updatedAt": 1775645697522,
+      "lastMessagePreview": "",
+      "lastMessageAt": 0,
+      "unreadByParticipant": {
+        "em:haydenbanksy@icloud.com": 0,
+        "em:demo.peer11@fetch.demo": 0
+      }
+    },
+    {
+      "id": "thr_1775645438289_rozu0ear",
+      "kind": "listing",
+      "listingId": "lst_demo_20260205_05",
+      "buyerKey": "em:haydenbanksy@icloud.com",
+      "sellerKey": "em:demo.peer05@fetch.demo",
+      "participantKeys": [
+        "em:demo.peer05@fetch.demo",
+        "em:haydenbanksy@icloud.com"
+      ],
+      "createdAt": 1775645438289,
+      "updatedAt": 1775645491330,
+      "lastMessagePreview": "whats the pick up",
+      "lastMessageAt": 1775645491330,
+      "unreadByParticipant": {
+        "em:haydenbanksy@icloud.com": 0,
+        "em:demo.peer05@fetch.demo": 3
+      }
+    },
+    {
+      "id": "thr_1775645429228_jctu6sqa",
+      "kind": "listing",
+      "listingId": "lst_demo_20260205_03",
+      "buyerKey": "em:haydenbanksy@icloud.com",
+      "sellerKey": "em:demo.peer03@fetch.demo",
+      "participantKeys": [
+        "em:demo.peer03@fetch.demo",
+        "em:haydenbanksy@icloud.com"
+      ],
+      "createdAt": 1775645429228,
+      "updatedAt": 1775645429228,
+      "lastMessagePreview": "",
+      "lastMessageAt": 0,
+      "unreadByParticipant": {
+        "em:haydenbanksy@icloud.com": 0,
+        "em:demo.peer03@fetch.demo": 0
+      }
+    }
+  ],
+  "messages": [
+    {
+      "id": "msg_1775645445971_1ynrxqb0",
+      "threadId": "thr_1775645438289_rozu0ear",
+      "senderKey": "em:haydenbanksy@icloud.com",
+      "body": "Buyer chose cash pickup.",
+      "createdAt": 1775645445971,
+      "messageType": "system"
+    },
+    {
+      "id": "msg_1775645455279_3r0jiqvh",
+      "threadId": "thr_1775645438289_rozu0ear",
+      "senderKey": "em:haydenbanksy@icloud.com",
+      "body": "where you located",
+      "createdAt": 1775645455279,
+      "messageType": "user"
+    },
+    {
+      "id": "msg_1775645491330_pfrvxwgr",
+      "threadId": "thr_1775645438289_rozu0ear",
+      "senderKey": "em:haydenbanksy@icloud.com",
+      "body": "whats the pick up",
+      "createdAt": 1775645491330,
+      "messageType": "user"
+    }
+  ]
+}

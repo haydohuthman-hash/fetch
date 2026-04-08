@@ -1018,6 +1018,35 @@ html[data-fetch-theme='light'] .pac-item-selected .pac-item-query {
   color: rgba(12, 24, 38, 1) !important;
 }
 
+/* Address step inline suggestions: override global light .pac-* panel styling */
+html[data-fetch-theme='light'] .fetch-address-suggestions-mount .pac-container {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+html[data-fetch-theme='light'] .fetch-address-suggestions-mount .pac-item {
+  border-top: none !important;
+  border-bottom: 1px solid rgba(24, 24, 27, 0.1) !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  color: rgba(39, 39, 42, 0.92) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-address-suggestions-mount .pac-item:hover,
+html[data-fetch-theme='light'] .fetch-address-suggestions-mount .pac-item-selected,
+html[data-fetch-theme='light'] .fetch-address-suggestions-mount .pac-item-selected .pac-item-query {
+  background: transparent !important;
+  background-color: transparent !important;
+  color: rgba(24, 24, 27, 0.95) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-address-suggestions-mount .pac-item:hover .pac-item-query,
+html[data-fetch-theme='light'] .fetch-address-suggestions-mount .pac-item-selected .pac-item-query {
+  font-weight: 600;
+}
+
 html[data-fetch-theme='light'] .fetch-home-booking-sheet__handle-bar {
   background: linear-gradient(
     90deg,
@@ -1347,4 +1376,222 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-maps-explore-link-btn {
 
 html[data-fetch-theme='light'] .fetch-home-vision .fetch-maps-explore-secondary-btn {
   color: rgba(30, 45, 62, 0.82);
+}
+
+/* --- Account onboarding (role + interests) --- */
+@keyframes fetch-onboarding-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fetch-onboarding-panel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.fetch-onboarding-root {
+  --fetch-onb-title: rgba(255, 255, 255, 0.94);
+  --fetch-onb-sub: rgba(255, 255, 255, 0.48);
+  --fetch-onb-card-bg: rgba(255, 255, 255, 0.06);
+  --fetch-onb-card-border: rgba(255, 255, 255, 0.12);
+  --fetch-onb-card-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  --fetch-onb-icon: rgba(255, 255, 255, 0.55);
+}
+
+html[data-fetch-theme='light'] .fetch-onboarding-root {
+  --fetch-onb-title: rgba(15, 23, 42, 0.92);
+  --fetch-onb-sub: rgba(51, 65, 85, 0.62);
+  --fetch-onb-card-bg: rgba(255, 255, 255, 0.72);
+  --fetch-onb-card-border: rgba(14, 116, 144, 0.14);
+  --fetch-onb-card-shadow: 0 10px 36px rgba(15, 80, 120, 0.12);
+  --fetch-onb-icon: rgba(30, 55, 75, 0.5);
+}
+
+.fetch-onboarding-title {
+  color: var(--fetch-onb-title);
+}
+
+.fetch-onboarding-sub {
+  color: var(--fetch-onb-sub);
+}
+
+.fetch-onboarding-card-in {
+  animation: fetch-onboarding-card-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.fetch-onboarding-card-in--2 {
+  animation-delay: 70ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fetch-onboarding-card-in,
+  .fetch-onboarding-card-in--2 {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.fetch-onboarding-panel-transition {
+  transition:
+    opacity 0.22s ease,
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.fetch-onboarding-panel-transition--enter {
+  animation: fetch-onboarding-panel-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fetch-onboarding-panel-transition--enter {
+    animation: none;
+  }
+}
+
+html[data-fetch-theme='light'] .fetch-onboarding-chip-off {
+  color: rgba(15, 23, 42, 0.22) !important;
+  border-color: rgba(15, 23, 42, 0.14) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-onboarding-chip-on {
+  color: rgba(6, 78, 59, 0.92) !important;
+}
+
+/* --- SEQ out-of-region coming soon (home sheet) --- */
+@keyframes fetch-seq-waitlist-glow {
+  0%,
+  100% {
+    opacity: 1;
+    text-shadow: 0 0 0 transparent;
+  }
+  50% {
+    opacity: 1;
+    text-shadow: 0 0 12px rgba(103, 232, 249, 0.35);
+  }
+}
+
+.fetch-seq-waitlist-pulse {
+  animation: fetch-seq-waitlist-glow 2.8s ease-in-out infinite;
+}
+
+html[data-fetch-theme='light'] .fetch-seq-waitlist-pulse {
+  animation: fetch-seq-waitlist-glow-light 2.8s ease-in-out infinite;
+}
+
+/* Light paper card on home sheet — use cyan-friendly pulse even when app chrome is dark. */
+.fetch-seq-coming-soon--light .fetch-seq-waitlist-pulse {
+  animation: fetch-seq-waitlist-glow-light 2.8s ease-in-out infinite;
+}
+
+@keyframes fetch-seq-waitlist-glow-light {
+  0%,
+  100% {
+    opacity: 1;
+    text-shadow: 0 0 0 transparent;
+  }
+  50% {
+    opacity: 1;
+    text-shadow: 0 0 10px rgba(14, 116, 144, 0.35);
+  }
+}
+
+@keyframes fetch-seq-cta-shimmer {
+  0% {
+    transform: translateX(-120%) skewX(-12deg);
+  }
+  100% {
+    transform: translateX(220%) skewX(-12deg);
+  }
+}
+
+.fetch-seq-cta-shine::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.18) 45%,
+    transparent 55%
+  );
+  animation: fetch-seq-cta-shimmer 3.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Region-lock home map: route draw + pin pulse (SeqLockMapShowcase) */
+@keyframes fetch-seq-showcase-draw {
+  0%,
+  8% {
+    stroke-dashoffset: 1;
+  }
+  35%,
+  82% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: 1;
+  }
+}
+
+.fetch-seq-showcase-route-draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: fetch-seq-showcase-draw 5.5s ease-in-out infinite;
+}
+
+@keyframes fetch-seq-showcase-pin-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.92;
+  }
+}
+
+.fetch-seq-showcase-pin-pulse {
+  animation: fetch-seq-showcase-pin-pulse 2.2s ease-in-out infinite;
+}
+
+.fetch-seq-showcase-pin-pulse--delay {
+  animation-delay: 0.45s;
+}
+
+@keyframes fetch-seq-showcase-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fetch-seq-waitlist-pulse,
+  html[data-fetch-theme='light'] .fetch-seq-waitlist-pulse,
+  .fetch-seq-coming-soon--light .fetch-seq-waitlist-pulse,
+  .fetch-seq-cta-shine::after,
+  .fetch-seq-showcase-route-draw,
+  .fetch-seq-showcase-pin-pulse,
+  .fetch-seq-showcase-pin-pulse--delay {
+    animation: none;
+  }
+
+  .fetch-seq-showcase-route-draw {
+    stroke-dashoffset: 0;
+  }
 }

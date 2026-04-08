@@ -1,6 +1,7 @@
 import { isWireStatusTreatedAsPaid } from '../booking/bookingWireConstants'
 import {
   accessDetailsComplete,
+  applyProvisionalRouteIfNeeded,
   deriveFlowStep,
   isJunkAccessPhase,
   isJunkBookingConfirmPhase,
@@ -905,6 +906,7 @@ export function handleUserInput(input: UserInput, bookingState: BookingState): H
   }
 
   next = syncIntentState(next)
+  next = applyProvisionalRouteIfNeeded(next)
 
   if (wantsDriverMatch && canBeginDriverSearchDemo(next)) {
     next = beginDriverSearchDemo(next)

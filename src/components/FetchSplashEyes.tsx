@@ -1,15 +1,32 @@
 import { useEffect, useRef, type AnimationEvent } from 'react'
 
-export type FetchSplashEyesMode = 'blinking' | 'awake' | 'thinking' | 'settle' | 'open'
+export type FetchSplashEyesMode =
+  | 'blinking'
+  | 'awake'
+  | 'thinking'
+  | 'settle'
+  | 'open'
+  /** Cold-open splash: open eyes at rest (after blink), optional iris + glance via props below. */
+  | 'splashRest'
 
 type FetchSplashEyesProps = {
   mode: FetchSplashEyesMode
   className?: string
   /** Called once when `settle` mode finishes its blink (other modes ignore this). */
   onSettleComplete?: () => void
+  /** Splash only: layered pupil that can glance left/right. */
+  showSplashIris?: boolean
+  /** Splash only: run one glance animation on the pupil (class stays for fill-mode end state). */
+  splashGlanceActive?: boolean
 }
 
-export function FetchSplashEyes({ mode, className = '', onSettleComplete }: FetchSplashEyesProps) {
+export function FetchSplashEyes({
+  mode,
+  className = '',
+  onSettleComplete,
+  showSplashIris = false,
+  splashGlanceActive = false,
+}: FetchSplashEyesProps) {
   const settleDoneRef = useRef(false)
 
   useEffect(() => {
@@ -34,6 +51,13 @@ export function FetchSplashEyes({ mode, className = '', onSettleComplete }: Fetc
     onSettleComplete()
   }
 
+  const irisDotClass = [
+    'fetch-splash-eye__iris-dot',
+    splashGlanceActive ? 'fetch-splash-eye__iris-dot--animate' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   return (
     <div
       className={[
@@ -42,6 +66,7 @@ export function FetchSplashEyes({ mode, className = '', onSettleComplete }: Fetc
         mode === 'awake' ? 'fetch-splash-eyes--awake' : '',
         mode === 'thinking' ? 'fetch-splash-eyes--thinking' : '',
         mode === 'settle' ? 'fetch-splash-eyes--settle' : '',
+        mode === 'splashRest' ? 'fetch-splash-eyes--splash-rest' : '',
         className,
       ].join(' ')}
       onAnimationEnd={onAnimEnd}
@@ -50,10 +75,20 @@ export function FetchSplashEyes({ mode, className = '', onSettleComplete }: Fetc
       <div className="fetch-splash-eye">
         <span className="fetch-splash-eye__glow" />
         <span className="fetch-splash-eye__ball" />
+        {showSplashIris ? (
+          <span className="fetch-splash-eye__iris" aria-hidden>
+            <span className={irisDotClass} />
+          </span>
+        ) : null}
       </div>
       <div className="fetch-splash-eye">
         <span className="fetch-splash-eye__glow" />
         <span className="fetch-splash-eye__ball" />
+        {showSplashIris ? (
+          <span className="fetch-splash-eye__iris" aria-hidden>
+            <span className={irisDotClass} />
+          </span>
+        ) : null}
       </div>
     </div>
   )

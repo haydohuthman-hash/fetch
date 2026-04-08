@@ -1,11 +1,23 @@
-import { getSupplySkuPriceAud } from './supplies-catalog.js'
+import {
+  getMergedCatalogMap,
+  getSupplySkuPriceAudMerged,
+} from './store-catalog-merge.js'
 import { STORE_CATALOG_PRODUCTS, buildStoreProductByIdMap } from './store-catalog-data.js'
 import { STORE_BUNDLES, bundleRetailTotalAud, resolveBundleLines } from './store-bundles.js'
 
 const MAX_QTY_PER_LINE = 20
 const MAX_DISTINCT_LINES = 50
 
-const productById = buildStoreProductByIdMap()
+/** Fallback map before merge boot (tests / rare sync import order). */
+const staticProductById = buildStoreProductByIdMap()
+
+function productMap() {
+  try {
+    return getMergedCatalogMap()
+  } catch {
+    return staticProductById
+  }
+}
 
 /**
  * @param {{ productId: string, qty: number }[]} lines
@@ -32,13 +44,18 @@ export function validateSupplyCartLines(lines) {
     if (q > MAX_QTY_PER_LINE) return { ok: false, error: 'qty_cap_exceeded' }
   }
 
+  const productById = productMap()
+
   /** @type {{ productId: string, sku: string, title: string, unitPriceAud: number, qty: number, lineTotalAud: number }[]} */
   const out = []
   let subtotal = 0
   for (const [productId, qty] of qtyByProduct) {
     const p = productById.get(productId)
     if (!p) return { ok: false, error: 'unknown_product', detail: productId }
-    const serverPrice = getSupplySkuPriceAud(p.sku)
+    if (p.externalListing && p.affiliateUrl) {
+      return { ok: false, error: 'external_product_not_checkout', detail: productId }
+    }
+    const serverPrice = getSupplySkuPriceAudMerged(p.sku)
     if (serverPrice == null || serverPrice !== p.priceAud) {
       return { ok: false, error: 'price_mismatch', detail: p.sku }
     }
@@ -65,19 +82,20 @@ export function validateBundleCart(bundleId) {
   if (!id) return { ok: false, error: 'bundle_id_required' }
   const bundle = STORE_BUNDLES.find((b) => b.id === id)
   if (!bundle) return { ok: false, error: 'unknown_bundle' }
-  const lines = resolveBundleLines(bundle, productById)
+  const pmap = productMap()
+  const lines = resolveBundleLines(bundle, pmap)
   if (lines.length !== bundle.productIds.length) {
     return { ok: false, error: 'bundle_incomplete' }
   }
   let sumCheck = 0
   for (const line of lines) {
-    const serverPrice = getSupplySkuPriceAud(line.sku)
+    const serverPrice = getSupplySkuPriceAudMerged(line.sku)
     if (serverPrice == null || serverPrice !== line.unitPriceAud) {
       return { ok: false, error: 'price_mismatch', detail: line.sku }
     }
     sumCheck += line.unitPriceAud * line.qty
   }
-  const retail = bundleRetailTotalAud(bundle, productById)
+  const retail = bundleRetailTotalAud(bundle, pmap)
   if (retail !== sumCheck) return { ok: false, error: 'bundle_retail_mismatch' }
   const subtotal = Math.round(bundle.bundlePriceAud)
   const outLines = lines.map((l) => ({
@@ -94,4 +112,4 @@ export function validateBundleCart(bundleId) {
   }
 }
 
-export { STORE_CATALOG_PRODUCTS, STORE_BUNDLES, productById }
+export { STORE_CATALOG_PRODUCTS, STORE_BUNDLES }

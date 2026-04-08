@@ -8,7 +8,9 @@ import {
 
 /**
  * Derives which booking sheet / orb sections are visible from `BookingState.flowStep`
- * and related readiness helpers (used by HomeView orchestration).
+ * and related readiness helpers (mirrors `HomeView` orchestration).
+ *
+ * @see ../../../docs/booking-flow-design.md
  */
 export function computeHomeBookingFlowFlags(bookingState: BookingState) {
   const flowStep = bookingState.flowStep

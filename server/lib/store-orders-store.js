@@ -55,6 +55,12 @@ export function createStoreOrdersStore(filePath) {
       return rows.find((r) => r.paymentIntentId === paymentIntentId) ?? null
     },
 
+    /** @param {number} [limit] */
+    async listRecent(limit = 500) {
+      const rows = await readOrders()
+      return rows.slice(0, Math.max(1, Math.min(2000, Math.floor(Number(limit) || 500))))
+    },
+
     /**
      * @param {string} id
      * @param {Partial<{ status: string, webhookConfirmedAt: number, paymentIntentId: string }>} patch

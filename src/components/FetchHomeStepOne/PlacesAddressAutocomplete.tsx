@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
 import { useJsApiLoader } from '@react-google-maps/api'
 import { fetchPerfExtra, fetchPerfIsEnabled } from '../../lib/fetchPerf'
 
@@ -24,7 +24,14 @@ type PlacesAddressAutocompleteProps = {
   onResolved: (place: ResolvedPlace) => void
   /** Google `.pac-container` is visible with predictions (for parent sheet snap). */
   onSuggestionsOpenChange?: (open: boolean) => void
+  /**
+   * When set, visible `.pac-container` nodes are moved under this element so predictions
+   * render inline (e.g. below drop-off) instead of floating over the map.
+   */
+  suggestionsMountRef?: RefObject<HTMLElement | null>
   className?: string
+  /** A→B grouped UI: colored dot + borderless input row (parent supplies outer box). */
+  abMarker?: 'pickup' | 'dropoff'
 }
 
 /**
@@ -39,7 +46,9 @@ export function PlacesAddressAutocomplete({
   initialDisplayValue = '',
   onResolved,
   onSuggestionsOpenChange,
+  suggestionsMountRef,
   className,
+  abMarker,
 }: PlacesAddressAutocompleteProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const onResolvedRef = useRef(onResolved)
@@ -148,7 +157,33 @@ export function PlacesAddressAutocomplete({
     }
   }, [isLoaded, field, disabled, onSuggestionsOpenChange])
 
-  return (
+  useLayoutEffect(() => {
+    const mount = suggestionsMountRef?.current
+    if (!mount || !isLoaded || disabled) return
+
+    const reparentOpenPac = () => {
+      const lists = document.querySelectorAll<HTMLElement>('.pac-container')
+      for (let i = 0; i < lists.length; i++) {
+        const el = lists[i]
+        if (el.offsetParent === null && !el.querySelector('.pac-item')) continue
+        if (mount.contains(el)) continue
+        mount.appendChild(el)
+      }
+    }
+
+    const mo = new MutationObserver(() => reparentOpenPac())
+    mo.observe(document.body, { childList: true, subtree: true })
+    reparentOpenPac()
+
+    return () => {
+      mo.disconnect()
+      mount.querySelectorAll('.pac-container').forEach((node) => {
+        document.body.appendChild(node)
+      })
+    }
+  }, [isLoaded, disabled, suggestionsMountRef])
+
+  const input = (
     <input
       ref={inputRef}
       type="text"
@@ -160,5 +195,20 @@ export function PlacesAddressAutocomplete({
       className={className}
       aria-label={placeholder}
     />
+  )
+
+  if (!abMarker) return input
+
+  return (
+    <div className="fetch-home-ab-marker-row">
+      <span
+        className={[
+          'fetch-home-ab-marker-dot',
+          abMarker === 'pickup' ? 'fetch-home-ab-marker-dot--pickup' : 'fetch-home-ab-marker-dot--dropoff',
+        ].join(' ')}
+        aria-hidden
+      />
+      {input}
+    </div>
   )
 }

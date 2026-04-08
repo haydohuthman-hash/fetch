@@ -40,7 +40,7 @@ function CarouselCardArt({
     return (
       <HomeServiceTypeIllustration
         jobType={job}
-        className="fetch-brain-service-carousel__illu mx-auto mb-1.5 h-12 w-12"
+        className="fetch-brain-service-carousel__illu mx-auto mb-1.5 h-14 w-14"
       />
     )
   }
@@ -48,7 +48,7 @@ function CarouselCardArt({
   return (
     <div
       className={[
-        'fetch-brain-service-carousel__letter-badge mx-auto mb-1.5 flex h-12 w-12 items-center justify-center rounded-xl text-[16px] font-bold tracking-tight',
+        'fetch-brain-service-carousel__letter-badge mx-auto mb-1.5 flex h-14 w-14 items-center justify-center rounded-xl text-[16px] font-bold tracking-tight',
         isLight ? 'bg-black/[0.06] text-neutral-800' : 'bg-white/[0.1] text-white/90',
       ].join(' ')}
       aria-hidden
@@ -89,7 +89,7 @@ export function FetchBrainServiceCarousel({
             role="listitem"
             onClick={() => onPickFlow(f.id)}
             className={[
-              'fetch-brain-service-carousel__card flex min-w-[6.5rem] max-w-[7.25rem] shrink-0 snap-start snap-always flex-col rounded-2xl border px-2.5 py-2 text-left ring-2 ring-transparent motion-safe:transition-transform motion-safe:active:scale-[0.97]',
+              'fetch-brain-service-carousel__card flex min-w-[7.25rem] max-w-[8rem] shrink-0 snap-start snap-always flex-col rounded-2xl border px-2.5 py-2 text-left ring-2 ring-transparent motion-safe:transition-transform motion-safe:active:scale-[0.97]',
               TONE_RING[f.tone],
               isLight
                 ? 'border-black/[0.08] bg-white/[0.55] shadow-sm'

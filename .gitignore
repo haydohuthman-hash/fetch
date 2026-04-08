@@ -16,3 +16,6 @@ public/supplies/*.webp
 
 # Peer listing uploads (local dev)
 public/listing-uploads/
+
+# Peer buy & sell marketplace data (local dev — starts empty if missing)
+server/peer-listings.json

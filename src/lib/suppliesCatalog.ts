@@ -19,9 +19,35 @@ export type SupplyCategoryId =
   | 'laundry'
   | 'storage'
 
+/** Valid category ids for supplies marketplace + store admin quick listing. */
+export const MARKETPLACE_SUPPLY_CATEGORY_IDS: readonly SupplyCategoryId[] = [
+  'drinks',
+  'cleaning',
+  'packing',
+  'kitchen',
+  'bedroom',
+  'bathroom',
+  'livingRoom',
+  'laundry',
+  'storage',
+] as const
+
 export type SupplyProduct = HardwareProduct & {
-  categoryId: SupplyCategoryId
+  /** Category slug from DB or static catalog (dynamic categories use arbitrary strings). */
+  categoryId: SupplyCategoryId | string
   coverImageUrl: string
+  /** From Postgres catalog / admin; used for subcategory carousels */
+  subcategoryId?: string
+  subcategoryLabel?: string
+  /** Optional “was / RRP” in AUD (same units as priceAud) for storefront compare display */
+  compareAtAud?: number
+  /** From Postgres `products.tags` when present */
+  tags?: string[]
+  /** External marketplace listing (e.g. Amazon) — CTA opens affiliate link, not cart */
+  productSource?: 'fetch' | 'amazon'
+  externalListing?: boolean
+  affiliateUrl?: string
+  asin?: string
 }
 
 type SupplyProductDef = Omit<SupplyProduct, 'coverImageUrl'>

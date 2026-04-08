@@ -2753,22 +2753,6 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   animation: fetch-search-ripple 0.26s ease-out both;
 }
 
-@keyframes fetch-camera-icon-pulse {
-  0%,
-  100% {
-    transform: scale(1);
-    opacity: 0.96;
-  }
-  50% {
-    transform: scale(1.03);
-    opacity: 1;
-  }
-}
-
-.fetch-home-camera-icon {
-  animation: fetch-camera-icon-pulse 3.4s ease-in-out infinite;
-}
-
 @keyframes fetch-fab-ring-wave {
   0% {
     transform: translate(-50%, -50%) scale(0.82);
@@ -3333,6 +3317,71 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   outline: none;
 }
 
+/* Map-first address fields: flat solid fills (no vision gradient on the control). */
+.fetch-home-vision .fetch-home-address-input.fetch-home-address-input--ab-minimal {
+  background: #ffffff !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  color: rgb(24 24 27);
+}
+
+.fetch-home-vision .fetch-home-address-input.fetch-home-address-input--ab-minimal::placeholder {
+  color: rgb(113 113 122);
+  font-weight: 550;
+}
+
+.fetch-home-vision .fetch-home-address-input.fetch-home-address-input--ab-minimal:focus,
+.fetch-home-vision .fetch-home-address-input.fetch-home-address-input--ab-minimal:focus-visible {
+  box-shadow: none !important;
+  background: #ffffff !important;
+  background-image: none !important;
+}
+
+html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input.fetch-home-address-input--ab-minimal {
+  background: rgba(9, 9, 11, 0.96) !important;
+  color: rgba(250 250 250 / 0.96);
+}
+
+html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input.fetch-home-address-input--ab-minimal::placeholder {
+  color: rgba(161 161 170 / 0.75);
+}
+
+html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input.fetch-home-address-input--ab-minimal:focus,
+html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input.fetch-home-address-input--ab-minimal:focus-visible {
+  background: rgba(9, 9, 11, 0.96) !important;
+  background-image: none !important;
+}
+
+.fetch-home-vision .fetch-home-address-input.fetch-home-address-input--ab-unified-inner {
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  border: none !important;
+  color: rgb(24 24 27);
+}
+
+.fetch-home-vision .fetch-home-address-input.fetch-home-address-input--ab-unified-inner::placeholder {
+  color: rgb(113 113 122);
+  font-weight: 550;
+}
+
+.fetch-home-vision .fetch-home-address-input.fetch-home-address-input--ab-unified-inner:focus,
+.fetch-home-vision .fetch-home-address-input.fetch-home-address-input--ab-unified-inner:focus-visible {
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  border: none !important;
+  outline: none;
+}
+
+html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input.fetch-home-address-input--ab-unified-inner {
+  color: rgba(250 250 250 / 0.96);
+}
+
+html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input.fetch-home-address-input--ab-unified-inner::placeholder {
+  color: rgba(161 161 170 / 0.75);
+}
+
 /* Booking-flow text fields (pickup/dropoff/etc.) — match scale + weight */
 .fetch-home-vision .fetch-home-booking-sheet .fetch-home-stage-field-input,
 .fetch-home-vision .fetch-home-booking-sheet .fetch-stage-text-input:not(textarea) {
@@ -3612,8 +3661,8 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 
 .fetch-home-advanced-service-row__icon {
   flex-shrink: 0;
-  width: 4.25rem;
-  height: 4.25rem;
+  width: 5.25rem;
+  height: 5.25rem;
 }
 
 .fetch-home-advanced-service-row {
@@ -3711,10 +3760,10 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   flex-grow: 0;
   flex-shrink: 0;
   /* Fallback when container queries unavailable */
-  flex-basis: clamp(5.35rem, 27vw, 7rem);
+  flex-basis: clamp(6.2rem, 29vw, 7.85rem);
   scroll-snap-align: start;
   scroll-snap-stop: normal;
-  min-height: 7.85rem;
+  min-height: 9.15rem;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3736,7 +3785,7 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 
 @supports (width: 1cqi) {
   .fetch-home-service-carousel-clip .fetch-home-service-segment {
-    flex-basis: max(5.35rem, calc((100cqi - 3 * 0.5rem) / 4.1));
+    flex-basis: max(6.2rem, calc((100cqi - 3 * 0.5rem) / 4.1));
   }
 }
 
@@ -3759,9 +3808,9 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 .fetch-home-service-segment-icon {
   display: block;
   flex-shrink: 0;
-  width: 4.375rem;
-  height: 4.375rem;
-  transform: translateY(0.35rem);
+  width: 5.5rem;
+  height: 5.5rem;
+  transform: translateY(0.28rem);
 }
 
 /* Short action headline (only text under the icon on each card). */
@@ -4006,6 +4055,168 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   color: #fff !important;
 }
 
+/* Inline suggestions under address fields (reparented from body). */
+.fetch-address-suggestions-section {
+  position: relative;
+  z-index: 6;
+  margin-top: 0.375rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(24, 24, 27, 0.1);
+}
+
+html[data-fetch-theme='dark'] .fetch-address-suggestions-section {
+  border-top-color: rgba(255, 255, 255, 0.1);
+}
+
+.fetch-address-suggestions-section__label {
+  margin: 0 0 0.25rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgb(161, 161, 170);
+}
+
+html[data-fetch-theme='dark'] .fetch-address-suggestions-section__label {
+  color: rgba(212, 212, 216, 0.85);
+}
+
+.fetch-home-booking-step--address-touch {
+  touch-action: manipulation;
+}
+
+.fetch-home-booking-sheet[data-surface='addresses'] .fetch-trip-sheet-card__body {
+  margin-top: 0 !important;
+}
+
+/* Address step: inline list only — no panel, shadow, or Google chrome (see .pac-logo hide below). */
+.fetch-address-suggestions-mount .pac-container {
+  position: relative !important;
+  top: auto !important;
+  left: auto !important;
+  right: auto !important;
+  width: 100% !important;
+  max-height: min(42dvh, 22rem);
+  overflow-y: auto !important;
+  margin-top: 0 !important;
+  padding: 0 !important;
+  z-index: 1 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.fetch-address-suggestions-mount .pac-logo,
+.fetch-address-suggestions-mount .hdpi.pac-logo {
+  display: none !important;
+}
+
+.fetch-address-suggestions-mount .pac-icon {
+  display: none !important;
+}
+
+.fetch-address-suggestions-mount .pac-item {
+  border-top: none !important;
+  border-bottom: 1px solid rgba(24, 24, 27, 0.12) !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  color: rgba(39, 39, 42, 0.92) !important;
+  padding: 0.35rem 0.1rem 0.35rem 0 !important;
+  font-size: 0.8125rem !important;
+  line-height: 1.35 !important;
+  cursor: pointer;
+}
+
+html[data-fetch-theme='dark'] .fetch-address-suggestions-mount .pac-item {
+  border-bottom-color: rgba(255, 255, 255, 0.12) !important;
+  color: rgba(228, 228, 231, 0.92) !important;
+}
+
+.fetch-address-suggestions-mount .pac-item:last-child {
+  border-bottom: none !important;
+}
+
+.fetch-address-suggestions-mount .pac-item-query {
+  font-size: inherit !important;
+  color: inherit !important;
+}
+
+.fetch-address-suggestions-mount .pac-item:hover,
+.fetch-address-suggestions-mount .pac-item-selected {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+.fetch-address-suggestions-mount .pac-item:hover .pac-item-query,
+.fetch-address-suggestions-mount .pac-item-selected .pac-item-query {
+  color: inherit !important;
+  font-weight: 600;
+}
+
+/* A → B pickup / drop-off: single outer frame + dot-in-row fields (map-first booking). */
+.fetch-home-ab-unified {
+  position: relative;
+  z-index: 5;
+}
+
+.fetch-home-ab-unified:focus-within {
+  border-color: rgba(39, 39, 42, 0.95) !important;
+}
+
+html[data-fetch-theme='dark'] .fetch-home-ab-unified:focus-within {
+  border-color: rgba(161, 161, 170, 0.65) !important;
+}
+
+.fetch-home-ab-marker-row {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  min-height: 2.75rem;
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+
+.fetch-home-ab-marker-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: 999px;
+}
+
+.fetch-home-ab-marker-dot--pickup {
+  background: #10b981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.22);
+}
+
+.fetch-home-ab-marker-dot--dropoff {
+  background: #0ea5e5;
+  box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.25);
+}
+
+/* Align saved stops / chips with typed text (after dot + gap). */
+.fetch-home-ab-unified-inset {
+  padding-left: 1.875rem;
+  padding-right: 0.75rem;
+}
+
+.fetch-home-address-input--ab-unified-inner:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.fetch-home-vision .fetch-home-address-input--ab-minimal:focus {
+  outline: none;
+  box-shadow: none;
+  border-color: rgba(24, 24, 27, 0.72) !important;
+  background: #fff !important;
+}
+
+html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-minimal:focus {
+  border-color: rgba(228, 228, 231, 0.55) !important;
+  background: rgba(9, 9, 11, 0.92) !important;
+}
+
 .pac-logo:after,
 .hdpi.pac-logo:after {
   filter: brightness(0.85) contrast(1.1);
@@ -4031,8 +4242,8 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 .fetch-home-booking-sheet::before {
   content: '';
   position: absolute;
-  left: 8px;
-  right: 8px;
+  left: 0;
+  right: 0;
   top: 1px;
   height: 1px;
   border-radius: var(--fetch-home-sheet-radius) var(--fetch-home-sheet-radius) 0 0;
@@ -4046,24 +4257,6 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   );
   pointer-events: none;
   z-index: 3;
-}
-
-.fetch-home-booking-sheet[data-snap='full']::before {
-  left: 0;
-  right: 0;
-  border-radius: var(--fetch-home-sheet-radius) var(--fetch-home-sheet-radius) 0 0;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .fetch-home-booking-sheet-outer {
-    transition: padding 0.32s cubic-bezier(0.32, 0.72, 0, 1);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .fetch-home-booking-sheet-outer {
-    transition: none;
-  }
 }
 
 /* Soft cyan / sky glow behind sheet top while Fetch speaks (sits under panel z-index) */
@@ -4214,7 +4407,8 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   left: 0;
   right: 0;
   top: 0;
-  z-index: 2;
+  /* Below in-flow sheet body — Safari composites backdrop-filter layers above z-auto siblings if this is too high */
+  z-index: 0;
   height: min(42%, 7.5rem);
   max-height: 9.5rem;
   pointer-events: none;
@@ -4246,6 +4440,21 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   -webkit-backdrop-filter: blur(40px) saturate(1.32);
   mask-image: linear-gradient(180deg, black 0%, black 58%, transparent 100%);
   -webkit-mask-image: linear-gradient(180deg, black 0%, black 58%, transparent 100%);
+}
+
+/*
+ * Intent: explicit stack so body text (e.g. “Choose a service”) stays above frost in WebKit.
+ * Handle + peek stay above the body layer for hit-testing.
+ */
+.fetch-home-booking-sheet[data-surface='intent'] .fetch-home-booking-sheet__handle-rail,
+.fetch-home-booking-sheet[data-surface='intent'] .fetch-home-booking-sheet__peek {
+  position: relative;
+  z-index: 4;
+}
+
+.fetch-home-booking-sheet[data-surface='intent'] .fetch-home-booking-sheet__body {
+  position: relative;
+  z-index: 1;
 }
 
 /* Compact intent: keep frost tight to handle — avoid haze over “Choose a service” + cards */
@@ -5230,6 +5439,57 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   max-height: min(34dvh, 17.25rem);
 }
 
+/* Step-2 addresses: shorter sheet so the map stays the hero (pickup / drop-off / dual). */
+.fetch-home-booking-sheet[data-surface='addresses'][data-snap='compact'] {
+  height: min(32dvh, 17.5rem);
+  max-height: min(32dvh, 17.5rem);
+}
+
+.fetch-home-booking-sheet[data-surface='addresses'][data-snap='half'] {
+  height: min(80dvh, 40rem);
+  max-height: min(80dvh, 40rem);
+}
+
+.fetch-home-booking-sheet[data-surface='addresses'][data-snap='full'] {
+  height: min(88dvh, 44rem);
+  max-height: min(88dvh, 44rem);
+}
+
+/* Post–service-pick booking: no frost band over the map; handle only. */
+.fetch-home-booking-sheet[data-map-first-booking='true'] .fetch-home-booking-sheet__top-frost {
+  display: none;
+}
+
+.fetch-home-booking-sheet[data-map-first-booking='true'] .fetch-home-booking-sheet__handle-rail {
+  position: relative;
+  z-index: 4;
+  padding-top: 0.2rem;
+  padding-bottom: 0;
+}
+
+.fetch-home-booking-sheet[data-map-first-booking='true'] .fetch-home-booking-sheet__body {
+  position: relative;
+  z-index: 1;
+}
+
+/* Booking flow: ultra-minimal top edge (Uber-style). */
+.fetch-home-booking-sheet[data-bare-booking-top='true'] .fetch-home-booking-sheet__handle-rail {
+  padding-top: 0.05rem;
+  padding-bottom: 0;
+}
+
+.fetch-home-booking-sheet[data-bare-booking-top='true'] .fetch-home-booking-sheet__handle {
+  padding-top: 0;
+  padding-bottom: 0.25rem;
+}
+
+.fetch-home-booking-sheet[data-bare-booking-top='true'] .fetch-home-booking-sheet__handle-bar {
+  width: 2.25rem;
+  height: 3px;
+  border-radius: 999px;
+  opacity: 0.32;
+}
+
 /* Route sheet: progress bar — most width early, then eases toward the end (indeterminate feel). */
 .fetch-route-load-bar__track {
   height: 4px;
@@ -5278,6 +5538,30 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
     animation: none;
     transform: scaleX(0.42);
     opacity: 0.9;
+  }
+}
+
+.fetch-booking-quote-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.fetch-booking-quote-skeleton__bar {
+  height: 0.65rem;
+  max-width: 100%;
+  border-radius: 0.375rem;
+  background: rgba(100, 116, 139, 0.22);
+}
+
+.fetch-home-vision .fetch-booking-quote-skeleton__bar {
+  background: rgba(148, 163, 184, 0.28);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fetch-booking-quote-skeleton__bar.fetch-skeleton-shimmer {
+    animation: none;
+    opacity: 0.85;
   }
 }
 
@@ -5400,6 +5684,13 @@ html[data-fetch-theme='light'] .fetch-home-vision {
     0 4px 10px rgba(0, 0, 0, 0.14),
     0 -6px 18px -4px rgba(var(--orb-glow), 0.85),
     0 -2px 8px -2px rgba(255, 255, 255, 0.35);
+}
+
+.fetch-home-vision .fetch-home-orb-vision-halo--booking-min[data-orb-idle='true'],
+.fetch-home-vision .fetch-home-orb-vision-halo--booking-min:not([data-orb-idle='true']) {
+  box-shadow:
+    0 10px 22px rgba(0, 0, 0, 0.2),
+    0 3px 8px rgba(0, 0, 0, 0.12);
 }
 
 @keyframes fetch-home-orb-bubble-rise {
@@ -6189,83 +6480,6 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   transform: translateY(0.95rem);
 }
 
-.fetch-home-intent-camera-btn {
-  display: flex;
-  height: 2.65rem;
-  width: 2.65rem;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  border-radius: 9999px;
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  background: rgba(255, 255, 255, 0.45);
-  color: rgba(15, 23, 42, 0.78);
-  cursor: pointer;
-  box-shadow:
-    0 6px 18px rgba(15, 23, 42, 0.07),
-    inset 0 1px 0 rgba(255, 255, 255, 0.88);
-  transition:
-    transform 0.14s ease,
-    box-shadow 0.18s ease;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.fetch-home-intent-camera-btn:hover {
-  box-shadow:
-    0 8px 22px rgba(15, 23, 42, 0.09),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95);
-}
-
-.fetch-home-intent-camera-btn:active {
-  transform: scale(0.96);
-}
-
-.fetch-home-intent-camera-btn:focus-visible {
-  outline: 2px solid rgba(56, 189, 248, 0.45);
-  outline-offset: 2px;
-}
-
-.fetch-home-intent-magic-btn {
-  display: flex;
-  height: 2.65rem;
-  width: 2.65rem;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  border-radius: 9999px;
-  border: 1px solid rgba(167, 139, 250, 0.45);
-  background: linear-gradient(
-    145deg,
-    rgba(255, 255, 255, 0.55) 0%,
-    rgba(237, 233, 254, 0.42) 45%,
-    rgba(224, 231, 255, 0.38) 100%
-  );
-  color: rgba(91, 33, 182, 0.88);
-  cursor: pointer;
-  box-shadow:
-    0 6px 18px rgba(91, 33, 182, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  transition:
-    transform 0.14s ease,
-    box-shadow 0.18s ease;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.fetch-home-intent-magic-btn:hover {
-  box-shadow:
-    0 8px 22px rgba(91, 33, 182, 0.14),
-    inset 0 1px 0 rgba(255, 255, 255, 0.95);
-}
-
-.fetch-home-intent-magic-btn:active {
-  transform: scale(0.96);
-}
-
-.fetch-home-intent-magic-btn:focus-visible {
-  outline: 2px solid rgba(139, 92, 246, 0.5);
-  outline-offset: 2px;
-}
-
 /* Map overlay menus (side sheet, help, legal, alerts, hardware) — full-width status line under safe area */
 .fetch-home-map-overlay-menu-topline {
   background: linear-gradient(
@@ -6284,6 +6498,32 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   backdrop-filter: blur(22px) saturate(1.18);
   -webkit-backdrop-filter: blur(22px) saturate(1.18);
   box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.55);
+}
+
+/* Drops reels: vertical snap scroll without visible scrollbar */
+.fetch-home-reels-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.fetch-home-reels-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* Reels shell: dark footer so bottom nav stays legible on black feed */
+.fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon {
+  color: rgba(255, 255, 255, 0.52);
+}
+
+.fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon:hover {
+  color: rgba(255, 255, 255, 0.78);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon--active,
+.fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon--active:hover {
+  color: #fff;
+  background: transparent;
 }
 
 /* Full-width bottom bar — home / maps / marketplace (fixed row; safe-area on bottom). */
@@ -6315,7 +6555,7 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   border: none;
   border-radius: 0.85rem;
   background: transparent;
-  color: rgba(15, 23, 42, 0.38);
+  color: rgba(15, 23, 42, 0.64);
   cursor: pointer;
   transition:
     color 0.18s ease,
@@ -6325,7 +6565,7 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 }
 
 .fetch-home-intent-bottom-nav__icon:hover {
-  color: rgba(15, 23, 42, 0.55);
+  color: rgba(15, 23, 42, 0.8);
   background: rgba(15, 23, 42, 0.04);
 }
 
@@ -7753,8 +7993,8 @@ html[data-fetch-theme='light'] .fetch-home-orb-tunnel-vignette {
   }
 
   .fetch-brain-service-carousel__card {
-    min-width: 6rem;
-    max-width: 6.85rem;
+    min-width: 6.75rem;
+    max-width: 7.5rem;
     padding-inline: 0.5rem;
   }
 }
@@ -7767,10 +8007,10 @@ html[data-fetch-theme='light'] .fetch-home-orb-tunnel-vignette {
 
 .fetch-brain-service-carousel__illu img,
 .fetch-brain-service-carousel__illu svg {
-  width: 2.5rem;
-  height: 2.5rem;
-  max-width: 2.5rem;
-  max-height: 2.5rem;
+  width: 3rem;
+  height: 3rem;
+  max-width: 3rem;
+  max-height: 3rem;
   object-fit: contain;
 }
 
@@ -9371,7 +9611,7 @@ html[data-fetch-theme='light'] .fetch-home-orb-tunnel-vignette {
   }
 }
 
-/* --- Cold open splash: eyes → logo --- */
+/* --- Cold open splash: blink → glance → hop off-screen --- */
 @keyframes fetch-splash-blink {
   0%,
   7% {
@@ -9542,6 +9782,113 @@ html[data-fetch-theme='dark'] .fetch-splash-eye__ball {
   animation: fetch-splash-wake-glow 0.58s cubic-bezier(0.28, 0.9, 0.32, 1) forwards;
 }
 
+/* Splash cold open: resting open eyes (after blink) — matches awake end pose */
+.fetch-splash-eyes--splash-rest .fetch-splash-eye__ball {
+  animation: none;
+  transform: scaleY(1.08) scaleX(0.98);
+  filter: brightness(1.05);
+}
+
+.fetch-splash-eyes--splash-rest .fetch-splash-eye__glow {
+  animation: none;
+  opacity: 1;
+  transform: scale(1.06);
+}
+
+.fetch-splash-eye__iris {
+  position: absolute;
+  z-index: 2;
+  left: 11%;
+  right: 11%;
+  top: 16%;
+  bottom: 20%;
+  overflow: hidden;
+  border-radius: 9999px;
+  pointer-events: none;
+}
+
+.fetch-splash-eye__iris-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 52%;
+  height: 58%;
+  border-radius: 50%;
+  transform: translate(-50%, -50%) translateX(0);
+  background: radial-gradient(circle at 32% 26%, #242428 0%, #0c0c0e 45%, #020203 100%);
+  box-shadow:
+    inset 0 -3px 6px rgba(0, 0, 0, 0.55),
+    inset 1px 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.fetch-splash-eye__iris-dot::after {
+  content: '';
+  position: absolute;
+  left: 28%;
+  top: 22%;
+  width: 28%;
+  height: 24%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.42) 0%, transparent 72%);
+  pointer-events: none;
+}
+
+html[data-fetch-theme='dark'] .fetch-splash-eye__iris-dot {
+  background: radial-gradient(circle at 32% 26%, #16161a 0%, #050506 50%, #000 100%);
+}
+
+@keyframes fetch-splash-pupil-glance {
+  0% {
+    transform: translate(-50%, -50%) translateX(0);
+  }
+  16% {
+    transform: translate(-50%, -50%) translateX(26%);
+  }
+  34% {
+    transform: translate(-50%, -50%) translateX(-30%);
+  }
+  52% {
+    transform: translate(-50%, -50%) translateX(18%);
+  }
+  70% {
+    transform: translate(-50%, -50%) translateX(-12%);
+  }
+  100% {
+    transform: translate(-50%, -50%) translateX(0);
+  }
+}
+
+.fetch-splash-eye__iris-dot--animate {
+  animation: fetch-splash-pupil-glance 1.42s cubic-bezier(0.45, 0, 0.22, 1) forwards;
+}
+
+.fetch-splash-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform-origin: 50% 60%;
+  will-change: transform, opacity;
+}
+
+@keyframes fetch-splash-hop-out {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 1;
+  }
+  18% {
+    transform: translate3d(0, -22px, 0) scale(1.07, 1.03);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(min(28vw, 9rem), -125vh, 0) scale(0.68);
+    opacity: 0;
+  }
+}
+
+.fetch-splash-stage--hop-out {
+  animation: fetch-splash-hop-out 0.62s cubic-bezier(0.52, 0, 0.74, 0.38) forwards;
+}
+
 .fetch-splash-logo {
   opacity: 0;
   transform: translateY(14px);
@@ -9585,6 +9932,24 @@ html[data-fetch-theme='dark'] .fetch-splash-logo__secondary {
   .fetch-splash-eyes--awake .fetch-splash-eye__ball,
   .fetch-splash-eyes--awake .fetch-splash-eye__glow {
     animation: none;
+  }
+
+  .fetch-splash-eyes--splash-rest .fetch-splash-eye__ball,
+  .fetch-splash-eyes--splash-rest .fetch-splash-eye__glow {
+    animation: none;
+    transform: none;
+    filter: none;
+    opacity: 1;
+  }
+
+  .fetch-splash-eye__iris-dot--animate {
+    animation: none;
+  }
+
+  .fetch-splash-stage--hop-out {
+    animation: none;
+    opacity: 0;
+    transform: translate3d(0, -12px, 0) scale(0.96);
   }
 
   .fetch-splash-logo--visible {
@@ -9889,7 +10254,7 @@ html[data-fetch-theme='dark'] .fetch-bootstrap-skel-chev {
 
 .fetch-bootstrap-skel-service-card {
   width: calc((100% - 3 * 0.625rem) / 4.1);
-  min-width: 5.15rem;
+  min-width: 6.1rem;
   border: 1px solid rgba(148, 163, 184, 0.2);
   background: rgba(241, 245, 249, 0.88);
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset;
@@ -9902,8 +10267,8 @@ html[data-fetch-theme='dark'] .fetch-bootstrap-skel-service-card {
 }
 
 .fetch-bootstrap-skel-service-icon {
-  width: 4.25rem;
-  height: 4.25rem;
+  width: 5.25rem;
+  height: 5.25rem;
   background: linear-gradient(
     90deg,
     rgba(15, 23, 42, 0.06) 0%,
@@ -9963,4 +10328,280 @@ html[data-fetch-theme='dark'] .fetch-bootstrap-skel-service-label {
 }
 .fetch-map-pin--dropoff {
   background: #f97316;
+}
+
+/* Shop: Drinks promo — freezer / snow-storm transition */
+@keyframes fetch-drinks-snow-drift {
+  0% {
+    transform: translate3d(0, -14vh, 0);
+    opacity: 0;
+  }
+  7% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--snow-drift, 18vw), 120vh, 0);
+    opacity: 0.4;
+  }
+}
+
+@keyframes fetch-drinks-bg-pulse {
+  0% {
+    filter: brightness(1) saturate(1);
+    transform: scale(1);
+  }
+  45% {
+    filter: brightness(1.12) saturate(1.25);
+    transform: scale(1.03);
+  }
+  100% {
+    filter: brightness(0.92) saturate(1.15);
+    transform: scale(1.06);
+  }
+}
+
+@keyframes fetch-drinks-frost-veil {
+  0% {
+    opacity: 0;
+  }
+  28% {
+    opacity: 1;
+  }
+  58% {
+    opacity: 0.9;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes fetch-drinks-ice-flash {
+  0% {
+    opacity: 0;
+  }
+  32% {
+    opacity: 0.92;
+  }
+  48% {
+    opacity: 0.08;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes fetch-drinks-wind-streak-a {
+  0% {
+    transform: translate3d(-35%, 0, 0) skewX(-18deg);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.5;
+  }
+  100% {
+    transform: translate3d(135%, 8%, 0) skewX(-18deg);
+    opacity: 0;
+  }
+}
+
+@keyframes fetch-drinks-wind-streak-b {
+  0% {
+    transform: translate3d(-45%, 20%, 0) skewX(-22deg);
+    opacity: 0;
+  }
+  22% {
+    opacity: 0.35;
+  }
+  100% {
+    transform: translate3d(150%, 35%, 0) skewX(-22deg);
+    opacity: 0;
+  }
+}
+
+@keyframes fetch-drinks-wind-streak-c {
+  0% {
+    transform: translate3d(-40%, 50%, 0) skewX(-14deg);
+    opacity: 0;
+  }
+  18% {
+    opacity: 0.28;
+  }
+  100% {
+    transform: translate3d(130%, 62%, 0) skewX(-14deg);
+    opacity: 0;
+  }
+}
+
+@keyframes fetch-drinks-label-fade {
+  0% {
+    opacity: 0;
+    transform: translate3d(-50%, 8px, 0);
+  }
+  12% {
+    opacity: 1;
+    transform: translate3d(-50%, 0, 0);
+  }
+  72% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(-50%, -6px, 0);
+  }
+}
+
+.fetch-drinks-freezer-splash {
+  contain: strict;
+}
+
+.fetch-drinks-freezer-splash__bg {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 95% 75% at 48% 12%, rgba(224, 242, 254, 0.98), transparent 58%),
+    radial-gradient(ellipse 70% 55% at 88% 72%, rgba(56, 189, 248, 0.4), transparent 52%),
+    radial-gradient(ellipse 55% 45% at 8% 65%, rgba(191, 219, 254, 0.55), transparent 48%),
+    linear-gradient(188deg, #f0f9ff 0%, #bae6fd 32%, #1d4ed8 58%, #0f172a 100%);
+  animation: fetch-drinks-bg-pulse 2.8s ease-in-out forwards;
+}
+
+.fetch-drinks-freezer-splash__frost {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 55% 50% at 50% 50%, rgba(255, 255, 255, 0.2), transparent 62%),
+    linear-gradient(165deg, rgba(255, 255, 255, 0.55) 0%, transparent 42%, rgba(147, 197, 253, 0.35) 100%);
+  mix-blend-mode: screen;
+  animation: fetch-drinks-frost-veil 2.75s ease-out forwards;
+  pointer-events: none;
+}
+
+.fetch-drinks-freezer-splash__flash {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.95) 0%, rgba(224, 242, 254, 0.4) 45%, transparent 72%);
+  animation: fetch-drinks-ice-flash 2.6s ease-out forwards;
+  pointer-events: none;
+}
+
+.fetch-drinks-freezer-splash__vignette {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 72% 65% at 50% 50%, transparent 35%, rgba(15, 23, 42, 0.55) 100%);
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.fetch-drinks-freezer-splash__streak {
+  position: absolute;
+  left: -20%;
+  width: 140%;
+  height: 18%;
+  border-radius: 9999px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.08) 35%,
+    rgba(255, 255, 255, 0.35) 50%,
+    rgba(255, 255, 255, 0.06) 72%,
+    transparent 100%
+  );
+  filter: blur(1px);
+  pointer-events: none;
+}
+
+.fetch-drinks-freezer-splash__streak--a {
+  top: 18%;
+  animation: fetch-drinks-wind-streak-a 2.35s ease-in-out 0.05s forwards;
+}
+
+.fetch-drinks-freezer-splash__streak--b {
+  top: 42%;
+  animation: fetch-drinks-wind-streak-b 2.5s ease-in-out 0.12s forwards;
+}
+
+.fetch-drinks-freezer-splash__streak--c {
+  top: 68%;
+  animation: fetch-drinks-wind-streak-c 2.45s ease-in-out 0.2s forwards;
+}
+
+.fetch-drinks-freezer-splash__flakes {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.fetch-drinks-freezer-splash__flake {
+  position: absolute;
+  top: -10vh;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow:
+    0 0 10px rgba(224, 242, 254, 1),
+    0 0 2px rgba(255, 255, 255, 0.9);
+  animation-name: fetch-drinks-snow-drift;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+  animation-iteration-count: 1;
+}
+
+.fetch-drinks-freezer-splash__label {
+  position: absolute;
+  bottom: max(14%, calc(env(safe-area-inset-bottom, 0px) + 1.5rem));
+  left: 50%;
+  margin: 0;
+  max-width: min(20rem, 92vw);
+  text-align: center;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(248, 250, 252, 0.94);
+  text-shadow:
+    0 0 28px rgba(56, 189, 248, 0.75),
+    0 2px 14px rgba(15, 23, 42, 0.9);
+  animation: fetch-drinks-label-fade 2.8s ease-out forwards;
+  pointer-events: none;
+}
+
+.fetch-drinks-freezer-splash--reduced .fetch-drinks-freezer-splash__bg {
+  animation-duration: 0.42s;
+}
+
+.fetch-drinks-freezer-splash--reduced .fetch-drinks-freezer-splash__frost,
+.fetch-drinks-freezer-splash--reduced .fetch-drinks-freezer-splash__flash {
+  animation-duration: 0.4s;
+}
+
+.fetch-drinks-freezer-splash--reduced .fetch-drinks-freezer-splash__streak--a,
+.fetch-drinks-freezer-splash--reduced .fetch-drinks-freezer-splash__streak--b,
+.fetch-drinks-freezer-splash--reduced .fetch-drinks-freezer-splash__streak--c {
+  animation-duration: 0.38s;
+}
+
+.fetch-drinks-freezer-splash--reduced .fetch-drinks-freezer-splash__label {
+  animation-duration: 0.42s;
+}
+
+.fetch-drinks-freezer-splash--reduced .fetch-drinks-freezer-splash__flake {
+  animation-duration: 0.48s !important;
+  animation-delay: 0ms !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fetch-drinks-freezer-splash__bg,
+  .fetch-drinks-freezer-splash__frost,
+  .fetch-drinks-freezer-splash__flash,
+  .fetch-drinks-freezer-splash__streak--a,
+  .fetch-drinks-freezer-splash__streak--b,
+  .fetch-drinks-freezer-splash__streak--c,
+  .fetch-drinks-freezer-splash__label {
+    animation-duration: 0.35s !important;
+  }
+
+  .fetch-drinks-freezer-splash__flake {
+    animation-duration: 0.4s !important;
+    animation-delay: 0ms !important;
+  }
 }

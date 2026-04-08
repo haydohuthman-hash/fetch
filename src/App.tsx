@@ -1,4 +1,9 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import {
+  consumeOnboardingReturnTarget,
+  needsPlatformOnboarding,
+  setOnboardingReturnTarget,
+} from './lib/fetchPlatformIdentity'
 import { loadSession } from './lib/fetchUserSession'
 import { FetchVoiceProvider } from './voice/FetchVoiceContext'
 import { FetchBootstrappingProvider } from './boot/FetchBootstrappingContext'
@@ -11,15 +16,19 @@ const HomeView = lazy(homeChunk)
 const authChunk = () => import('./views/AuthScreen')
 const AuthScreen = lazy(authChunk)
 
-const accountChunk = () => import('./components/UserScreens/AccountScreen').then((m) => ({
-  default: m.AccountScreen,
-}))
-const AccountScreen = lazy(accountChunk)
+const dropsProfileAccountChunk = () =>
+  import('./components/UserScreens/DropsProfileAccountScreen').then((m) => ({
+    default: m.DropsProfileAccountScreen,
+  }))
+const DropsProfileAccountScreen = lazy(dropsProfileAccountChunk)
 
 const driverChunk = () => import('./views/DriverDashboardView')
 const DriverDashboardView = lazy(driverChunk)
 
-type AppPhase = 'splash' | 'home' | 'auth' | 'account' | 'driver'
+const onboardingChunk = () => import('./views/AccountOnboardingView')
+const AccountOnboardingView = lazy(onboardingChunk)
+
+type AppPhase = 'splash' | 'home' | 'auth' | 'onboarding' | 'account' | 'driver'
 
 /**
  * Page-load–scoped handoff flags (not sessionStorage): they survive React 18 Strict Mode
@@ -56,12 +65,14 @@ function App() {
   const [phase, setPhase] = useState<AppPhase>(initialAppPhase)
   const [homeBootstrapOpen, setHomeBootstrapOpen] = useState(initialHomeBootstrapOpen)
   const [homeMapBootReady, setHomeMapBootReady] = useState(false)
+  const [onboardingAllowDismiss, setOnboardingAllowDismiss] = useState(false)
 
   useEffect(() => {
     void homeChunk()
     void authChunk()
-    void accountChunk()
+    void dropsProfileAccountChunk()
     void driverChunk()
+    void onboardingChunk()
   }, [])
 
   useEffect(() => {
@@ -75,7 +86,16 @@ function App() {
   }, [])
 
   const goAccountFromHome = useCallback(() => {
-    setPhase(loadSession() ? 'account' : 'auth')
+    if (!loadSession()) {
+      setPhase('auth')
+      return
+    }
+    if (needsPlatformOnboarding()) {
+      setOnboardingAllowDismiss(false)
+      setPhase('onboarding')
+      return
+    }
+    setPhase('account')
   }, [])
 
   const leaveDriverDashboard = useCallback(() => {
@@ -90,6 +110,35 @@ function App() {
     url.searchParams.set('driver', '1')
     window.history.replaceState({}, '', `${url.pathname}${url.search}`)
     setPhase('driver')
+  }, [])
+
+  const finishOnboarding = useCallback(
+    (picked: 'fetcher' | 'partner') => {
+      const ret = consumeOnboardingReturnTarget()
+      setOnboardingAllowDismiss(false)
+      if (ret === 'account') {
+        setPhase('account')
+        return
+      }
+      if (picked === 'partner') {
+        openDriverDashboard()
+      } else {
+        setPhase('home')
+      }
+    },
+    [openDriverDashboard],
+  )
+
+  const openOnboardingFromAccount = useCallback(() => {
+    setOnboardingReturnTarget('account')
+    setOnboardingAllowDismiss(true)
+    setPhase('onboarding')
+  }, [])
+
+  const dismissOnboardingToAccount = useCallback(() => {
+    setOnboardingReturnTarget(null)
+    setOnboardingAllowDismiss(false)
+    setPhase('account')
   }, [])
 
   const handleSplashComplete = useCallback(() => {
@@ -148,15 +197,28 @@ function App() {
               <AuthScreen
                 initialTab="signup"
                 onBack={() => setPhase('home')}
-                onSuccess={() => setPhase('account')}
+                onSuccess={() => {
+                  setOnboardingAllowDismiss(false)
+                  setPhase(needsPlatformOnboarding() ? 'onboarding' : 'account')
+                }}
+              />
+            </Suspense>
+          ) : phase === 'onboarding' ? (
+            <Suspense fallback={<PhaseFallback />}>
+              <AccountOnboardingView
+                onDoneFetcher={() => finishOnboarding('fetcher')}
+                onDonePartner={() => finishOnboarding('partner')}
+                allowDismissToAccount={onboardingAllowDismiss}
+                onDismissToAccount={dismissOnboardingToAccount}
               />
             </Suspense>
           ) : (
             <Suspense fallback={<PhaseFallback />}>
-              <AccountScreen
+              <DropsProfileAccountScreen
                 onBack={() => setPhase('home')}
                 onSignOut={() => setPhase('home')}
                 onOpenDriver={openDriverDashboard}
+                onOpenOnboarding={openOnboardingFromAccount}
               />
             </Suspense>
           )}

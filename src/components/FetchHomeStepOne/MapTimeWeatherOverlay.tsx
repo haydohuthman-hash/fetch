@@ -10,6 +10,7 @@ import {
 } from '../../lib/homeActivityFeed'
 import type { HardwareProduct } from '../../lib/hardwareCatalog'
 import { HARDWARE_PRODUCTS } from '../../lib/hardwareCatalog'
+import { FetchEyesHomeIcon, ShellMenuIcon } from '../icons/HomeShellNavIcons'
 
 /** Map wordmark row: single-line tap target (parent opens chat / composer). */
 export type MapHeaderAddressEntryProps = {
@@ -17,6 +18,13 @@ export type MapHeaderAddressEntryProps = {
   title: string
   disabled?: boolean
   onOpen: () => void
+  /** `inline` = text link + pin; `search` = rounded search field (default). */
+  presentation?: 'search' | 'inline'
+}
+
+export type MapBackBubbleProps = {
+  onClick: () => void
+  ariaLabel?: string
 }
 
 export type MapNavStatusStrip = {
@@ -59,26 +67,10 @@ type MapTimeWeatherOverlayProps = {
   onDriverExit?: () => void
   /** Customer home: pickup / drop-off entry under the Fetch wordmark. */
   mapHeaderAddressEntry?: MapHeaderAddressEntryProps | null
-}
-
-function HamburgerIcon({ className = '' }: { className?: string }) {
-  return (
-    <svg
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      className={className}
-      aria-hidden
-    >
-      <path
-        d="M5 7h14M5 12h14M5 17h14"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
-    </svg>
-  )
+  /** Customer booking flow: hide hamburger / wordmark / help bar (sheet owns navigation). */
+  hideSystemHeader?: boolean
+  /** Floating back control when the system header is hidden. */
+  mapBackBubble?: MapBackBubbleProps | null
 }
 
 function HelpCircleIcon({ className = '' }: { className?: string }) {
@@ -104,6 +96,25 @@ function HelpCircleIcon({ className = '' }: { className?: string }) {
   )
 }
 
+function MapHeaderPinIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+      aria-hidden
+    >
+      <path
+        fill="currentColor"
+        d="M12 21.35s-5.85-5.2-5.85-10.65A5.85 5.85 0 1117.85 10.7c0 5.45-5.85 10.65-5.85 10.65z"
+      />
+      <circle cx="12" cy="10.35" r="2.15" fill="#ffffff" fillOpacity="0.9" />
+    </svg>
+  )
+}
+
 function MapHeaderSearchIcon({ className = '' }: { className?: string }) {
   return (
     <svg
@@ -120,6 +131,27 @@ function MapHeaderSearchIcon({ className = '' }: { className?: string }) {
   )
 }
 
+function ChevronLeftIcon({ className = '' }: { className?: string }) {
+  return (
+    <svg
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+      aria-hidden
+    >
+      <path
+        d="M15 18l-6-6 6-6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
 function MapTimeWeatherOverlayInner({
   navStrip = null,
   onMenuAccount,
@@ -127,6 +159,8 @@ function MapTimeWeatherOverlayInner({
   overlayContext = 'home',
   onDriverExit,
   mapHeaderAddressEntry = null,
+  hideSystemHeader = false,
+  mapBackBubble = null,
 }: MapTimeWeatherOverlayProps) {
   const isDriver = overlayContext === 'driver'
   const [sideMenuOpen, setSideMenuOpen] = useState(false)
@@ -272,6 +306,22 @@ function MapTimeWeatherOverlayInner({
         </div>
       ) : null}
 
+      {mapBackBubble && !isDriver && hideSystemHeader ? (
+        <div
+          className="pointer-events-none fixed left-0 top-0 z-[47] flex w-auto justify-start pl-3 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)]"
+        >
+          <button
+            type="button"
+            className="fetch-home-map-icon-btn pointer-events-auto inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-zinc-200/90 bg-white/95 text-zinc-800 shadow-[0_4px_18px_-4px_rgba(15,23,42,0.2)] backdrop-blur-md transition-[transform,colors] active:scale-[0.97]"
+            aria-label={mapBackBubble.ariaLabel ?? 'Back'}
+            onClick={mapBackBubble.onClick}
+          >
+            <ChevronLeftIcon className="-ml-px translate-y-px" />
+          </button>
+        </div>
+      ) : null}
+
+      {!hideSystemHeader ? (
       <div
         className="fetch-home-map-system-header pointer-events-none fixed left-0 right-0 top-0 z-[46] flex h-[var(--fetch-map-header-h)] flex-col justify-center bg-white pt-[env(safe-area-inset-top,0px)]"
         aria-live="polite"
@@ -297,14 +347,16 @@ function MapTimeWeatherOverlayInner({
                     setSideMenuOpen(true)
                   }}
                 >
-                  <HamburgerIcon className="h-[18px] w-[18px] translate-y-px" />
+                  <ShellMenuIcon className="h-[18px] w-[18px] translate-y-px" />
                 </button>
-                <p
-                  className="fetch-home-map-nav-brand pointer-events-none min-w-0 select-none truncate text-[12px] font-extrabold leading-none tracking-[-0.04em] text-zinc-900"
-                  aria-label="Fetch"
-                >
-                  Fetch
-                </p>
+                <div className="pointer-events-none flex min-w-0 items-center gap-1.5" aria-label="Fetch">
+                  <span className="inline-flex shrink-0" aria-hidden>
+                    <FetchEyesHomeIcon className="h-[17px] w-[17px] text-zinc-900" tight />
+                  </span>
+                  <p className="fetch-home-map-nav-brand min-w-0 select-none truncate text-[12px] font-extrabold leading-none tracking-[-0.04em] text-zinc-900">
+                    Fetch
+                  </p>
+                </div>
               </div>
               <div className="pointer-events-auto flex shrink-0 justify-end">
                 <button
@@ -335,16 +387,20 @@ function MapTimeWeatherOverlayInner({
                     setSideMenuOpen(true)
                   }}
                 >
-                  <HamburgerIcon className="translate-y-px" />
+                  <ShellMenuIcon className="h-5 w-5 translate-y-px" />
                 </button>
               </div>
-              <p
-                className="fetch-home-map-brand-logo pointer-events-none min-w-0 select-none truncate text-center text-[17px] font-semibold leading-none tracking-[-0.03em] text-zinc-900"
-                aria-label="Fetch AI"
+              <div
+                className="pointer-events-none flex min-w-0 select-none items-center justify-center gap-2 truncate"
+                aria-label="Fetch"
               >
-                <span className="text-zinc-900">Fetch</span>
-                <span className="font-semibold text-zinc-500"> AI</span>
-              </p>
+                <span className="inline-flex shrink-0" aria-hidden>
+                  <FetchEyesHomeIcon className="h-8 w-8 text-zinc-900" />
+                </span>
+                <span className="fetch-home-map-brand-logo text-[1.25rem] font-bold leading-none tracking-[-0.03em] text-zinc-900">
+                  Fetch
+                </span>
+              </div>
               <div className="pointer-events-auto flex justify-end">
                 <button
                   type="button"
@@ -362,27 +418,43 @@ function MapTimeWeatherOverlayInner({
           )}
         </div>
       </div>
+      ) : null}
 
-      {mapHeaderAddressEntry && overlayContext === 'home' ? (
+      {mapHeaderAddressEntry && overlayContext === 'home' && !hideSystemHeader ? (
         <div
           className="pointer-events-none fixed left-0 right-0 z-[44] px-4"
           style={{ top: 'calc(var(--fetch-map-header-h) + 0.45rem)' }}
         >
           <div className="mx-auto w-full max-w-[min(100%,36rem)] pointer-events-auto">
-            <button
-              type="button"
-              className="fetch-home-map-floating-search fetch-home-map-header-search-shell fetch-home-map-header-entry-btn flex min-h-11 w-full cursor-pointer items-center gap-2.5 rounded-full border border-zinc-200/90 bg-white/95 px-3.5 py-2 text-left shadow-[0_10px_28px_-8px_rgba(15,23,42,0.18),0_4px_12px_-4px_rgba(15,23,42,0.08)] backdrop-blur-md transition-[background,transform,box-shadow] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/35"
-              onClick={mapHeaderAddressEntry.onOpen}
-              disabled={mapHeaderAddressEntry.disabled}
-              aria-label={mapHeaderAddressEntry.title}
-            >
-              <span className="fetch-home-map-header-search-shell__icon flex shrink-0 items-center justify-center">
-                <MapHeaderSearchIcon className="text-zinc-400" />
-              </span>
-              <span className="min-w-0 flex-1 truncate text-left text-[15px] font-medium leading-snug tracking-[-0.02em] text-zinc-600">
-                {mapHeaderAddressEntry.title}
-              </span>
-            </button>
+            {mapHeaderAddressEntry.presentation === 'inline' ? (
+              <button
+                type="button"
+                className="fetch-home-map-header-entry-inline flex w-full min-w-0 items-center justify-center gap-1.5 border-0 bg-transparent px-0 py-0.5 text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/35 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={mapHeaderAddressEntry.onOpen}
+                disabled={mapHeaderAddressEntry.disabled}
+                aria-label={mapHeaderAddressEntry.title}
+              >
+                <MapHeaderPinIcon className="shrink-0 text-fetch-red" />
+                <span className="min-w-0 truncate text-[14px] font-semibold leading-snug tracking-[-0.02em] text-zinc-800 underline decoration-zinc-300 decoration-1 underline-offset-[0.2em] transition-colors hover:text-zinc-950 hover:decoration-zinc-500 dark:text-zinc-100 dark:decoration-zinc-600 dark:hover:decoration-zinc-400">
+                  {mapHeaderAddressEntry.title}
+                </span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="fetch-home-map-floating-search fetch-home-map-header-search-shell fetch-home-map-header-entry-btn flex min-h-11 w-full cursor-pointer items-center gap-2.5 rounded-full border border-zinc-200/90 bg-white/95 px-3.5 py-2 text-left shadow-[0_10px_28px_-8px_rgba(15,23,42,0.18),0_4px_12px_-4px_rgba(15,23,42,0.08)] backdrop-blur-md transition-[background,transform,box-shadow] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-55 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/35"
+                onClick={mapHeaderAddressEntry.onOpen}
+                disabled={mapHeaderAddressEntry.disabled}
+                aria-label={mapHeaderAddressEntry.title}
+              >
+                <span className="fetch-home-map-header-search-shell__icon flex shrink-0 items-center justify-center">
+                  <MapHeaderSearchIcon className="text-zinc-400" />
+                </span>
+                <span className="min-w-0 flex-1 truncate text-left text-[15px] font-medium leading-snug tracking-[-0.02em] text-zinc-600">
+                  {mapHeaderAddressEntry.title}
+                </span>
+              </button>
+            )}
           </div>
         </div>
       ) : null}
@@ -549,7 +621,7 @@ function MapTimeWeatherOverlayInner({
                     <>
                       <li>Tap the orb to talk or type what you need.</li>
                       <li>Drag the sheet up for services, maps, and booking.</li>
-                      <li>Use the menu for account and this help panel.</li>
+                      <li>Use the menu for profile and this help panel.</li>
                     </>
                   )}
                 </ul>

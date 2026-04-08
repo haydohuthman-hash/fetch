@@ -1,46 +1,57 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type AnimationEvent } from 'react'
 import { FetchSplashEyes } from '../components/FetchSplashEyes'
 
 type SplashScreenProps = {
   onComplete: () => void
 }
 
+type SplashPhase = 'blink' | 'glance' | 'hop'
+
 /**
- * Cold open: eyes blink twice, then a wake pulse (open wider + brighten, hold alert) — wordmark, then home + bootstrap.
+ * Cold open: eyes blink, pupils glance left/right, then hop off-screen — no wordmark.
  */
 export default function SplashScreen({ onComplete }: SplashScreenProps) {
-  const [phase, setPhase] = useState<'eyes' | 'waking' | 'logo'>('eyes')
+  const [phase, setPhase] = useState<SplashPhase>('blink')
   const doneRef = useRef(false)
   const reducedMotion =
     typeof window !== 'undefined' &&
     window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
 
+  const finish = useCallback(() => {
+    if (doneRef.current) return
+    doneRef.current = true
+    onComplete()
+  }, [onComplete])
+
   useEffect(() => {
     if (reducedMotion) {
-      const t = window.setTimeout(() => {
-        if (doneRef.current) return
-        doneRef.current = true
-        onComplete()
-      }, 240)
+      const t = window.setTimeout(finish, 220)
       return () => window.clearTimeout(t)
     }
 
-    const wakeAt = 1500
-    const logoAt = wakeAt + 600
-    const a = window.setTimeout(() => setPhase('waking'), wakeAt)
-    const b = window.setTimeout(() => setPhase('logo'), logoAt)
-    const c = window.setTimeout(() => {
-      if (doneRef.current) return
-      doneRef.current = true
-      onComplete()
-    }, 3000)
+    const blinkMs = 1680
+    const hopStartMs = 3120
+    const safetyMs = 4500
+
+    const a = window.setTimeout(() => setPhase('glance'), blinkMs)
+    const b = window.setTimeout(() => setPhase('hop'), hopStartMs)
+    const c = window.setTimeout(finish, safetyMs)
 
     return () => {
       window.clearTimeout(a)
       window.clearTimeout(b)
       window.clearTimeout(c)
     }
-  }, [onComplete, reducedMotion])
+  }, [finish, reducedMotion])
+
+  const onHopAnimationEnd = useCallback(
+    (e: AnimationEvent<HTMLDivElement>) => {
+      if (reducedMotion) return
+      if (e.animationName !== 'fetch-splash-hop-out') return
+      finish()
+    },
+    [finish, reducedMotion],
+  )
 
   return (
     <div
@@ -48,23 +59,19 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
       role="status"
       aria-live="polite"
       aria-busy="true"
-      aria-label="Loading Fetch"
+      aria-label="Loading"
     >
-      <div className="relative flex flex-col items-center gap-10">
+      <div
+        className={['fetch-splash-stage', phase === 'hop' ? 'fetch-splash-stage--hop-out' : '']
+          .filter(Boolean)
+          .join(' ')}
+        onAnimationEnd={onHopAnimationEnd}
+      >
         <FetchSplashEyes
-          mode={phase === 'eyes' ? 'blinking' : 'awake'}
+          mode={phase === 'blink' ? 'blinking' : 'splashRest'}
+          showSplashIris={phase === 'glance' || phase === 'hop'}
+          splashGlanceActive={phase === 'glance' || phase === 'hop'}
         />
-
-        <div
-          className={[
-            'fetch-splash-logo text-center text-[clamp(1.85rem,7vw,2.35rem)] font-extrabold tracking-[-0.045em]',
-            phase === 'logo' ? 'fetch-splash-logo--visible' : '',
-          ].join(' ')}
-          aria-hidden
-        >
-          <span className="fetch-splash-logo__primary">Fetch</span>
-          <span className="fetch-splash-logo__secondary"> AI</span>
-        </div>
       </div>
     </div>
   )

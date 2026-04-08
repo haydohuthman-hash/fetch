@@ -91,7 +91,7 @@ export function FetchHomeSideMenu({
               onAccount()
             }}
           >
-            Account
+            Profile
           </button>
         ) : null}
         {onAlerts ? (

@@ -294,7 +294,7 @@ export function getLifecycleJobCardCopy(
     case 'pending_match':
       return { title: 'Finding a driver', line }
     case 'match_failed':
-      return { title: 'No driver yet', line }
+      return { title: 'No driver matched yet', line }
     case 'driver_assigned':
       return {
         title: 'Driver matched',

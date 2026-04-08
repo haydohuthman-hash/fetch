@@ -13,7 +13,8 @@
     "test:e2e": "playwright test",
     "lint": "eslint .",
     "preview": "vite preview",
-    "generate:supply-images": "tsx scripts/generate-supply-product-images.ts"
+    "generate:supply-images": "tsx scripts/generate-supply-product-images.ts",
+    "seed:products": "node scripts/seed-products-from-store-catalog.mjs"
   },
   "dependencies": {
     "@googlemaps/markerclusterer": "^2.6.2",
@@ -21,6 +22,7 @@
     "@stripe/react-stripe-js": "^6.1.0",
     "@stripe/stripe-js": "^9.0.1",
     "bcryptjs": "^3.0.3",
+    "cloudinary": "^2.9.0",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
@@ -30,6 +32,8 @@
     "pg": "^8.20.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "react-router-dom": "^7.14.0",
+    "recharts": "^3.8.1",
     "stripe": "^22.0.0"
   },
   "devDependencies": {

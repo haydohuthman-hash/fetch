@@ -28,7 +28,48 @@ import { getSupplySkuPriceAud } from './lib/supplies-catalog.js'
 import { createHardwareOrdersStore } from './lib/hardware-orders-store.js'
 import { createStoreOrdersStore } from './lib/store-orders-store.js'
 import { validateSupplyCartLines, validateBundleCart, STORE_CATALOG_PRODUCTS, STORE_BUNDLES } from './lib/store-cart.js'
+import { createStoreCatalogOverridesStore } from './lib/store-catalog-overrides-store.js'
+import {
+  refreshMergedStoreCatalog,
+  setStoreCatalogOverrideReader,
+  setStoreCatalogPostgresReader,
+  getMergedCatalogProducts,
+} from './lib/store-catalog-merge.js'
+import {
+  ensureProductsTable,
+  listActiveProductsForMerge,
+  productRowToMergedPartial,
+  listProductsApi,
+  insertProduct,
+  updateProduct,
+  deleteProduct,
+} from './lib/products-pg.js'
+import { importProductFromUrl } from './lib/amazon-product-import.js'
+import {
+  ensureStoreCategoriesTables,
+  seedStoreCategoriesIfEmpty,
+  backfillProductSubcategoriesGeneral,
+  listSubcategoriesPublic,
+  listCategoriesAdminTree,
+  listPublicStoreCategoriesNested,
+  insertCategory,
+  insertSubcategory,
+  updateSubcategory,
+  deleteSubcategory,
+  updateCategory,
+  isCategoryActive,
+} from './lib/store-categories-pg.js'
+import {
+  ensureAnalyticsTables,
+  recordAnalyticsPing,
+  countLiveVisitors,
+  visitorBucketsByDay,
+} from './lib/analytics-pg.js'
+import { runAdminStoreAiChat } from './lib/admin-store-ai.js'
+import { isCloudinaryConfigured, uploadProductImageBuffer } from './lib/cloudinary-product-upload.js'
+import { uploadDropImageBuffer, uploadDropVideoBuffer } from './lib/cloudinary-drops-upload.js'
 import { createPeerListingsStore } from './lib/peer-listings-store.js'
+import { createPeerMessagesStore } from './lib/peer-messages-store.js'
 import { postStoreOrderWebhook } from './lib/store-outbound-webhook.js'
 import { createMarketplaceStore } from './lib/marketplace-store.js'
 import { createMarketplaceEventBus } from './lib/marketplace-events.js'
@@ -58,6 +99,26 @@ import {
   getFetchUserById,
 } from './lib/fetch-users-pg.js'
 import { attachPostgresMarketplacePersistence } from './lib/marketplace-pg-persistence.js'
+import {
+  ensureDropsTables,
+  listPublishedDropsFeed,
+  getDropWithMedia,
+  createDropDraft,
+  updateDrop,
+  publishDrop,
+  addDropMedia,
+  recordDropEngagement,
+  addDropMediaInternal,
+  publishDropInternal,
+  listModerationPendingDrops,
+} from './lib/drops-pg.js'
+import {
+  muxCreateLiveStreamForDrop,
+  verifyMuxWebhookSignature,
+  muxExtractReplayAsset,
+  muxPlaybackUrl,
+} from './lib/drops-live-mux.js'
+import { transformVideoBuffer, ffmpegAvailable } from './lib/drops-ffmpeg-process.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -85,6 +146,20 @@ const DATABASE_URL = (process.env.DATABASE_URL || '').trim()
 const sharedPgPool = DATABASE_URL ? new pg.Pool({ connectionString: DATABASE_URL, max: 12 }) : null
 const FETCH_AUTH_USERS_DB_ENABLED = process.env.FETCH_AUTH_USERS_DB === '1' && Boolean(sharedPgPool)
 
+const dropsWriteLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+})
+
+const dropsEngageLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 240,
+  standardHeaders: true,
+  legacyHeaders: false,
+})
+
 const authRouteLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 60,
@@ -94,6 +169,18 @@ const authRouteLimiter = rateLimit({
 const paymentIntentCreateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+})
+const analyticsPingLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+})
+const adminAiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 80,
   standardHeaders: true,
   legacyHeaders: false,
 })
@@ -206,6 +293,22 @@ async function synthesizeGoogleTtsToMp3(text) {
 }
 const MAX_IMAGES_PER_REQUEST = 8
 const SCAN_UPLOAD_FIELD = 'images'
+const ALLOWED_LISTING_AI_CATEGORIES = new Set([
+  'general',
+  'furniture',
+  'electronics',
+  'fashion',
+  'sports',
+  'other',
+])
+const ALLOWED_LISTING_AI_CONDITIONS = new Set([
+  'new',
+  'like new',
+  'good',
+  'fair',
+  'used',
+  'for parts',
+])
 const ALLOWED_SERVICES = new Set(['junk', 'moving', 'pickup', 'heavy'])
 const ALLOWED_SPECIAL_ITEM_TYPES = new Set([
   'pool_table',
@@ -343,6 +446,12 @@ if (sharedPgPool) {
   if (FETCH_AUTH_USERS_DB_ENABLED) {
     await ensureFetchUsersTable(sharedPgPool)
   }
+  await ensureProductsTable(sharedPgPool)
+  await ensureStoreCategoriesTables(sharedPgPool)
+  await seedStoreCategoriesIfEmpty(sharedPgPool)
+  await backfillProductSubcategoriesGeneral(sharedPgPool)
+  await ensureAnalyticsTables(sharedPgPool)
+  await ensureDropsTables(sharedPgPool)
 }
 
 if (process.env.NODE_ENV === 'production') {
@@ -363,14 +472,35 @@ const STORE_ORDERS_FILE = process.env.VERCEL
   : path.join(__dirname, 'store-orders.json')
 const storeOrdersStore = createStoreOrdersStore(STORE_ORDERS_FILE)
 
+const STORE_CATALOG_OVERRIDES_FILE = process.env.VERCEL
+  ? path.join('/tmp', 'fetch-store-catalog-overrides.json')
+  : path.join(__dirname, 'store-catalog-overrides.json')
+const storeCatalogOverridesStore = createStoreCatalogOverridesStore(STORE_CATALOG_OVERRIDES_FILE)
+setStoreCatalogOverrideReader(() => storeCatalogOverridesStore.readProducts())
+if (sharedPgPool) {
+  setStoreCatalogPostgresReader(async () => {
+    const rows = await listActiveProductsForMerge(sharedPgPool)
+    return rows.map(productRowToMergedPartial).filter(Boolean)
+  })
+}
+await refreshMergedStoreCatalog()
+
 const PEER_LISTINGS_FILE = process.env.VERCEL
   ? path.join('/tmp', 'fetch-peer-listings.json')
   : path.join(__dirname, 'peer-listings.json')
 const peerListingsStore = createPeerListingsStore(PEER_LISTINGS_FILE)
 
+const PEER_MESSAGES_FILE = process.env.VERCEL
+  ? path.join('/tmp', 'fetch-peer-messages.json')
+  : path.join(__dirname, 'peer-messages.json')
+const peerMessagesStore = createPeerMessagesStore(PEER_MESSAGES_FILE)
+
 const LISTING_UPLOAD_DIR = process.env.VERCEL
   ? path.join('/tmp', 'fetch-listing-uploads')
   : path.join(projectRoot, 'public', 'listing-uploads')
+const DROPS_UPLOAD_DIR = process.env.VERCEL
+  ? path.join('/tmp', 'fetch-drops-uploads')
+  : path.join(projectRoot, 'public', 'drops-uploads')
 const LISTING_PLATFORM_FEE_BPS = Math.min(
   5000,
   Math.max(0, Math.round(Number(process.env.LISTING_PLATFORM_FEE_BPS || '1000') || 1000)),
@@ -449,6 +579,38 @@ const listingImageUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 6 * 1024 * 1024, files: 1 },
 })
+
+const DROP_VIDEO_MAX_BYTES = 100 * 1024 * 1024
+const DROP_IMAGE_MAX_BYTES = 12 * 1024 * 1024
+const DROP_MAX_IMAGE_COUNT = 12
+
+const dropsMediaUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 80 * 1024 * 1024, files: 12 },
+})
+
+/** Home reels composer — multer cap matches max video; images re-checked at 12MB in handler. */
+const dropsFeedMediaUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: DROP_VIDEO_MAX_BYTES },
+})
+
+function extForDropVideoMime(mime) {
+  const m = String(mime || '').toLowerCase()
+  if (m === 'video/mp4') return '.mp4'
+  if (m === 'video/webm') return '.webm'
+  if (m === 'video/quicktime') return '.mov'
+  return '.mp4'
+}
+
+function extForDropImageMime(mime) {
+  const m = String(mime || '').toLowerCase()
+  if (m === 'image/jpeg' || m === 'image/jpg') return '.jpg'
+  if (m === 'image/png') return '.png'
+  if (m === 'image/webp') return '.webp'
+  if (m === 'image/gif') return '.gif'
+  return '.jpg'
+}
 
 function stripJsonFence(s) {
   const t = (s || '').trim()
@@ -639,9 +801,107 @@ app.post(
   },
 )
 
+app.post(
+  '/api/webhooks/mux',
+  express.raw({ type: 'application/json', limit: '4mb' }),
+  async (req, res) => {
+    const raw = req.body
+    const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(typeof raw === 'string' ? raw : JSON.stringify(raw || {}))
+    const sig = req.headers['mux-signature']
+    const signingSecret = (process.env.MUX_WEBHOOK_SIGNING_SECRET || '').trim()
+    if (signingSecret) {
+      const ok = verifyMuxWebhookSignature(buf, typeof sig === 'string' ? sig : '')
+      if (!ok) {
+        console.warn('[mux/webhook] invalid signature')
+        return res.status(400).send('invalid signature')
+      }
+    }
+    let event
+    try {
+      event = JSON.parse(buf.toString('utf8'))
+    } catch {
+      return res.status(400).send('invalid json')
+    }
+    const ext = muxExtractReplayAsset(event)
+    if (!ext || !sharedPgPool) {
+      return res.json({ received: true })
+    }
+    const dropId = ext.passthrough
+    try {
+      const dup = await sharedPgPool.query(
+        `SELECT 1 FROM drop_media WHERE drop_id = $1::uuid AND kind = 'live_replay' LIMIT 1`,
+        [dropId],
+      )
+      if (dup.rows.length) {
+        return res.json({ received: true })
+      }
+      await addDropMediaInternal(sharedPgPool, dropId, {
+        kind: 'live_replay',
+        url: muxPlaybackUrl(ext.playbackId),
+        sortOrder: 0,
+      })
+      if ((process.env.MUX_AUTO_PUBLISH_REPLAY || '').trim() === '1') {
+        await publishDropInternal(sharedPgPool, dropId)
+      }
+    } catch (e) {
+      console.error('[mux/webhook] attach replay failed', e)
+    }
+    return res.json({ received: true })
+  },
+)
+
 app.use(express.json({ limit: '15mb' }))
 
+/**
+ * @param {unknown[]} orders
+ * @param {number} days
+ */
+function earningsBucketsFromOrders(orders, days) {
+  const d = Math.max(1, Math.min(90, Math.floor(Number(days) || 30)))
+  const cutoff = Date.now() - d * 86400000
+  /** @type {Map<string, { revenueAud: number, orders: number }>} */
+  const byDay = new Map()
+  let totalRevenueAud = 0
+  let paidOrders = 0
+  for (const o of orders) {
+    if (!o || typeof o !== 'object') continue
+    const rec = /** @type {{ status?: string, createdAt?: number, subtotalAud?: number }} */ (o)
+    if (rec.status !== 'paid') continue
+    const t = Number(rec.createdAt)
+    if (!Number.isFinite(t) || t < cutoff) continue
+    const day = new Date(t).toISOString().slice(0, 10)
+    const sub = Math.round(Number(rec.subtotalAud))
+    if (!Number.isFinite(sub) || sub < 0) continue
+    totalRevenueAud += sub
+    paidOrders += 1
+    const cur = byDay.get(day) ?? { revenueAud: 0, orders: 0 }
+    cur.revenueAud += sub
+    cur.orders += 1
+    byDay.set(day, cur)
+  }
+  const earningsByDay = [...byDay.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([day, v]) => ({ day, revenueAud: v.revenueAud, orders: v.orders }))
+  return { earningsByDay, totalRevenueAud, paidOrders }
+}
+
+app.post('/api/analytics/ping', analyticsPingLimiter, async (req, res) => {
+  if (!sharedPgPool) return res.status(204).end()
+  const body = req.body ?? {}
+  const sessionId = typeof body.sessionId === 'string' ? body.sessionId.trim().slice(0, 128) : ''
+  if (!sessionId) return res.status(400).json({ error: 'session_required' })
+  const pingPath = typeof body.path === 'string' ? body.path.trim().slice(0, 512) : ''
+  try {
+    await recordAnalyticsPing(sharedPgPool, sessionId, pingPath)
+    return res.json({ ok: true })
+  } catch (e) {
+    console.error('[analytics/ping]', e)
+    return res.status(500).json({ error: 'ping_failed' })
+  }
+})
+
 app.use('/listing-uploads', express.static(LISTING_UPLOAD_DIR))
+app.use('/drops-uploads', express.static(DROPS_UPLOAD_DIR))
 
 app.post('/api/auth/customer-session', authRouteLimiter, (req, res) => {
   if (FETCH_AUTH_USERS_DB_ENABLED) {
@@ -1508,19 +1768,536 @@ app.post(['/api/fetch-ai/chat/stream', '/api/chat/stream'], async (req, res) => 
 
 const STORE_ADMIN_KEY = (process.env.STORE_ADMIN_KEY || '').trim()
 
-app.get('/api/store/catalog', (req, res) => {
+const STORE_SUPPLY_CATEGORY_IDS = new Set([
+  'drinks',
+  'cleaning',
+  'packing',
+  'kitchen',
+  'bedroom',
+  'bathroom',
+  'livingRoom',
+  'laundry',
+  'storage',
+])
+
+/** Legacy file-catalog admin: allow category if active in DB, else fall back to static ids when DATABASE_URL is unset. */
+async function isFileCatalogCategoryAllowed(categoryId) {
+  const id = typeof categoryId === 'string' ? categoryId.trim() : ''
+  if (!id) return false
+  if (sharedPgPool) {
+    try {
+      return await isCategoryActive(sharedPgPool, id)
+    } catch {
+      return false
+    }
+  }
+  return STORE_SUPPLY_CATEGORY_IDS.has(id)
+}
+
+function parseStoreAdminKey(req) {
+  const h = req.headers['x-fetch-store-admin-key']
+  return typeof h === 'string' ? h.trim() : ''
+}
+
+function assertStoreAdmin(req, res) {
+  const key = parseStoreAdminKey(req)
+  if (!STORE_ADMIN_KEY) {
+    res.status(503).json({
+      error: 'admin_not_configured',
+      detail: 'Set STORE_ADMIN_KEY in the server environment (e.g. .env), then restart the API.',
+    })
+    return false
+  }
+  if (key !== STORE_ADMIN_KEY) {
+    res.status(403).json({ error: 'forbidden' })
+    return false
+  }
+  return true
+}
+
+function serializeProductPublic(row) {
+  const tags = Array.isArray(row.tags) ? row.tags.map((t) => String(t)) : []
+  const productSource =
+    typeof row.product_source === 'string' && row.product_source.trim() ? row.product_source.trim() : 'fetch'
+  return {
+    id: String(row.id),
+    sku: row.sku,
+    title: row.title,
+    subtitle: typeof row.subtitle === 'string' ? row.subtitle : '',
+    category: row.category,
+    subcategoryId: row.subcategory_id != null ? String(row.subcategory_id) : null,
+    subcategoryLabel: typeof row.subcategory_label === 'string' ? row.subcategory_label : null,
+    price: Number(row.price_aud),
+    comparePrice: row.compare_price_aud != null ? Number(row.compare_price_aud) : null,
+    description: row.description || '',
+    imageUrl: row.image_url || '',
+    isBundle: Boolean(row.is_bundle),
+    isActive: Boolean(row.is_active),
+    tags,
+    productSource,
+    externalListing: Boolean(row.external_listing),
+    affiliateUrl: typeof row.affiliate_url === 'string' ? row.affiliate_url : '',
+    asin: row.asin != null ? String(row.asin) : null,
+    createdAt:
+      row.created_at instanceof Date
+        ? row.created_at.toISOString()
+        : row.created_at
+          ? new Date(row.created_at).toISOString()
+          : null,
+  }
+}
+
+function serializeProductAdmin(row) {
+  return {
+    ...serializeProductPublic(row),
+    costPrice: row.cost_price_aud != null ? Number(row.cost_price_aud) : null,
+    metadata: row.metadata ?? {},
+    stockQuantity: row.stock_quantity != null ? Number(row.stock_quantity) : null,
+    updatedAt:
+      row.updated_at instanceof Date
+        ? row.updated_at.toISOString()
+        : row.updated_at
+          ? new Date(row.updated_at).toISOString()
+          : null,
+  }
+}
+
+/** Admin JSON for file-based catalog overrides (merged with static catalog). */
+function serializeLegacyOverrideAdmin(p) {
+  if (!p || typeof p !== 'object') return null
+  const id = typeof p.id === 'string' ? p.id.trim() : ''
+  if (!id) return null
+  const compareRaw = p.compareAtAud
+  let comparePrice = null
+  if (compareRaw != null && String(compareRaw).trim() !== '') {
+    const c = Math.round(Number(compareRaw))
+    if (Number.isFinite(c) && c > 0) comparePrice = c
+  }
+  const cover = typeof p.coverImageUrl === 'string' ? p.coverImageUrl.trim().slice(0, 2048) : ''
+  const subId = typeof p.subcategoryId === 'string' ? p.subcategoryId.trim() : ''
+  const subLabel = typeof p.subcategoryLabel === 'string' ? p.subcategoryLabel.trim() : ''
+  return {
+    id,
+    sku: typeof p.sku === 'string' ? p.sku : '',
+    title: typeof p.title === 'string' ? p.title : '',
+    category: typeof p.categoryId === 'string' ? p.categoryId : '',
+    subcategoryId: subId || null,
+    subcategoryLabel: subLabel || null,
+    price: Number.isFinite(Number(p.priceAud)) ? Math.round(Number(p.priceAud)) : 0,
+    comparePrice,
+    costPrice: null,
+    description: typeof p.description === 'string' ? p.description : '',
+    imageUrl: cover,
+    isBundle: false,
+    isActive: true,
+    createdAt: null,
+    updatedAt: null,
+    metadata: {},
+    stockQuantity: null,
+    tags: Array.isArray(p.tags) ? p.tags.map((t) => String(t)) : [],
+    source: 'legacy_file',
+  }
+}
+
+function serializeDatabaseProductAdmin(row) {
+  return { ...serializeProductAdmin(row), source: 'database' }
+}
+
+app.get('/api/products', async (req, res) => {
+  if (!sharedPgPool) {
+    return res.status(503).json({
+      error: 'products_db_not_configured',
+      detail: 'Set DATABASE_URL to enable the products API.',
+    })
+  }
+  const activeRaw = req.query.active
+  const activeOnly = activeRaw === undefined || activeRaw === 'true' || activeRaw === '1'
+  const category = typeof req.query.category === 'string' ? req.query.category.trim() : ''
+  const tag = typeof req.query.tag === 'string' ? req.query.tag.trim() : ''
+  try {
+    const rows = await listProductsApi(sharedPgPool, {
+      activeOnly,
+      category: category || undefined,
+      tag: tag || undefined,
+    })
+    res.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300')
+    return res.json({ products: rows.map(serializeProductPublic) })
+  } catch (e) {
+    console.error('[api/products]', e)
+    return res.status(500).json({ error: 'products_list_failed' })
+  }
+})
+
+app.get('/api/admin/products', async (req, res) => {
+  if (!assertStoreAdmin(req, res)) return
+  try {
+    const legacyRows = await storeCatalogOverridesStore.readProducts()
+    const legacyMapped = legacyRows.map(serializeLegacyOverrideAdmin).filter(Boolean)
+    if (!sharedPgPool) {
+      return res.json({
+        products: legacyMapped,
+        meta: { databaseProducts: false },
+      })
+    }
+    const rows = await listProductsApi(sharedPgPool, { activeOnly: false })
+    const dbMapped = rows.map(serializeDatabaseProductAdmin)
+    const dbIds = new Set(dbMapped.map((p) => p.id))
+    const legacyOnly = legacyMapped.filter((p) => !dbIds.has(p.id))
+    const products = [...dbMapped, ...legacyOnly]
+    return res.json({
+      products,
+      meta: { databaseProducts: true },
+    })
+  } catch (e) {
+    console.error('[admin/products list]', e)
+    return res.status(500).json({ error: 'products_list_failed' })
+  }
+})
+
+/**
+ * Admin: draft product fields from an Amazon product URL (lightweight fetch; replace with PA-API later).
+ * POST body: { url: string }
+ */
+app.post('/api/import-product', async (req, res) => {
+  if (!assertStoreAdmin(req, res)) return
+  const url = typeof req.body?.url === 'string' ? req.body.url : ''
+  try {
+    const result = await importProductFromUrl(url)
+    if (!result.ok) {
+      return res.status(400).json({ ok: false, error: result.error, draft: null })
+    }
+    return res.json({ ok: true, draft: result.draft })
+  } catch (e) {
+    console.error('[import-product]', e)
+    return res.status(500).json({ ok: false, error: 'import_failed', draft: null })
+  }
+})
+
+app.post('/api/admin/products', async (req, res) => {
+  if (!assertStoreAdmin(req, res)) return
+  if (!sharedPgPool) {
+    return res.status(503).json({ error: 'products_db_not_configured' })
+  }
+  try {
+    const row = await insertProduct(sharedPgPool, req.body ?? {})
+    await refreshMergedStoreCatalog()
+    return res.json({ product: serializeDatabaseProductAdmin(row) })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg === 'title_required') return res.status(400).json({ error: msg })
+    if (msg === 'invalid_category') return res.status(400).json({ error: msg })
+    if (msg === 'invalid_price') return res.status(400).json({ error: msg })
+    if (msg === 'compare_at_invalid') {
+      return res.status(400).json({
+        error: msg,
+        detail: 'Compare price must be higher than the listing price.',
+      })
+    }
+    if (msg === 'invalid_subcategory' || msg === 'subcategory_required') {
+      return res.status(400).json({ error: msg })
+    }
+    if (e && typeof e === 'object' && 'code' in e && e.code === '23505') {
+      return res.status(409).json({ error: 'sku_taken' })
+    }
+    console.error('[admin/products create]', e)
+    return res.status(500).json({ error: 'create_failed' })
+  }
+})
+
+app.patch('/api/admin/products/:id', async (req, res) => {
+  if (!assertStoreAdmin(req, res)) return
+  if (!sharedPgPool) {
+    return res.status(503).json({ error: 'products_db_not_configured' })
+  }
+  const id = typeof req.params.id === 'string' ? req.params.id.trim() : ''
+  if (!id) return res.status(400).json({ error: 'id_required' })
+  try {
+    const row = await updateProduct(sharedPgPool, id, req.body ?? {})
+    if (!row) return res.status(404).json({ error: 'not_found' })
+    await refreshMergedStoreCatalog()
+    return res.json({ product: serializeDatabaseProductAdmin(row) })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg === 'invalid_category') return res.status(400).json({ error: msg })
+    if (msg === 'invalid_price') return res.status(400).json({ error: msg })
+    if (msg === 'invalid_compare') return res.status(400).json({ error: msg })
+    if (msg === 'invalid_cost') return res.status(400).json({ error: msg })
+    if (msg === 'compare_at_invalid') {
+      return res.status(400).json({
+        error: msg,
+        detail: 'Compare price must be higher than the listing price.',
+      })
+    }
+    if (msg === 'invalid_subcategory' || msg === 'subcategory_required') {
+      return res.status(400).json({ error: msg })
+    }
+    console.error('[admin/products patch]', e)
+    return res.status(500).json({ error: 'update_failed' })
+  }
+})
+
+app.delete('/api/admin/products/:id', async (req, res) => {
+  if (!assertStoreAdmin(req, res)) return
+  if (!sharedPgPool) {
+    return res.status(503).json({ error: 'products_db_not_configured' })
+  }
+  const id = typeof req.params.id === 'string' ? req.params.id.trim() : ''
+  if (!id) return res.status(400).json({ error: 'id_required' })
+  try {
+    const ok = await deleteProduct(sharedPgPool, id)
+    if (!ok) return res.status(404).json({ error: 'not_found' })
+    await refreshMergedStoreCatalog()
+    return res.json({ ok: true })
+  } catch (e) {
+    console.error('[admin/products delete]', e)
+    return res.status(500).json({ error: 'delete_failed' })
+  }
+})
+
+app.get('/api/store/categories', async (req, res) => {
+  if (!sharedPgPool) {
+    return res.json({ categories: [], meta: { source: 'none' } })
+  }
+  try {
+    const categories = await listPublicStoreCategoriesNested(sharedPgPool)
+    res.set('Cache-Control', 'public, s-maxage=120, stale-while-revalidate=600')
+    return res.json({ categories, meta: { source: 'database' } })
+  } catch (e) {
+    console.error('[api/store/categories]', e)
+    return res.status(500).json({ error: 'categories_list_failed' })
+  }
+})
+
+app.get('/api/admin/store/categories', async (req, res) => {
+  if (!assertStoreAdmin(req, res)) return
+  if (!sharedPgPool) {
+    return res.status(503).json({ error: 'database_required', detail: 'Set DATABASE_URL.' })
+  }
+  try {
+    const tree = await listCategoriesAdminTree(sharedPgPool)
+    return res.json(tree)
+  } catch (e) {
+    console.error('[admin/store/categories]', e)
+    return res.status(500).json({ error: 'categories_list_failed' })
+  }
+})
+
+app.post('/api/admin/store/categories', async (req, res) => {
+  if (!assertStoreAdmin(req, res)) return
+  if (!sharedPgPool) return res.status(503).json({ error: 'database_required' })
+  const body = req.body ?? {}
+  try {
+    const row = await insertCategory(sharedPgPool, {
+      id: body.id,
+      label: body.label,
+      sortOrder: body.sortOrder,
+    })
+    await refreshMergedStoreCatalog()
+    return res.json({ category: row })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg === 'category_fields_required' || msg === 'invalid_category_id') {
+      return res.status(400).json({ error: msg })
+    }
+    if (e && typeof e === 'object' && 'code' in e && e.code === '23505') {
+      return res.status(409).json({ error: 'category_id_taken' })
+    }
+    console.error('[admin/store/categories create]', e)
+    return res.status(500).json({ error: 'create_failed' })
+  }
+})
+
+app.patch('/api/admin/store/categories/:categoryId', async (req, res) => {
+  if (!assertStoreAdmin(req, res)) return
+  if (!sharedPgPool) return res.status(503).json({ error: 'database_required' })
+  const categoryId = typeof req.params.categoryId === 'string' ? req.params.categoryId.trim() : ''
+  if (!categoryId) return res.status(400).json({ error: 'category_required' })
+  const body = req.body ?? {}
+  try {
+    const row = await updateCategory(sharedPgPool, categoryId, {
+      label: typeof body.label === 'string' ? body.label : undefined,
+      sortOrder: body.sortOrder,
+      isActive: body.isActive,
+      shortDescription: typeof body.shortDescription === 'string' ? body.shortDescription : undefined,
+      keywords: body.keywords,
+      heroImageUrl: typeof body.heroImageUrl === 'string' ? body.heroImageUrl : undefined,
+    })
+    if (!row) return res.status(404).json({ error: 'not_found' })
+    await refreshMergedStoreCatalog()
+    return res.json({ category: row })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg === 'category_has_products') {
+      return res.status(400).json({
+        error: msg,
+        detail: 'Move or deactivate products in this category before deactivating it.',
+      })
+    }
+    console.error('[admin/store/categories patch]', e)
+    return res.status(500).json({ error: 'update_failed' })
+  }
+})
+
+app.post('/api/admin/store/subcategories', async (req, res) => {
+  if (!assertStoreAdmin(req, res)) return
+  if (!sharedPgPool) return res.status(503).json({ error: 'database_required' })
+  const body = req.body ?? {}
+  try {
+    const row = await insertSubcategory(sharedPgPool, {
+      categoryId: body.categoryId,
+      slug: body.slug,
+      label: body.label,
+      sortOrder: body.sortOrder,
+    })
+    await refreshMergedStoreCatalog()
+    return res.json({ subcategory: row })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg === 'subcategory_fields_required') {
+      return res.status(400).json({ error: msg })
+    }
+    if (e && typeof e === 'object' && 'code' in e && e.code === '23505') {
+      return res.status(409).json({ error: 'slug_taken' })
+    }
+    console.error('[admin/store/subcategories create]', e)
+    return res.status(500).json({ error: 'create_failed' })
+  }
+})
+
+app.patch('/api/admin/store/subcategories/:id', async (req, res) => {
+  if (!assertStoreAdmin(req, res)) return
+  if (!sharedPgPool) return res.status(503).json({ error: 'database_required' })
+  const id = typeof req.params.id === 'string' ? req.params.id.trim() : ''
+  if (!id) return res.status(400).json({ error: 'id_required' })
+  const body = req.body ?? {}
+  try {
+    const row = await updateSubcategory(sharedPgPool, id, {
+      label: typeof body.label === 'string' ? body.label : undefined,
+      slug: typeof body.slug === 'string' ? body.slug : undefined,
+      sortOrder: body.sortOrder,
+      isActive: body.isActive,
+      shortDescription: typeof body.shortDescription === 'string' ? body.shortDescription : undefined,
+      keywords: body.keywords,
+      heroImageUrl: typeof body.heroImageUrl === 'string' ? body.heroImageUrl : undefined,
+    })
+    if (!row) return res.status(404).json({ error: 'not_found' })
+    await refreshMergedStoreCatalog()
+    return res.json({ subcategory: row })
+  } catch (e) {
+    if (e && typeof e === 'object' && 'code' in e && e.code === '23505') {
+      return res.status(409).json({ error: 'slug_taken' })
+    }
+    console.error('[admin/store/subcategories patch]', e)
+    return res.status(500).json({ error: 'update_failed' })
+  }
+})
+
+app.delete('/api/admin/store/subcategories/:id', async (req, res) => {
+  if (!assertStoreAdmin(req, res)) return
+  if (!sharedPgPool) return res.status(503).json({ error: 'database_required' })
+  const id = typeof req.params.id === 'string' ? req.params.id.trim() : ''
+  if (!id) return res.status(400).json({ error: 'id_required' })
+  try {
+    const r = await deleteSubcategory(sharedPgPool, id)
+    if (!r.ok) {
+      if (r.error === 'not_found') return res.status(404).json({ error: 'not_found' })
+      if (r.error === 'cannot_delete_general') {
+        return res.status(400).json({ error: r.error, detail: 'The General subcategory cannot be deleted.' })
+      }
+      if (r.error === 'subcategory_in_use') {
+        return res.status(400).json({ error: r.error, detail: 'Reassign products before deleting.' })
+      }
+      return res.status(400).json({ error: 'delete_blocked' })
+    }
+    await refreshMergedStoreCatalog()
+    return res.json({ ok: true })
+  } catch (e) {
+    console.error('[admin/store/subcategories delete]', e)
+    return res.status(500).json({ error: 'delete_failed' })
+  }
+})
+
+app.post(
+  '/api/admin/products/upload-image',
+  listingImageUpload.single('file'),
+  async (req, res) => {
+    if (!assertStoreAdmin(req, res)) return
+    const buf = req.file?.buffer
+    if (!buf?.length) return res.status(400).json({ error: 'file_required' })
+    const mime = req.file.mimetype || ''
+    if (!/^image\/(jpeg|png|webp|gif)$/i.test(mime)) {
+      return res.status(400).json({ error: 'invalid_image_type' })
+    }
+    try {
+      if (isCloudinaryConfigured()) {
+        const url = await uploadProductImageBuffer(buf, mime)
+        return res.json({ url })
+      }
+      if (process.env.VERCEL === '1') {
+        return res.status(503).json({
+          error: 'cloudinary_not_configured',
+          detail:
+            'On Vercel, set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET for image uploads.',
+        })
+      }
+      const ext = path.extname(req.file.originalname || '').toLowerCase()
+      const safeExt = ['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext) ? ext : '.jpg'
+      const name = `product_${Date.now()}_${crypto.randomBytes(6).toString('hex')}${safeExt}`
+      await fs.promises.mkdir(LISTING_UPLOAD_DIR, { recursive: true })
+      await fs.promises.writeFile(path.join(LISTING_UPLOAD_DIR, name), buf)
+      /** Same-origin or Vite `/listing-uploads` proxy to API in dev. */
+      return res.json({ url: `/listing-uploads/${name}` })
+    } catch (e) {
+      console.error('[admin/products/upload]', e)
+      const detail = e instanceof Error ? e.message : String(e)
+      return res.status(502).json({
+        error: 'upload_failed',
+        detail: detail.slice(0, 240),
+      })
+    }
+  },
+)
+
+app.get('/api/store/catalog', async (req, res) => {
   const cat = typeof req.query.category === 'string' ? req.query.category.trim() : ''
-  let products = STORE_CATALOG_PRODUCTS.map((p) => ({
+  const overrideRows = await storeCatalogOverridesStore.readProducts()
+  const customIds = new Set(overrideRows.map((r) => r?.id).filter(Boolean))
+  let products = getMergedCatalogProducts().map((p) => ({
     id: p.id,
     sku: p.sku,
     title: p.title,
     subtitle: p.subtitle,
     categoryId: p.categoryId,
+    ...(p.subcategoryId ? { subcategoryId: p.subcategoryId } : {}),
+    ...(p.subcategoryLabel ? { subcategoryLabel: p.subcategoryLabel } : {}),
     priceAud: p.priceAud,
-    coverImageUrl: `/supplies/${p.id}.png`,
+    ...(p.description ? { description: p.description } : {}),
+    ...(p.compareAtAud != null && p.compareAtAud > 0 ? { compareAtAud: p.compareAtAud } : {}),
+    ...(p.affiliateUrl ? { affiliateUrl: p.affiliateUrl } : {}),
+    ...(p.externalListing ? { externalListing: true } : {}),
+    ...(p.productSource === 'amazon' ? { productSource: 'amazon' } : {}),
+    ...(p.asin ? { asin: p.asin } : {}),
+    coverImageUrl:
+      typeof p.coverImageUrl === 'string' && p.coverImageUrl.trim()
+        ? p.coverImageUrl.trim()
+        : `/supplies/${p.id}.png`,
+    isCustom: customIds.has(p.id),
   }))
   if (cat) products = products.filter((p) => p.categoryId === cat)
   return res.json({ products, currency: 'AUD' })
+})
+
+app.get('/api/store/subcategories', async (req, res) => {
+  const category = typeof req.query.category === 'string' ? req.query.category.trim() : ''
+  if (!category) return res.status(400).json({ error: 'category_required' })
+  if (!sharedPgPool) return res.json({ subcategories: [] })
+  try {
+    const subcategories = await listSubcategoriesPublic(sharedPgPool, category)
+    return res.json({ subcategories })
+  } catch (e) {
+    console.error('[store/subcategories]', e)
+    return res.status(500).json({ error: 'subcategories_failed' })
+  }
 })
 
 app.get('/api/store/bundles', (_req, res) => {
@@ -1684,21 +2461,749 @@ app.get('/api/store/orders/:orderId', async (req, res) => {
 })
 
 app.get('/api/store/admin/inventory', (req, res) => {
-  const key = (req.headers['x-fetch-store-admin-key'] || '').trim()
-  if (!STORE_ADMIN_KEY || key !== STORE_ADMIN_KEY) {
-    return res.status(403).json({ error: 'forbidden' })
-  }
+  if (!assertStoreAdmin(req, res)) return
+  const merged = getMergedCatalogProducts()
   const stock = {}
-  for (const p of STORE_CATALOG_PRODUCTS) {
+  for (const p of merged) {
     stock[p.sku] = { sku: p.sku, available: null, note: 'Unlimited (demo)' }
   }
-  return res.json({ products: STORE_CATALOG_PRODUCTS, stock, bundles: STORE_BUNDLES })
+  return res.json({ products: merged, stock, bundles: STORE_BUNDLES })
+})
+
+app.post('/api/store/admin/ping', (req, res) => {
+  if (!assertStoreAdmin(req, res)) return
+  return res.json({ ok: true })
+})
+
+app.get('/api/store/admin/products', async (req, res) => {
+  if (!assertStoreAdmin(req, res)) return
+  const products = await storeCatalogOverridesStore.readProducts()
+  return res.json({ products })
+})
+
+app.post('/api/store/admin/products', async (req, res) => {
+  if (!assertStoreAdmin(req, res)) return
+  const body = req.body ?? {}
+  const categoryId = typeof body.categoryId === 'string' ? body.categoryId.trim() : ''
+  if (!(await isFileCatalogCategoryAllowed(categoryId))) {
+    return res.status(400).json({ error: 'invalid_category' })
+  }
+  const title = String(body.title || '').trim().slice(0, 200)
+  if (!title) return res.status(400).json({ error: 'title_required' })
+  const subtitle = String(body.subtitle || '').trim().slice(0, 300)
+  const priceRaw = Number(body.priceAud)
+  if (!Number.isFinite(priceRaw) || priceRaw < 0) {
+    return res.status(400).json({ error: 'invalid_price' })
+  }
+  const priceAud = Math.round(priceRaw)
+  const id =
+    typeof body.id === 'string' && body.id.trim()
+      ? body.id.trim().slice(0, 120)
+      : `sup-admin-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`
+  let sku =
+    typeof body.sku === 'string' && body.sku.trim()
+      ? body.sku
+          .trim()
+          .toUpperCase()
+          .replace(/[^A-Z0-9_]/g, '_')
+          .slice(0, 80)
+      : `SUPPLY_ADMIN_${Date.now()}_${crypto.randomBytes(3).toString('hex').toUpperCase()}`
+  if (!sku) return res.status(400).json({ error: 'sku_invalid' })
+  const merged = getMergedCatalogProducts()
+  for (const p of merged) {
+    if (p.sku === sku && p.id !== id) {
+      return res.status(409).json({ error: 'sku_taken', detail: sku })
+    }
+  }
+  const descRaw = typeof body.description === 'string' ? body.description.trim().slice(0, 4000) : ''
+  let compareAt = 0
+  const cap = body.compareAtPriceAud
+  if (cap != null && String(cap).trim() !== '') {
+    compareAt = Math.round(Number(cap) * 100) / 100
+    if (!Number.isFinite(compareAt) || compareAt < 0) compareAt = 0
+  }
+  if (compareAt > 0 && priceAud > 0 && compareAt <= priceAud) {
+    return res.status(400).json({
+      error: 'compare_at_invalid',
+      detail: 'Compare-at price must be higher than the listing price.',
+    })
+  }
+  /** @type {Record<string, unknown>} */
+  const product = { id, sku, title, subtitle: subtitle || '—', categoryId, priceAud }
+  if (descRaw) product.description = descRaw
+  if (compareAt > 0) product.compareAtAud = compareAt
+  const subId = typeof body.subcategoryId === 'string' ? body.subcategoryId.trim() : ''
+  const subLb = typeof body.subcategoryLabel === 'string' ? body.subcategoryLabel.trim().slice(0, 120) : ''
+  if (subId) product.subcategoryId = subId
+  if (subLb) product.subcategoryLabel = subLb
+  if (Array.isArray(body.tags)) {
+    product.tags = body.tags.map((t) => String(t).trim().slice(0, 64)).filter(Boolean).slice(0, 32)
+  }
+  await storeCatalogOverridesStore.upsertProduct(product)
+  await refreshMergedStoreCatalog()
+  return res.json({ product })
+})
+
+app.patch('/api/store/admin/products/:productId', async (req, res) => {
+  if (!assertStoreAdmin(req, res)) return
+  const productId = typeof req.params.productId === 'string' ? req.params.productId.trim() : ''
+  if (!productId) return res.status(400).json({ error: 'id_required' })
+  const rows = await storeCatalogOverridesStore.readProducts()
+  const p = rows.find((r) => r && r.id === productId)
+  if (!p) return res.status(404).json({ error: 'not_found' })
+  const body = req.body ?? {}
+  /** @type {Record<string, unknown>} */
+  const next = { ...p }
+  if (typeof body.title === 'string') next.title = body.title.trim().slice(0, 200)
+  if (typeof body.subtitle === 'string') next.subtitle = body.subtitle.trim().slice(0, 300)
+  if (typeof body.categoryId === 'string') {
+    const c = body.categoryId.trim()
+    if (await isFileCatalogCategoryAllowed(c)) next.categoryId = c
+  }
+  if (typeof body.category === 'string') {
+    const c = body.category.trim()
+    if (await isFileCatalogCategoryAllowed(c)) next.categoryId = c
+  }
+  if (body.price != null && String(body.price).trim() !== '') {
+    const pr = Math.round(Number(body.price))
+    if (Number.isFinite(pr) && pr >= 0) next.priceAud = pr
+  }
+  if (body.priceAud != null && String(body.priceAud).trim() !== '') {
+    const pr = Math.round(Number(body.priceAud))
+    if (Number.isFinite(pr) && pr >= 0) next.priceAud = pr
+  }
+  if (body.comparePrice !== undefined || body.compareAtAud !== undefined) {
+    const raw = body.compareAtAud !== undefined ? body.compareAtAud : body.comparePrice
+    if (raw == null || String(raw).trim() === '') {
+      delete next.compareAtAud
+    } else {
+      const c = Math.round(Number(raw) * 100) / 100
+      if (Number.isFinite(c) && c > 0) next.compareAtAud = c
+      else delete next.compareAtAud
+    }
+  }
+  if (typeof body.description === 'string') next.description = body.description.trim().slice(0, 4000)
+  if (typeof body.coverImageUrl === 'string') next.coverImageUrl = body.coverImageUrl.trim().slice(0, 2048)
+  if (typeof body.imageUrl === 'string') next.coverImageUrl = body.imageUrl.trim().slice(0, 2048)
+  if (typeof body.subcategoryId === 'string') next.subcategoryId = body.subcategoryId.trim()
+  if (body.subcategoryId === null) delete next.subcategoryId
+  if (typeof body.subcategoryLabel === 'string') {
+    next.subcategoryLabel = body.subcategoryLabel.trim().slice(0, 120)
+  }
+  if (body.tags !== undefined) {
+    if (Array.isArray(body.tags)) {
+      next.tags = body.tags.map((t) => String(t).trim().slice(0, 64)).filter(Boolean).slice(0, 32)
+    } else if (typeof body.tags === 'string') {
+      next.tags = body.tags
+        .split(/[,;]+/)
+        .map((t) => t.trim().slice(0, 64))
+        .filter(Boolean)
+        .slice(0, 32)
+    } else {
+      next.tags = []
+    }
+  }
+
+  const pa = Number(next.priceAud)
+  const cmp = next.compareAtAud != null ? Number(next.compareAtAud) : null
+  if (cmp != null && cmp > 0 && pa > 0 && cmp <= pa) {
+    return res.status(400).json({
+      error: 'compare_at_invalid',
+      detail: 'Compare-at price must be higher than the listing price.',
+    })
+  }
+
+  await storeCatalogOverridesStore.upsertProduct(next)
+  await refreshMergedStoreCatalog()
+  const admin = serializeLegacyOverrideAdmin(next)
+  return res.json({ product: admin })
+})
+
+app.post(
+  '/api/store/admin/products/:productId/cover',
+  listingImageUpload.single('file'),
+  async (req, res) => {
+    if (!assertStoreAdmin(req, res)) return
+    const productId = req.params.productId
+    const buf = req.file?.buffer
+    if (!buf || !buf.length) return res.status(400).json({ error: 'file_required' })
+    const ext = path.extname(req.file.originalname || '').toLowerCase()
+    const safeExt = ['.jpg', '.jpeg', '.png', '.webp'].includes(ext) ? ext : '.jpg'
+    const name = `store_${productId}_${Date.now()}_${crypto.randomBytes(6).toString('hex')}${safeExt}`
+    await fs.promises.mkdir(LISTING_UPLOAD_DIR, { recursive: true })
+    await fs.promises.writeFile(path.join(LISTING_UPLOAD_DIR, name), buf)
+    const url = `/listing-uploads/${name}`
+    const rows = await storeCatalogOverridesStore.readProducts()
+    const p = rows.find((r) => r && r.id === productId)
+    if (!p) return res.status(404).json({ error: 'product_not_found' })
+    const next = { ...p, coverImageUrl: url }
+    await storeCatalogOverridesStore.upsertProduct(next)
+    await refreshMergedStoreCatalog()
+    return res.json({ product: next })
+  },
+)
+
+app.delete('/api/store/admin/products/:productId', async (req, res) => {
+  if (!assertStoreAdmin(req, res)) return
+  const productId = req.params.productId
+  const ok = await storeCatalogOverridesStore.deleteById(productId)
+  if (!ok) return res.status(404).json({ error: 'not_found' })
+  await refreshMergedStoreCatalog()
+  return res.json({ ok: true })
+})
+
+app.get('/api/store/admin/analytics/overview', async (req, res) => {
+  if (!assertStoreAdmin(req, res)) return
+  const days = Math.max(1, Math.min(90, Math.floor(Number(req.query.days) || 30)))
+  try {
+    const orders = await storeOrdersStore.listRecent(2000)
+    const { earningsByDay, totalRevenueAud, paidOrders } = earningsBucketsFromOrders(orders, days)
+    let liveVisitors = 0
+    let visitorsByDay = []
+    if (sharedPgPool) {
+      liveVisitors = await countLiveVisitors(sharedPgPool, 5)
+      visitorsByDay = await visitorBucketsByDay(sharedPgPool, days)
+    }
+    return res.json({
+      rangeDays: days,
+      liveVisitors,
+      earningsByDay,
+      visitorsByDay,
+      totals: {
+        revenueAud: totalRevenueAud,
+        paidOrders,
+        avgOrderAud: paidOrders > 0 ? Math.round(totalRevenueAud / paidOrders) : 0,
+      },
+    })
+  } catch (e) {
+    console.error('[admin/analytics/overview]', e)
+    return res.status(500).json({ error: 'analytics_failed' })
+  }
+})
+
+app.post('/api/store/admin/ai/chat', adminAiLimiter, async (req, res) => {
+  if (!assertStoreAdmin(req, res)) return
+  try {
+    const out = await runAdminStoreAiChat(req.body ?? {}, sharedPgPool, storeOrdersStore)
+    if (!out.ok) return res.status(out.httpStatus).json(out.httpBody)
+    return res.json({ message: out.message, llmMs: out.llmMs })
+  } catch (e) {
+    console.error('[admin/ai/chat]', e)
+    return res.status(500).json({ error: 'admin_ai_failed' })
+  }
+})
+
+app.get('/api/store/admin/orders', async (req, res) => {
+  if (!assertStoreAdmin(req, res)) return
+  const fs = await import('node:fs/promises')
+  try {
+    const raw = await fs.readFile(STORE_ORDERS_FILE, 'utf8')
+    const rows = JSON.parse(raw)
+    if (!Array.isArray(rows)) return res.json({ orders: [], summary: { total: 0, paid: 0, pending: 0 } })
+    const slice = rows.slice(0, 100)
+    const paid = slice.filter((o) => o.status === 'paid').length
+    const pending = slice.filter((o) => o.status === 'pending').length
+    return res.json({
+      orders: slice,
+      summary: { total: slice.length, paid, pending, failed: slice.filter((o) => o.status === 'failed').length },
+    })
+  } catch (e) {
+    if (e && e.code === 'ENOENT') {
+      return res.json({ orders: [], summary: { total: 0, paid: 0, pending: 0, failed: 0 } })
+    }
+    throw e
+  }
 })
 
 function peerListingSellerKey(req) {
   const actor = resolveMarketplaceActor(req)
   return peerListingsStore.sellerKey(actor.customerUserId, actor.customerEmail)
 }
+
+function peerMessageJson(message, viewerKey) {
+  return {
+    id: message.id,
+    threadId: message.threadId,
+    body: message.body,
+    createdAt: message.createdAt,
+    messageType: message.messageType,
+    fromViewer: message.senderKey === viewerKey,
+  }
+}
+
+function peerMessageThreadJson(thread, viewerKey) {
+  const role =
+    thread.kind === 'listing'
+      ? viewerKey === thread.buyerKey
+        ? 'buyer'
+        : viewerKey === thread.sellerKey
+          ? 'seller'
+          : null
+      : thread.kind === 'support' && viewerKey === thread.buyerKey
+        ? 'buyer'
+        : null
+  return {
+    id: thread.id,
+    kind: thread.kind,
+    listingId: thread.listingId,
+    lastMessagePreview: thread.lastMessagePreview,
+    lastMessageAt: thread.lastMessageAt,
+    updatedAt: thread.updatedAt,
+    unreadCount: thread.unreadByParticipant?.[viewerKey] ?? 0,
+    role,
+  }
+}
+
+app.get('/api/drops/feed', async (req, res) => {
+  if (!sharedPgPool) {
+    return res.json({ drops: [], nextCursor: null, database: false })
+  }
+  try {
+    const limit =
+      typeof req.query.limit === 'string' && Number.isFinite(Number(req.query.limit))
+        ? Number(req.query.limit)
+        : 24
+    const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : ''
+    const ranked = req.query.rank === '1' || req.query.ranked === '1' || req.query.sort === 'rank'
+    const { drops, nextCursor } = await listPublishedDropsFeed(sharedPgPool, { limit, cursor, ranked })
+    res.set('Cache-Control', 'public, s-maxage=15, stale-while-revalidate=60')
+    return res.json({ drops, nextCursor, database: true, ranked })
+  } catch (e) {
+    console.error('[drops/feed]', e)
+    return res.status(500).json({ error: 'drops_feed_failed' })
+  }
+})
+
+app.post(
+  '/api/drops/upload-media',
+  dropsWriteLimiter,
+  (req, res, next) => {
+    dropsFeedMediaUpload.fields([
+      { name: 'video', maxCount: 1 },
+      { name: 'images', maxCount: DROP_MAX_IMAGE_COUNT },
+    ])(req, res, (err) => {
+      if (err) {
+        const code = err.code
+        const msg = err.message || 'upload failed'
+        if (code === 'LIMIT_FILE_SIZE') {
+          return res.status(413).json({ error: 'file_too_large', detail: msg })
+        }
+        return res.status(400).json({ error: 'invalid_upload', detail: msg })
+      }
+      next()
+    })
+  },
+  async (req, res) => {
+    try {
+      const videoSlot = req.files?.video
+      const imageSlot = req.files?.images
+      const video = Array.isArray(videoSlot) ? videoSlot[0] : null
+      const images = Array.isArray(imageSlot) ? imageSlot : []
+
+      if (video && images.length) {
+        return res.status(400).json({
+          error: 'video_or_images_not_both',
+          detail: 'Send either one video or up to 12 images.',
+        })
+      }
+      if (!video && images.length === 0) {
+        return res.status(400).json({ error: 'no_media', detail: 'Upload a video or at least one image.' })
+      }
+
+      const videoMimeOk = (mime) => /^video\/(mp4|webm|quicktime)$/i.test(String(mime || ''))
+      const imageMimeOk = (mime) => /^image\/(jpeg|jpg|png|webp|gif)$/i.test(String(mime || ''))
+
+      if (video) {
+        const buf = video.buffer
+        const mime = video.mimetype || ''
+        if (!videoMimeOk(mime)) {
+          return res.status(400).json({ error: 'invalid_video_type', detail: mime })
+        }
+        if (!buf?.length || buf.length > DROP_VIDEO_MAX_BYTES) {
+          return res.status(400).json({ error: 'invalid_video_size' })
+        }
+      }
+
+      for (const img of images) {
+        const mime = img.mimetype || ''
+        if (!imageMimeOk(mime)) {
+          return res.status(400).json({ error: 'invalid_image_type', detail: mime })
+        }
+        const len = img.buffer?.length ?? 0
+        if (!len || len > DROP_IMAGE_MAX_BYTES) {
+          return res.status(400).json({
+            error: 'invalid_image_size',
+            detail: 'Each image must be 12MB or less.',
+          })
+        }
+      }
+
+      const useCloud = isCloudinaryConfigured()
+
+      if (useCloud) {
+        if (video) {
+          const videoUrl = await uploadDropVideoBuffer(video.buffer, video.mimetype)
+          return res.json({ videoUrl })
+        }
+        const imageUrls = []
+        for (const img of images) {
+          imageUrls.push(await uploadDropImageBuffer(img.buffer, img.mimetype))
+        }
+        return res.json({ imageUrls })
+      }
+
+      if (process.env.VERCEL === '1') {
+        return res.status(503).json({
+          error: 'cloudinary_not_configured',
+          detail:
+            'On Vercel, set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET for Drops uploads.',
+        })
+      }
+
+      if (video) {
+        const ext = extForDropVideoMime(video.mimetype)
+        const sub = 'videos'
+        const dir = path.join(LISTING_UPLOAD_DIR, 'drops', sub)
+        await fs.promises.mkdir(dir, { recursive: true })
+        const name = `drop_${Date.now()}_${crypto.randomBytes(6).toString('hex')}${ext}`
+        await fs.promises.writeFile(path.join(dir, name), video.buffer)
+        return res.json({ videoUrl: `/listing-uploads/drops/${sub}/${name}` })
+      }
+
+      const imageUrls = []
+      const sub = 'images'
+      for (const img of images) {
+        const ext = extForDropImageMime(img.mimetype)
+        const dir = path.join(LISTING_UPLOAD_DIR, 'drops', sub)
+        await fs.promises.mkdir(dir, { recursive: true })
+        const name = `drop_${Date.now()}_${crypto.randomBytes(6).toString('hex')}${ext}`
+        await fs.promises.writeFile(path.join(dir, name), img.buffer)
+        imageUrls.push(`/listing-uploads/drops/${sub}/${name}`)
+      }
+      return res.json({ imageUrls })
+    } catch (e) {
+      console.error('[drops/upload-media]', e)
+      const detail = e instanceof Error ? e.message : String(e)
+      return res.status(502).json({
+        error: 'upload_failed',
+        detail: detail.slice(0, 240),
+      })
+    }
+  },
+)
+
+app.get('/api/drops/:id', async (req, res) => {
+  if (!sharedPgPool) return res.status(503).json({ error: 'drops_db_not_configured' })
+  try {
+    const row = await getDropWithMedia(sharedPgPool, req.params.id)
+    if (!row || row.drop.status !== 'published' || row.drop.moderation_state !== 'ok') {
+      return res.status(404).json({ error: 'drop_not_found' })
+    }
+    return res.json({ drop: row.public })
+  } catch (e) {
+    console.error('[drops/get]', e)
+    return res.status(500).json({ error: 'drop_get_failed' })
+  }
+})
+
+app.post('/api/drops', dropsWriteLimiter, async (req, res) => {
+  if (!sharedPgPool) return res.status(503).json({ error: 'drops_db_not_configured' })
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.status(401).json({ error: 'auth_required' })
+  try {
+    const actor = resolveMarketplaceActor(req)
+    const body = req.body ?? {}
+    const authorId =
+      typeof body.authorId === 'string' && body.authorId.trim()
+        ? body.authorId.trim()
+        : actor.customerUserId || actor.customerEmail || 'user'
+    const row = await createDropDraft(sharedPgPool, sk, {
+      ...body,
+      authorId,
+    })
+    if (!row) return res.status(500).json({ error: 'create_failed' })
+    const full = await getDropWithMedia(sharedPgPool, row.id)
+    return res.json({ drop: full?.public ?? null, id: row.id })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg === 'seller_key_required') return res.status(400).json({ error: msg })
+    console.error('[drops/create]', e)
+    return res.status(500).json({ error: 'drops_create_failed' })
+  }
+})
+
+app.patch('/api/drops/:id', dropsWriteLimiter, async (req, res) => {
+  if (!sharedPgPool) return res.status(503).json({ error: 'drops_db_not_configured' })
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.status(401).json({ error: 'auth_required' })
+  try {
+    const row = await updateDrop(sharedPgPool, req.params.id, sk, req.body ?? {})
+    if (!row) return res.status(404).json({ error: 'drop_not_found' })
+    const full = await getDropWithMedia(sharedPgPool, row.id)
+    return res.json({ drop: full?.public ?? null })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg === 'forbidden') return res.status(403).json({ error: msg })
+    console.error('[drops/patch]', e)
+    return res.status(500).json({ error: 'drops_patch_failed' })
+  }
+})
+
+app.post('/api/drops/:id/publish', dropsWriteLimiter, async (req, res) => {
+  if (!sharedPgPool) return res.status(503).json({ error: 'drops_db_not_configured' })
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.status(401).json({ error: 'auth_required' })
+  try {
+    const row = await publishDrop(sharedPgPool, req.params.id, sk)
+    if (!row) return res.status(404).json({ error: 'drop_not_found' })
+    const full = await getDropWithMedia(sharedPgPool, row.id)
+    return res.json({ drop: full?.public ?? null })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg === 'forbidden') return res.status(403).json({ error: msg })
+    if (msg === 'media_required') return res.status(400).json({ error: msg })
+    console.error('[drops/publish]', e)
+    return res.status(500).json({ error: 'drops_publish_failed' })
+  }
+})
+
+app.post(
+  '/api/drops/:id/media',
+  dropsWriteLimiter,
+  dropsMediaUpload.array('files', 12),
+  async (req, res) => {
+    if (!sharedPgPool) return res.status(503).json({ error: 'drops_db_not_configured' })
+    const sk = peerListingSellerKey(req)
+    if (!sk) return res.status(401).json({ error: 'auth_required' })
+    const files = req.files
+    if (!Array.isArray(files) || !files.length) {
+      return res.status(400).json({ error: 'files_required' })
+    }
+    try {
+      const owner = await sharedPgPool.query(`SELECT seller_key FROM drops WHERE id = $1::uuid`, [req.params.id])
+      const d = owner.rows[0]
+      if (!d) return res.status(404).json({ error: 'drop_not_found' })
+      if (String(d.seller_key) !== String(sk).trim()) return res.status(403).json({ error: 'forbidden' })
+      await fs.promises.mkdir(DROPS_UPLOAD_DIR, { recursive: true })
+      const out = []
+      let sort = 0
+      for (const f of files) {
+        const buf = f.buffer
+        if (!buf?.length) continue
+        const ext = path.extname(f.originalname || '').toLowerCase()
+        const mime = (f.mimetype || '').toLowerCase()
+        const isVid = mime.startsWith('video/') || ['.mp4', '.webm', '.mov'].includes(ext)
+        const isImg = mime.startsWith('image/') || ['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext)
+        if (!isVid && !isImg) continue
+        const safeExt = isVid ? (ext && ext.length < 8 ? ext : '.mp4') : isImg ? (ext || '.jpg') : '.bin'
+        const name = `d_${Date.now()}_${crypto.randomBytes(6).toString('hex')}${safeExt}`
+        await fs.promises.writeFile(path.join(DROPS_UPLOAD_DIR, name), buf)
+        const url = `/drops-uploads/${name}`
+        const kind = isVid ? 'video' : 'image'
+        const m = await addDropMedia(sharedPgPool, req.params.id, { kind, url, sortOrder: sort++ })
+        if (m) out.push(m)
+      }
+      if (!out.length) return res.status(400).json({ error: 'no_valid_files' })
+      const full = await getDropWithMedia(sharedPgPool, req.params.id)
+      return res.json({ media: out, drop: full?.public ?? null })
+    } catch (e) {
+      console.error('[drops/media]', e)
+      return res.status(500).json({ error: 'drops_media_failed' })
+    }
+  },
+)
+
+app.post('/api/drops/:id/engage', dropsEngageLimiter, async (req, res) => {
+  if (!sharedPgPool) return res.status(204).end()
+  try {
+    const body = req.body ?? {}
+    const eventType = typeof body.eventType === 'string' ? body.eventType : 'view_ms'
+    const clientId = typeof body.clientId === 'string' ? body.clientId : 'anon'
+    const amount = Number(body.amount) || 0
+    await recordDropEngagement(sharedPgPool, req.params.id, eventType, clientId, amount)
+    return res.json({ ok: true })
+  } catch (e) {
+    console.error('[drops/engage]', e)
+    return res.status(500).json({ error: 'engage_failed' })
+  }
+})
+
+app.get('/api/drops/moderation/pending', async (req, res) => {
+  const key = (process.env.FETCH_DROPS_ADMIN_KEY || '').trim()
+  if (!key) return res.status(503).json({ error: 'moderation_disabled' })
+  const hdr = req.headers['x-fetch-admin-key']
+  if (hdr !== key) return res.status(401).json({ error: 'forbidden' })
+  if (!sharedPgPool) return res.status(503).json({ error: 'drops_db_not_configured' })
+  try {
+    const { drops } = await listModerationPendingDrops(sharedPgPool, 48)
+    return res.json({ drops })
+  } catch (e) {
+    console.error('[drops/moderation]', e)
+    return res.status(500).json({ error: 'moderation_list_failed' })
+  }
+})
+
+app.post('/api/drops/live/start', dropsWriteLimiter, async (req, res) => {
+  if (!sharedPgPool) return res.status(503).json({ error: 'drops_db_not_configured' })
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.status(401).json({ error: 'auth_required' })
+  try {
+    const actor = resolveMarketplaceActor(req)
+    const body = req.body ?? {}
+    const authorId =
+      typeof body.authorId === 'string' && body.authorId.trim()
+        ? body.authorId.trim()
+        : actor.customerUserId || actor.customerEmail || 'user'
+    const sellerDisplay =
+      typeof body.sellerDisplay === 'string' && body.sellerDisplay.trim()
+        ? body.sellerDisplay.trim().slice(0, 120)
+        : '@seller'
+    const title = typeof body.title === 'string' ? body.title.trim().slice(0, 200) : 'Live'
+    const MAX_SHOWCASE = 24
+    const showcaseRaw = body.showcaseItems
+    const commerceItems = []
+    if (Array.isArray(showcaseRaw)) {
+      for (const x of showcaseRaw) {
+        if (commerceItems.length >= MAX_SHOWCASE) break
+        if (!x || typeof x !== 'object') continue
+        const label = typeof x.label === 'string' ? x.label.trim().slice(0, 120) : ''
+        if (x.type === 'product' && typeof x.id === 'string') {
+          const id = x.id.trim().slice(0, 128)
+          if (id) {
+            const row = { kind: 'marketplace_product', productId: id }
+            if (label) row.label = label
+            commerceItems.push(row)
+          }
+        }
+        if (x.type === 'listing' && typeof x.id === 'string') {
+          const id = x.id.trim().slice(0, 128)
+          if (!id) continue
+          const listing = await peerListingsStore.getListing(id)
+          if (!listing) continue
+          const listSk = peerListingsStore.sellerKey(listing.sellerUserId, listing.sellerEmail)
+          if (listSk !== sk) continue
+          const safeLabel =
+            label ||
+            (typeof listing.title === 'string' ? listing.title.trim().slice(0, 120) : '')
+          const row = { kind: 'buy_sell_listing', listingId: id }
+          if (safeLabel) row.label = safeLabel
+          commerceItems.push(row)
+        }
+      }
+    }
+    if (!commerceItems.length) {
+      return res.status(400).json({
+        error: 'showcase_required',
+        detail: 'Select at least one store product or one of your marketplace listings.',
+      })
+    }
+    const commerce = { kind: 'live_showcase', items: commerceItems }
+    const productCount = commerceItems.filter((i) => i.kind === 'marketplace_product').length
+    const listingCount = commerceItems.filter((i) => i.kind === 'buy_sell_listing').length
+    const blurbParts = commerceItems
+      .map((i) => i.label || i.productId || i.listingId)
+      .filter(Boolean)
+      .slice(0, 8)
+    const defaultBlurb =
+      blurbParts.length > 0
+        ? `Live showcase · ${blurbParts.join(' · ')}`.slice(0, 400)
+        : 'Live replay processing…'
+    const blurb =
+      typeof body.blurb === 'string' && body.blurb.trim()
+        ? body.blurb.trim().slice(0, 400)
+        : defaultBlurb
+    const priceLabelBuilt =
+      productCount && listingCount
+        ? `Live · ${productCount} store · ${listingCount} listing${listingCount === 1 ? '' : 's'}`
+        : productCount
+          ? `Live · ${productCount} product${productCount === 1 ? '' : 's'}`
+          : `Live · ${listingCount} listing${listingCount === 1 ? '' : 's'}`
+    const priceLabel =
+      typeof body.priceLabel === 'string' && body.priceLabel.trim()
+        ? body.priceLabel.trim().slice(0, 80)
+        : priceLabelBuilt
+    const row = await createDropDraft(sharedPgPool, sk, {
+      authorId,
+      sellerDisplay,
+      title,
+      priceLabel,
+      blurb,
+      categories: Array.isArray(body.categories) ? body.categories : ['community'],
+      region: typeof body.region === 'string' ? body.region : 'SEQ',
+      growthVelocityScore: 1.55,
+      commerce,
+    })
+    if (!row?.id) return res.status(500).json({ error: 'draft_failed' })
+    const mux = await muxCreateLiveStreamForDrop(String(row.id), title)
+    if (!mux.ok) {
+      const code = mux.error === 'mux_not_configured' ? 503 : 502
+      return res.status(code).json({ error: mux.error, detail: mux.detail, dropId: row.id })
+    }
+    const root = mux.data
+    const d =
+      root && typeof root === 'object' && 'data' in root && root.data && typeof root.data === 'object'
+        ? /** @type {Record<string, unknown>} */ (root.data)
+        : /** @type {Record<string, unknown>} */ (root)
+    const streamKey = typeof d.stream_key === 'string' ? d.stream_key : null
+    const pids = Array.isArray(d.playback_ids) ? d.playback_ids : []
+    const firstPid =
+      pids[0] && typeof pids[0] === 'object' && pids[0] && 'id' in pids[0]
+        ? String(/** @type {{ id?: string }} */ (pids[0]).id || '')
+        : ''
+    return res.json({
+      dropId: row.id,
+      rtmpUrl: 'rtmps://global-live.mux.com:443/app',
+      streamKey,
+      playbackUrl: firstPid ? muxPlaybackUrl(firstPid) : null,
+    })
+  } catch (e) {
+    console.error('[drops/live/start]', e)
+    return res.status(500).json({ error: 'live_start_failed' })
+  }
+})
+
+app.get('/api/drops/ffmpeg-status', async (_req, res) => {
+  const ok = await ffmpegAvailable()
+  return res.json({ available: ok, bin: (process.env.FFMPEG_PATH || 'ffmpeg').trim() || 'ffmpeg' })
+})
+
+app.post(
+  '/api/drops/process-video',
+  dropsWriteLimiter,
+  upload.single('file'),
+  async (req, res) => {
+    try {
+      const buf = req.file?.buffer
+      if (!buf?.length) return res.status(400).json({ error: 'file_required' })
+      if (buf.length > DROP_VIDEO_MAX_BYTES) {
+        return res.status(413).json({ error: 'file_too_large' })
+      }
+      const mute = req.body?.mute === '1' || req.body?.mute === true || req.body?.mute === 'true'
+      const rot = Number(req.body?.rotation)
+      const rotation = rot === 90 || rot === 180 || rot === 270 ? rot : 0
+      const trimStartSec = Math.max(0, Number(req.body?.trimStartSec) || 0)
+      const td = Number(req.body?.trimDurationSec)
+      const trimDurationSec = Number.isFinite(td) && td > 0 ? td : undefined
+      const out = await transformVideoBuffer(buf, {
+        mute,
+        rotation,
+        trimStartSec,
+        trimDurationSec,
+      })
+      if (!out.ok) {
+        const code = out.error === 'ffmpeg_not_available' ? 501 : 422
+        return res.status(code).json({ error: out.error })
+      }
+      await fs.promises.mkdir(DROPS_UPLOAD_DIR, { recursive: true })
+      const name = `d_ff_${Date.now()}_${crypto.randomBytes(6).toString('hex')}.mp4`
+      await fs.promises.writeFile(path.join(DROPS_UPLOAD_DIR, name), out.buffer)
+      return res.json({ videoUrl: `/drops-uploads/${name}` })
+    } catch (e) {
+      console.error('[drops/process-video]', e)
+      return res.status(500).json({ error: 'process_failed' })
+    }
+  },
+)
 
 app.get('/api/listings', async (req, res) => {
   const statusRaw = typeof req.query.status === 'string' ? req.query.status.trim() : 'published'
@@ -1724,6 +3229,154 @@ app.get('/api/listings/mine', async (req, res) => {
   return res.json({ listings })
 })
 
+app.post('/api/listings/ai-fill-from-photos', (req, res) => {
+  upload.array(SCAN_UPLOAD_FIELD, MAX_IMAGES_PER_REQUEST)(req, res, async (uploadErr) => {
+    if (uploadErr) {
+      return res.status(400).json({ error: 'invalid_image_upload', detail: uploadErr.message || 'upload failed' })
+    }
+    try {
+      if (!OPENAI_API_KEY) {
+        return res.status(503).json({ error: 'openai_not_configured' })
+      }
+      const files = Array.isArray(req.files) ? req.files : []
+      if (files.length === 0) {
+        return res.status(400).json({
+          error: 'no_images',
+          detail: `Upload 1–${MAX_IMAGES_PER_REQUEST} images (field "${SCAN_UPLOAD_FIELD}").`,
+        })
+      }
+
+      const prompt = `You help sellers list second-hand items on a local marketplace (Australia, AUD).
+Analyse the product photo(s) and output JSON ONLY for a peer-to-peer listing.
+
+Rules:
+- Be factual from what is visible; note uncertainty ("appears to be…") when needed.
+- No markdown fences. JSON object only.
+- Title: short, specific, buyer-friendly (max ~72 characters).
+- Description: 2–5 sentences: what it is, visible condition, notable wear, inclusions (cables, box) if visible, pickup hints if obvious.
+- Category must be one of: general, furniture, electronics, fashion, sports, other.
+- Condition must be one of: new, like new, good, fair, used, for parts
+- keywords: comma-separated search tokens (brands, materials, style, size words), max ~120 chars total.
+- Measurements: estimate widthCm, heightCm, depthCm in centimetres only when a ruler, label, or strong scale cue is visible; otherwise use null. Never invent precise mm.
+- measurementsSummary: one human line e.g. "Approx. 120 W × 75 H × 60 D cm (estimated from image)" or null if unknown.
+- suggestedPriceAud: fair second-hand AUD ask as a whole number (not cents), conservative; null if you cannot justify from the image/category.
+- suggestedCompareAtAud: optional higher "was/RRP" AUD whole number when a retail product is recognizable; null otherwise.
+- sku: short internal code if visible on packaging/label, else null.
+
+Return exactly this shape:
+{
+  "title": "string",
+  "description": "string",
+  "category": "general|furniture|electronics|fashion|sports|other",
+  "condition": "new|like new|good|fair|used|for parts",
+  "keywords": "string",
+  "widthCm": number|null,
+  "heightCm": number|null,
+  "depthCm": number|null,
+  "measurementsSummary": string|null,
+  "suggestedPriceAud": number|null,
+  "suggestedCompareAtAud": number|null,
+  "sku": string|null,
+  "confidence": number
+}`
+
+      const content = [{ type: 'text', text: prompt }]
+      for (const file of files) {
+        const base64 = file.buffer.toString('base64')
+        const dataUrl = `data:${file.mimetype};base64,${base64}`
+        content.push({ type: 'image_url', image_url: { url: dataUrl } })
+      }
+
+      const openaiRes = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o',
+          temperature: 0.2,
+          max_tokens: 900,
+          response_format: { type: 'json_object' },
+          messages: [{ role: 'user', content }],
+        }),
+      })
+
+      if (!openaiRes.ok) {
+        const upstreamBody = await openaiRes.text().catch(() => '')
+        return res.status(502).json({
+          error: 'openai_failed',
+          detail: upstreamBody.slice(0, 280),
+        })
+      }
+
+      const payload = await openaiRes.json()
+      const raw = payload?.choices?.[0]?.message?.content
+      let parsed = null
+      try {
+        parsed = typeof raw === 'string' ? JSON.parse(stripJsonFence(raw)) : null
+      } catch {
+        return res.status(502).json({ error: 'openai_bad_json' })
+      }
+
+      const category =
+        typeof parsed?.category === 'string' && ALLOWED_LISTING_AI_CATEGORIES.has(parsed.category)
+          ? parsed.category
+          : 'general'
+      const condition =
+        typeof parsed?.condition === 'string' && ALLOWED_LISTING_AI_CONDITIONS.has(parsed.condition)
+          ? parsed.condition
+          : 'used'
+
+      const clampAud = (v) => {
+        if (v == null || !Number.isFinite(Number(v))) return null
+        const n = Math.round(Number(v))
+        if (n < 0 || n > 250_000) return null
+        return n
+      }
+
+      const numOrNull = (v) => {
+        if (v == null || !Number.isFinite(Number(v))) return null
+        const n = Math.round(Number(v))
+        if (n < 1 || n > 500) return null
+        return n
+      }
+
+      return res.json({
+        title: typeof parsed?.title === 'string' ? parsed.title.trim().slice(0, 140) : '',
+        description: typeof parsed?.description === 'string' ? parsed.description.trim().slice(0, 4000) : '',
+        category,
+        condition,
+        keywords: typeof parsed?.keywords === 'string' ? parsed.keywords.trim().slice(0, 500) : '',
+        widthCm: numOrNull(parsed?.widthCm),
+        heightCm: numOrNull(parsed?.heightCm),
+        depthCm: numOrNull(parsed?.depthCm),
+        measurementsSummary:
+          parsed?.measurementsSummary === null
+            ? null
+            : typeof parsed?.measurementsSummary === 'string'
+              ? parsed.measurementsSummary.trim().slice(0, 240)
+              : null,
+        suggestedPriceAud: clampAud(parsed?.suggestedPriceAud),
+        suggestedCompareAtAud: clampAud(parsed?.suggestedCompareAtAud),
+        sku:
+          parsed?.sku === null
+            ? null
+            : typeof parsed?.sku === 'string'
+              ? parsed.sku.trim().slice(0, 64)
+              : null,
+        confidence:
+          typeof parsed?.confidence === 'number' && Number.isFinite(parsed.confidence)
+            ? Math.max(0, Math.min(1, parsed.confidence))
+            : null,
+      })
+    } catch (e) {
+      console.error('[listings/ai-fill-from-photos]', e)
+      return res.status(500).json({ error: 'listing_ai_fill_failed' })
+    }
+  })
+})
+
 app.get('/api/listings/:listingId', async (req, res) => {
   const sk = peerListingSellerKey(req)
   const l = await peerListingsStore.getListingVisible(req.params.listingId, sk)
@@ -1736,14 +3389,47 @@ app.post('/api/listings', async (req, res) => {
   if (!sk) return res.status(401).json({ error: 'auth_required' })
   const actor = resolveMarketplaceActor(req)
   const body = req.body ?? {}
+  const profileAuthorId = typeof body.profileAuthorId === 'string' ? body.profileAuthorId.trim() : ''
+  const profileDisplayName = typeof body.profileDisplayName === 'string' ? body.profileDisplayName.trim() : ''
+  if (!profileAuthorId) {
+    return res.status(400).json({
+      error: 'profile_required',
+      detail: 'Link your Fetch public profile (Drops @handle) before listing.',
+    })
+  }
+  if (!profileDisplayName) {
+    return res.status(400).json({
+      error: 'profile_display_required',
+      detail: 'profileDisplayName is required (your public @handle name).',
+    })
+  }
+  let compareAtCents = 0
+  const capRaw = body.compareAtPriceAud
+  if (capRaw != null && String(capRaw).trim() !== '') {
+    const c = Math.round(Number(capRaw) * 100)
+    if (Number.isFinite(c) && c > 0) compareAtCents = c
+  }
   const listing = await peerListingsStore.createListing({
     sellerUserId: actor.customerUserId,
     sellerEmail: actor.customerEmail,
     title: body.title,
     description: body.description,
     priceAud: body.priceAud,
+    compareAtCents,
     category: body.category,
     condition: body.condition,
+    keywords: body.keywords,
+    locationLabel: body.locationLabel,
+    sku: body.sku,
+    acceptsOffers: body.acceptsOffers,
+    fetchDelivery: body.fetchDelivery,
+    saleMode: body.saleMode,
+    auctionEndsAt: body.auctionEndsAt,
+    reserveCents: body.reserveCents,
+    minBidIncrementCents: body.minBidIncrementCents,
+    profileAuthorId,
+    profileDisplayName,
+    profileAvatar: typeof body.profileAvatar === 'string' ? body.profileAvatar : '',
   })
   return res.json({ listing })
 })
@@ -1873,6 +3559,174 @@ app.post('/api/listings/:listingId/checkout', paymentIntentCreateLimiter, async 
   })
   const nextLo = await peerListingsStore.getListingOrder(listingOrder.id)
   return res.json({ listingOrder: nextLo, paymentIntent })
+})
+
+app.post('/api/listings/:listingId/bid', paymentIntentCreateLimiter, async (req, res) => {
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.status(401).json({ error: 'auth_required' })
+  const listing = await peerListingsStore.getListing(req.params.listingId)
+  if (!listing || listing.status !== 'published') {
+    return res.status(404).json({ error: 'listing_not_available' })
+  }
+  const amountAud = Number(req.body?.amountAud)
+  const amountCents = Math.round(amountAud * 100)
+  if (!Number.isFinite(amountCents) || amountCents < 1) {
+    return res.status(400).json({ error: 'invalid_amount' })
+  }
+  const stripeKey = (process.env.STRIPE_SECRET_KEY || '').trim()
+  let stripePaymentIntentId = null
+  let clientSecret = null
+  /** @type {import('stripe').default | null} */
+  let stripe = null
+  if (stripeKey) {
+    try {
+      const Stripe = (await import('stripe')).default
+      stripe = new Stripe(stripeKey)
+      const pi = await stripe.paymentIntents.create({
+        amount: amountCents,
+        currency: 'aud',
+        capture_method: 'manual',
+        automatic_payment_methods: { enabled: true },
+        metadata: {
+          type: 'auction_bid',
+          listingId: String(listing.id),
+          bidderKey: sk,
+        },
+      })
+      stripePaymentIntentId = pi.id
+      clientSecret = pi.client_secret
+    } catch (e) {
+      console.error('[listings/bid] stripe', e)
+      const msg = e instanceof Error ? e.message : String(e)
+      return res.status(502).json({ error: 'stripe_intent_create_failed', detail: msg.slice(0, 280) })
+    }
+  }
+  const out = await peerListingsStore.placeBid({
+    listingId: listing.id,
+    bidderKey: sk,
+    amountCents,
+    stripePaymentIntentId,
+  })
+  if (out.error) {
+    if (stripePaymentIntentId && stripe) {
+      try {
+        await stripe.paymentIntents.cancel(stripePaymentIntentId)
+      } catch {
+        /* ignore */
+      }
+    }
+    const status =
+      out.error === 'bid_too_low' || out.error === 'below_reserve' || out.error === 'invalid_amount'
+        ? 400
+        : 409
+    return res.status(status).json({ error: out.error })
+  }
+  return res.json({
+    listing: out.listing,
+    paymentIntent: clientSecret ? { clientSecret, id: stripePaymentIntentId } : null,
+  })
+})
+
+app.get('/api/messages/unread-summary', async (req, res) => {
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.json({ listing: 0, support: 0, total: 0 })
+  const s = await peerMessagesStore.unreadSummary(sk)
+  return res.json(s)
+})
+
+app.get('/api/messages/threads', async (req, res) => {
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.status(401).json({ error: 'auth_required' })
+  const kind = typeof req.query.kind === 'string' ? req.query.kind.trim() : ''
+  const threads = await peerMessagesStore.listThreadsForParticipant(sk, {
+    kind: kind === 'listing' || kind === 'support' ? kind : undefined,
+  })
+  return res.json({ threads: threads.map((t) => peerMessageThreadJson(t, sk)) })
+})
+
+app.post('/api/messages/threads', authRouteLimiter, async (req, res) => {
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.status(401).json({ error: 'auth_required' })
+  const body = req.body ?? {}
+  const kind = body.kind === 'support' ? 'support' : body.kind === 'listing' ? 'listing' : null
+  if (!kind) return res.status(400).json({ error: 'kind_required' })
+  if (kind === 'support') {
+    const out = await peerMessagesStore.getOrCreateSupportThread(sk)
+    if (out.error) return res.status(400).json({ error: out.error })
+    return res.json({ thread: peerMessageThreadJson(out.thread, sk), created: Boolean(out.created) })
+  }
+  const listingId = typeof body.listingId === 'string' ? body.listingId.trim() : ''
+  if (!listingId) return res.status(400).json({ error: 'listing_id_required' })
+  const listing = await peerListingsStore.getListingVisible(listingId, sk)
+  if (!listing) return res.status(404).json({ error: 'listing_not_found' })
+  const sellerKey = peerListingsStore.sellerKey(listing.sellerUserId, listing.sellerEmail)
+  if (!sellerKey) return res.status(400).json({ error: 'seller_missing' })
+  const out = await peerMessagesStore.getOrCreateListingThread({
+    listingId,
+    buyerKey: sk,
+    sellerKey,
+  })
+  if (out.error === 'cannot_message_self') return res.status(400).json({ error: out.error })
+  if (out.error) return res.status(400).json({ error: out.error })
+  return res.json({ thread: peerMessageThreadJson(out.thread, sk), created: Boolean(out.created) })
+})
+
+app.get('/api/messages/threads/:threadId', async (req, res) => {
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.status(401).json({ error: 'auth_required' })
+  const thread = await peerMessagesStore.getThread(req.params.threadId, sk)
+  if (!thread) return res.status(404).json({ error: 'thread_not_found' })
+  const recent = await peerMessagesStore.recentMessages(req.params.threadId, sk, 80)
+  return res.json({
+    thread: peerMessageThreadJson(thread, sk),
+    messages: recent.map((m) => peerMessageJson(m, sk)),
+  })
+})
+
+app.get('/api/messages/threads/:threadId/messages', async (req, res) => {
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.status(401).json({ error: 'auth_required' })
+  const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined
+  const limRaw = typeof req.query.limit === 'string' ? req.query.limit : undefined
+  const page = await peerMessagesStore.listMessagesPage(req.params.threadId, sk, {
+    cursor,
+    limit: limRaw != null ? Number(limRaw) : undefined,
+  })
+  if (!page) return res.status(404).json({ error: 'thread_not_found' })
+  return res.json({
+    messages: page.messages.map((m) => peerMessageJson(m, sk)),
+    nextCursor: page.nextCursor,
+  })
+})
+
+app.post('/api/messages/threads/:threadId/messages', authRouteLimiter, async (req, res) => {
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.status(401).json({ error: 'auth_required' })
+  const body = req.body ?? {}
+  let text = typeof body.text === 'string' ? body.text : ''
+  let messageType = 'user'
+  if (body.template === 'cash_pickup') {
+    messageType = 'system'
+    text = 'Buyer chose cash pickup.'
+  }
+  const out = await peerMessagesStore.appendMessage(req.params.threadId, sk, { text, messageType })
+  if (out.error === 'thread_not_found') return res.status(404).json({ error: out.error })
+  if (out.error === 'forbidden') return res.status(403).json({ error: out.error })
+  if (out.error) return res.status(400).json({ error: out.error })
+  return res.json({
+    message: peerMessageJson(out.message, sk),
+    thread: peerMessageThreadJson(out.thread, sk),
+  })
+})
+
+app.post('/api/messages/threads/:threadId/read', authRouteLimiter, async (req, res) => {
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.status(401).json({ error: 'auth_required' })
+  const out = await peerMessagesStore.markRead(req.params.threadId, sk)
+  if (out.error === 'thread_not_found') return res.status(404).json({ error: out.error })
+  if (out.error === 'forbidden') return res.status(403).json({ error: out.error })
+  if (out.error) return res.status(400).json({ error: out.error })
+  return res.json({ thread: peerMessageThreadJson(out.thread, sk) })
 })
 
 app.post('/api/sellers/connect/start', authRouteLimiter, async (req, res) => {
@@ -3123,6 +4977,10 @@ function startLocalHttpServer() {
   } else {
     server.once('listening', logListening)
   }
+
+  setInterval(() => {
+    void peerListingsStore.closeExpiredAuctions()
+  }, 60_000)
 
   let eaddruseAutoRecoverAttempted = false
 

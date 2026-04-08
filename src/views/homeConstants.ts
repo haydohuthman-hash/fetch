@@ -54,7 +54,34 @@ export const INTENT_COMPOSER_SERVICE_PLACEHOLDER_HINTS: readonly string[] = [
   'Which service do you need?',
 ]
 
-/** First-step sheet: large cards (matches primary services in the hero layout). */
+/**
+ * Intent row: three compact choices (sell / categories / book driver).
+ * Full service list: `ADVANCED_SERVICE_MENU_OPTIONS` in the “more” sheet.
+ */
+export const INTENT_COMPACT_PILLS = [
+  {
+    id: 'sell-for-you',
+    label: 'Sell for you',
+    kind: 'shell' as const,
+    shellTab: 'buySell' as const,
+  },
+  {
+    id: 'categories',
+    label: 'Categories',
+    kind: 'shell' as const,
+    shellTab: 'marketplace' as const,
+  },
+  {
+    id: 'book-driver',
+    label: 'Book a driver',
+    kind: 'job' as const,
+    jobType: 'deliveryPickup' as const,
+    fetchPersonalityExample:
+      'Hayden, what are we picking up, and where should we drop it?',
+  },
+] as const
+
+/** @deprecated Use `INTENT_COMPACT_PILLS` for the intent row; kept for scripts / analytics parity. */
 export const LANDING_PRIMARY_SERVICES = [
   {
     id: 'home-moving',
@@ -62,7 +89,6 @@ export const LANDING_PRIMARY_SERVICES = [
     jobType: 'homeMoving' as const,
     tone: 'green' as const,
     cardHeading: 'Home move',
-    /** Sample line Fetch might say after you pick this service (warm, AU tone). */
     fetchPersonalityExample:
       'Hayden, what are we moving today — and where are we taking it?',
   },

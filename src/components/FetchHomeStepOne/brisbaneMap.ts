@@ -31,11 +31,29 @@ export const SEQ_BOUNDARY: google.maps.LatLngLiteral[] = [
   { lat: -26.29, lng: 152.68 },
 ]
 
+/** ~100 km across the map (50 km from center to each edge). */
+export const SEQ_OUT_OF_REGION_MAP_HALF_SPAN_KM = 50
+
 /**
- * Half-span in km so the visible window is ~30 km across latitudinally
- * (≈15 km from center toward each edge).
+ * Point-in-polygon for the SEQ service polygon (ray casting).
  */
-const KM_HALF_SPAN = 15
+export function isLatLngInSeq(lat: number, lng: number): boolean {
+  const poly = SEQ_BOUNDARY
+  if (poly.length < 3) return false
+  let inside = false
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const yi = poly[i].lat
+    const xi = poly[i].lng
+    const yj = poly[j].lat
+    const xj = poly[j].lng
+    const denom = yj - yi
+    if (Math.abs(denom) < 1e-12) continue
+    const cross =
+      (yi > lat) !== (yj > lat) && lng < ((xj - xi) * (lat - yi)) / denom + xi
+    if (cross) inside = !inside
+  }
+  return inside
+}
 
 function boundsLiteralForKmFromCenter(
   lat: number,
@@ -51,6 +69,27 @@ function boundsLiteralForKmFromCenter(
     west: lng - lngDelta,
   }
 }
+
+export function fitKmOverviewFromCenter(
+  map: google.maps.Map,
+  lat: number,
+  lng: number,
+  halfSpanKm: number,
+  padding: number | google.maps.Padding = 20,
+) {
+  const b = boundsLiteralForKmFromCenter(lat, lng, halfSpanKm)
+  const bounds = new google.maps.LatLngBounds(
+    { lat: b.south, lng: b.west },
+    { lat: b.north, lng: b.east },
+  )
+  map.fitBounds(bounds, padding)
+}
+
+/**
+ * Half-span in km so the visible window is ~30 km across latitudinally
+ * (≈15 km from center toward each edge).
+ */
+const KM_HALF_SPAN = 15
 
 /**
  * Pans the map down by a fraction of the map height so the current geographic center
@@ -92,7 +131,7 @@ export function fitPickupAndDriver(
 }
 
 /** Pickup + drop-off: extra bottom padding keeps route above the bottom sheet. */
-const SHEET_FIT_PADDING: google.maps.Padding = {
+export const PICKUP_DROPOFF_SHEET_FIT_PADDING: google.maps.Padding = {
   top: 52,
   right: 44,
   bottom: 252,
@@ -103,11 +142,12 @@ export function fitPickupAndDropoff(
   map: google.maps.Map,
   pickup: google.maps.LatLngLiteral,
   dropoff: google.maps.LatLngLiteral,
+  padding: google.maps.Padding = PICKUP_DROPOFF_SHEET_FIT_PADDING,
 ) {
   const bounds = new google.maps.LatLngBounds()
   bounds.extend(pickup)
   bounds.extend(dropoff)
-  map.fitBounds(bounds, SHEET_FIT_PADDING)
+  map.fitBounds(bounds, padding)
 }
 
 /** Keep pickup, drop-off, and current driver position in frame during active trip. */
@@ -121,5 +161,5 @@ export function fitPickupDropoffAndDriver(
   bounds.extend(pickup)
   bounds.extend(dropoff)
   bounds.extend(driver)
-  map.fitBounds(bounds, SHEET_FIT_PADDING)
+  map.fitBounds(bounds, PICKUP_DROPOFF_SHEET_FIT_PADDING)
 }

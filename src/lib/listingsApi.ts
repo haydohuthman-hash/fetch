@@ -8,13 +8,27 @@ export type PeerListing = {
   updatedAt: number
   sellerUserId: string | null
   sellerEmail: string | null
+  /** Drops / Fetch public profile id (same as `DropCreatorProfile.id`) */
+  profileAuthorId?: string | null
+  /** Display name without @ — shown as public seller handle */
+  profileDisplayName?: string | null
+  /** Emoji or image URL */
+  profileAvatar?: string | null
   title: string
   description: string
   priceCents: number
+  /** Optional “was / retail” price in cents — must exceed priceCents when set */
+  compareAtCents?: number
   category: string
   condition: string
   status: string
   images: { url: string; sort?: number }[]
+  /** Comma / newline separated — matched by marketplace search */
+  keywords?: string
+  locationLabel?: string
+  sku?: string | null
+  acceptsOffers?: boolean
+  fetchDelivery?: boolean
 }
 
 export type ListingOrder = {
@@ -53,11 +67,13 @@ export async function fetchPublishedListings(params?: {
   q?: string
   category?: string
   cursor?: string
+  limit?: number
 }): Promise<{ listings: PeerListing[]; nextCursor: string | null }> {
   const qs = new URLSearchParams()
   if (params?.q) qs.set('q', params.q)
   if (params?.category) qs.set('category', params.category)
   if (params?.cursor) qs.set('cursor', params.cursor)
+  if (params?.limit != null && Number.isFinite(params.limit)) qs.set('limit', String(Math.floor(params.limit)))
   const suffix = qs.toString()
   const path = `/api/listings${suffix ? `?${suffix}` : ''}`
   const response = await fetch(`${getFetchApiBaseUrl()}${path}`, {
@@ -85,12 +101,66 @@ export async function fetchMyListings(): Promise<PeerListing[]> {
   return payload.listings
 }
 
+export type ListingPhotoAiFill = {
+  title: string
+  description: string
+  category: string
+  condition: string
+  keywords: string
+  widthCm: number | null
+  heightCm: number | null
+  depthCm: number | null
+  measurementsSummary: string | null
+  suggestedPriceAud: number | null
+  suggestedCompareAtAud: number | null
+  sku: string | null
+  confidence: number | null
+}
+
+/** Vision + LLM: suggest listing fields from seller photos (Buy & sell). */
+export async function analyzeListingPhotosForSell(files: File[]): Promise<ListingPhotoAiFill> {
+  const fd = new FormData()
+  for (const f of files.slice(0, 8)) {
+    fd.append('images', f)
+  }
+  const response = await fetch(`${getFetchApiBaseUrl()}/api/listings/ai-fill-from-photos`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { ...marketplaceActorHeaders('customer') },
+    body: fd,
+  })
+  const payload = (await response.json().catch(() => ({}))) as ListingPhotoAiFill & {
+    error?: string
+    detail?: string
+  }
+  if (!response.ok) {
+    const msg =
+      typeof payload.error === 'string'
+        ? payload.error
+        : `AI listing scan failed (${response.status})`
+    const detail = typeof payload.detail === 'string' ? `: ${payload.detail}` : ''
+    throw new Error(`${msg}${detail}`)
+  }
+  return payload
+}
+
 export async function createListing(body: {
   title: string
   description?: string
   priceAud: number
   category?: string
   condition?: string
+  keywords?: string
+  locationLabel?: string
+  sku?: string
+  acceptsOffers?: boolean
+  fetchDelivery?: boolean
+  /** Higher than priceAud — shown as strikethrough “was” price */
+  compareAtPriceAud?: number
+  /** Required — seller’s Fetch / Drops public profile */
+  profileAuthorId: string
+  profileDisplayName: string
+  profileAvatar?: string
 }): Promise<PeerListing> {
   const payload = await listingsJson<{ listing: PeerListing }>('/api/listings', {
     method: 'POST',
@@ -103,6 +173,33 @@ export async function publishListing(id: string): Promise<PeerListing> {
   const payload = await listingsJson<{ listing: PeerListing }>(
     `/api/listings/${encodeURIComponent(id)}/publish`,
     { method: 'POST' },
+  )
+  return payload.listing
+}
+
+export async function patchListing(
+  id: string,
+  body: {
+    title?: string
+    description?: string
+    priceAud?: number
+    category?: string
+    condition?: string
+    keywords?: string
+    locationLabel?: string
+    sku?: string | null
+    acceptsOffers?: boolean
+    fetchDelivery?: boolean
+    compareAtPriceAud?: number
+    compareAtCents?: number
+    profileAuthorId?: string | null
+    profileDisplayName?: string | null
+    profileAvatar?: string | null
+  },
+): Promise<PeerListing> {
+  const payload = await listingsJson<{ listing: PeerListing }>(
+    `/api/listings/${encodeURIComponent(id)}`,
+    { method: 'PATCH', body: JSON.stringify(body) },
   )
   return payload.listing
 }

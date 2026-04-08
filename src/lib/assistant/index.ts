@@ -1,5 +1,6 @@
 export {
   applyDirectionsToBookingState,
+  applyProvisionalRouteIfNeeded,
   deriveFlowStep,
   isJunkAccessPhase,
   isJunkBookingConfirmPhase,
