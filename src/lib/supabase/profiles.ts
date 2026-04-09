@@ -37,6 +37,37 @@ export function validateUsername(username: string): string | null {
   return null
 }
 
+function normalizeUsernameSeed(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .replace(/_{2,}/g, '_')
+}
+
+function clampUsername(text: string): string {
+  const cleaned = normalizeUsernameSeed(text)
+  if (cleaned.length <= 20) return cleaned
+  return cleaned.slice(0, 20).replace(/_+$/g, '')
+}
+
+function usernameSeedFromEmail(emailRaw: string, displayName?: string): string {
+  const email = String(emailRaw || '').trim().toLowerCase()
+  const [localRaw = '', domainRaw = ''] = email.split('@')
+  const domainLabel = domainRaw.split('.')[0] || ''
+  const localPieces = localRaw.split(/[._+-]+/g).filter(Boolean)
+  const namePieces = String(displayName || '')
+    .trim()
+    .toLowerCase()
+    .split(/\s+/g)
+    .filter(Boolean)
+  const left = localPieces.slice(0, 2).join('_') || namePieces.slice(0, 2).join('_') || 'fetcher'
+  const seed = clampUsername(`${left}_${domainLabel}`) || clampUsername(left) || 'fetcher'
+  if (seed.length >= 3) return seed
+  return 'fetcher'
+}
+
 function defaultProfileUsername(userId: string): string {
   const compact = userId.replace(/-/g, '')
   return `user_${compact.slice(0, 6)}`
@@ -192,6 +223,73 @@ export async function getMySupabaseProfile(): Promise<SupabaseProfile | null> {
   const user = await resolveAuthUser(sb)
   if (!user) return null
   return ensureUserProfile(user)
+}
+
+async function usernameTaken(sb: SupabaseClient, candidate: string, userId: string): Promise<boolean> {
+  const { data, error } = await sb
+    .from('profiles')
+    .select('id')
+    .eq('username', candidate)
+    .maybeSingle()
+  if (error) throw error
+  return Boolean(data?.id && data.id !== userId)
+}
+
+export async function suggestUniqueUsernameFromEmail(email: string, displayName?: string): Promise<string> {
+  const sb = requireSupabaseBrowserClient()
+  const user = await resolveAuthUser(sb)
+  if (!user?.id) throw new Error('You must be logged in')
+  const uid = user.id
+  const base = usernameSeedFromEmail(email, displayName)
+  const candidates: string[] = []
+  if (base.length >= 3) candidates.push(base)
+  for (let n = 11; n <= 99; n += 1) {
+    const suffix = String(n)
+    const room = Math.max(0, 20 - suffix.length)
+    const stem = base.slice(0, room).replace(/_+$/g, '')
+    const cand = `${stem}${suffix}`
+    if (cand.length >= 3) candidates.push(cand)
+  }
+  for (const candidate of candidates) {
+    if (!validateUsername(candidate) && !(await usernameTaken(sb, candidate, uid))) return candidate
+  }
+  return defaultProfileUsername(uid)
+}
+
+function extensionForImage(file: File): string {
+  const fromName = file.name.split('.').pop()?.trim().toLowerCase()
+  if (fromName && /^[a-z0-9]{2,5}$/.test(fromName)) return fromName
+  if (file.type === 'image/png') return 'png'
+  if (file.type === 'image/webp') return 'webp'
+  if (file.type === 'image/gif') return 'gif'
+  return 'jpg'
+}
+
+export async function uploadMySupabaseAvatar(file: File): Promise<string> {
+  if (!file || !(file instanceof File)) throw new Error('Choose a profile photo first.')
+  if (!file.type.startsWith('image/')) throw new Error('Profile photo must be an image file.')
+  if (file.size > 8 * 1024 * 1024) throw new Error('Profile photo must be 8MB or smaller.')
+
+  const sb = requireSupabaseBrowserClient()
+  const user = await resolveAuthUser(sb)
+  if (!user?.id) throw new Error('You must be logged in')
+  const uid = user.id
+  const bucket = import.meta.env.VITE_SUPABASE_PROFILE_BUCKET || import.meta.env.VITE_SUPABASE_DROP_BUCKET || 'drops'
+  const ext = extensionForImage(file)
+  const path = `profiles/${uid}/avatar-${Date.now()}.${ext}`
+
+  const { error: uploadError } = await sb.storage.from(bucket).upload(path, file, {
+    upsert: true,
+    cacheControl: '3600',
+    contentType: file.type || undefined,
+  })
+  if (uploadError) {
+    throw new Error(uploadError.message || 'Could not upload profile photo.')
+  }
+  const { data } = sb.storage.from(bucket).getPublicUrl(path)
+  const publicUrl = data.publicUrl?.trim()
+  if (!publicUrl) throw new Error('Could not resolve uploaded photo URL.')
+  return publicUrl
 }
 
 export async function updateMySupabaseProfile(patch: {

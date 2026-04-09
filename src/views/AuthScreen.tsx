@@ -4,6 +4,8 @@ import { getSupabaseBrowserClient } from '../lib/supabase/client'
 import {
   getMySupabaseProfile,
   isAutomaticDefaultUsername,
+  suggestUniqueUsernameFromEmail,
+  uploadMySupabaseAvatar,
   updateMySupabaseProfile,
   validateUsername,
 } from '../lib/supabase/profiles'
@@ -46,8 +48,11 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
   const [phone, setPhone] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [needsUsername, setNeedsUsername] = useState(false)
+  const [needsProfileSetup, setNeedsProfileSetup] = useState(false)
   const [username, setUsername] = useState('')
+  const [existingAvatarUrl, setExistingAvatarUrl] = useState<string | null>(null)
+  const [photoFile, setPhotoFile] = useState<File | null>(null)
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null)
 
   const afterSupabaseAuth = useCallback(async () => {
     const me = await refreshSessionFromSupabase()
@@ -59,13 +64,25 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
     if (!profile) throw new Error('Could not create or load your profile. Run the profiles SQL in Supabase.')
     console.log('USERNAME', profile?.username ?? null)
     const needHandle = !profile?.username || isAutomaticDefaultUsername(profile.username, me.id)
+    const currentAvatarUrl = profile.avatar_url?.trim() || null
+    const needAvatar = !currentAvatarUrl
     // #region agent log
     fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'AuthScreen:afterSupabaseAuth',message:'profile gate',data:{needHandle,unameLen:(profile.username||'').length,hypothesisId:'P1'},timestamp:Date.now(),hypothesisId:'P1'})}).catch(()=>{});
     // #endregion
-    if (needHandle) {
-      setNeedsUsername(true)
+    if (needHandle || needAvatar) {
+      setNeedsProfileSetup(true)
+      setExistingAvatarUrl(currentAvatarUrl)
+      setPhotoFile(null)
+      setPhotoPreviewUrl(currentAvatarUrl)
+      const suggested = needHandle
+        ? await suggestUniqueUsernameFromEmail(me.email, me.displayName).catch(() => '')
+        : ''
       setUsername(
-        profile?.username && !isAutomaticDefaultUsername(profile.username, me.id) ? profile.username : '',
+        needHandle
+          ? suggested || profile?.username || ''
+          : profile?.username && !isAutomaticDefaultUsername(profile.username, me.id)
+            ? profile.username
+            : '',
       )
       return
     }
@@ -173,7 +190,13 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
     }
   }
 
-  const onCompleteUsername = async (e: FormEvent) => {
+  useEffect(() => {
+    return () => {
+      if (photoPreviewUrl && photoPreviewUrl.startsWith('blob:')) URL.revokeObjectURL(photoPreviewUrl)
+    }
+  }, [photoPreviewUrl])
+
+  const onCompleteProfileSetup = async (e: FormEvent) => {
     e.preventDefault()
     setError(null)
     const err = validateUsername(username)
@@ -183,7 +206,16 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
     }
     setBusy(true)
     try {
-      const updated = await updateMySupabaseProfile({ username: username.trim() })
+      let avatarUrl = existingAvatarUrl
+      if (photoFile) avatarUrl = await uploadMySupabaseAvatar(photoFile)
+      if (!avatarUrl) {
+        setError('Upload a real profile photo to continue.')
+        return
+      }
+      const updated = await updateMySupabaseProfile({
+        username: username.trim(),
+        avatar_url: avatarUrl,
+      })
       // #region agent log
       fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'AuthScreen:onCompleteUsername',message:'username saved',data:{ok:true,hypothesisId:'P2'},timestamp:Date.now(),hypothesisId:'P2'})}).catch(()=>{});
       // #endregion
@@ -197,9 +229,10 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
           username: updated.username || undefined,
         })
       }
+      setNeedsProfileSetup(false)
       onSuccess()
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Could not set username.'
+      const msg = e instanceof Error ? e.message : 'Could not save profile.'
       setError(msg.toLowerCase().includes('duplicate') ? 'That username is already taken.' : msg)
     } finally {
       setBusy(false)
@@ -301,27 +334,57 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
         </button>
       </div>
 
-      {needsUsername ? (
-        <form onSubmit={onCompleteUsername} className="mt-4 flex max-w-md flex-col gap-2">
+      {needsProfileSetup ? (
+        <form onSubmit={onCompleteProfileSetup} className="mt-4 flex max-w-md flex-col gap-2">
           <label className="fetch-auth-label text-[10px] font-semibold uppercase tracking-[0.1em] text-white/38">
-            Choose username
+            Username
           </label>
           <input
             type="text"
             autoComplete="username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            placeholder="my_store_name"
+            placeholder="your_name12"
             className={inputClass}
           />
-          <p className="text-[11px] text-white/55">3-20 chars, letters/numbers/underscore.</p>
+          <p className="text-[11px] text-white/55">
+            Built from your email name + domain, with a unique suggested number.
+          </p>
+          <label className="fetch-auth-label mt-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-white/38">
+            Profile photo
+          </label>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => {
+              const next = e.target.files?.[0] ?? null
+              setPhotoFile(next)
+              if (photoPreviewUrl && photoPreviewUrl.startsWith('blob:')) URL.revokeObjectURL(photoPreviewUrl)
+              if (next) {
+                setPhotoPreviewUrl(URL.createObjectURL(next))
+              } else {
+                setPhotoPreviewUrl(existingAvatarUrl)
+              }
+            }}
+            className="rounded-xl border border-white/12 bg-black/40 px-3 py-2 text-[12px] text-white/80 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-1.5 file:text-[12px] file:font-semibold file:text-black"
+          />
+          <div className="mt-1 flex items-center gap-2">
+            <div className="h-12 w-12 overflow-hidden rounded-full bg-white/10 ring-1 ring-white/15">
+              {photoPreviewUrl ? (
+                <img src={photoPreviewUrl} alt="Profile preview" className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-[11px] text-white/55">No photo</div>
+              )}
+            </div>
+            <p className="text-[11px] text-white/55">Upload a real image (not a link).</p>
+          </div>
           {error ? <p className="text-[11px] text-red-300/90">{error}</p> : null}
           <button
             type="submit"
             disabled={busy}
             className="mt-1 rounded-xl bg-black py-3 text-[14px] font-bold text-white ring-1 ring-white/20 hover:bg-zinc-950 disabled:opacity-45"
           >
-            {busy ? 'Please wait…' : 'Continue'}
+            {busy ? 'Saving…' : 'Continue'}
           </button>
         </form>
       ) : !showEmailForm ? (
