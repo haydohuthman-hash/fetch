@@ -67,11 +67,14 @@ export function useLiveTripDirections({
 }: UseLiveTripDirectionsArgs): LiveTripDirectionsState {
   const [state, setState] = useState<LiveTripDirectionsState>(EMPTY)
   const onComputedRef = useRef(onRouteComputed)
-  onComputedRef.current = onRouteComputed
+
+  useEffect(() => {
+    onComputedRef.current = onRouteComputed
+  }, [onRouteComputed])
 
   useEffect(() => {
     if (!enabled || !mapsJsReady || typeof google === 'undefined' || !bookingId) {
-      setState(EMPTY)
+      queueMicrotask(() => setState(EMPTY))
       return
     }
 
@@ -98,7 +101,7 @@ export function useLiveTripDirections({
         gpsFreshMs,
       })
       if (!ep) {
-        if (!cancelled) setState(EMPTY)
+        if (!cancelled) queueMicrotask(() => setState(EMPTY))
         return
       }
 

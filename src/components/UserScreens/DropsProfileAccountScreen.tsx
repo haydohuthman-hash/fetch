@@ -7,19 +7,21 @@ import {
   getMyDropProfile,
 } from '../../lib/drops/profileStore'
 import { useDropsApiFeed } from '../../lib/drops/useDropsApiFeed'
-import { signOutUser } from '../../lib/fetchUserSession'
 import {
   AccountNavIconFilled,
   ChatNavIconFilled,
   FetchEyesHomeIcon,
   MarketplaceNavIconFilled,
   ReelsNavIconFilled,
+} from '../icons/HomeShellNavIcons'
+import {
   FetchProfileSheet,
   type HomeShellTabRequest,
 } from '../profile/FetchProfileSheet'
 
 const PENDING_TAB_KEY = 'fetch.pendingHomeShellTab'
 const PENDING_REEL_KEY = 'fetch.pendingDropsReelId'
+const PENDING_PEER_LISTING_KEY = 'fetch.pendingPeerListingHandoff'
 
 function stashHomeTab(tab: HomeShellTabRequest) {
   try {
@@ -38,6 +40,15 @@ function stashHomeReel(reelId: string) {
   }
 }
 
+function stashPeerListingOpen(listingId: string) {
+  try {
+    sessionStorage.setItem(PENDING_PEER_LISTING_KEY, JSON.stringify({ listingId, mode: 'sheet' }))
+  } catch {
+    /* ignore */
+  }
+  stashHomeTab('buySell')
+}
+
 export type DropsProfileAccountScreenProps = {
   onBack: () => void
   onSignOut: () => void
@@ -45,12 +56,7 @@ export type DropsProfileAccountScreenProps = {
   onOpenOnboarding: () => void
 }
 
-export function DropsProfileAccountScreen({
-  onBack,
-  onSignOut,
-  onOpenDriver,
-  onOpenOnboarding,
-}: DropsProfileAccountScreenProps) {
+export function DropsProfileAccountScreen({ onBack }: DropsProfileAccountScreenProps) {
   const { reels: apiFeedReels } = useDropsApiFeed()
   const pool = useMemo(
     () => mergeFeedReels([], apiFeedReels, CURATED_DROP_REELS),
@@ -60,7 +66,7 @@ export function DropsProfileAccountScreen({
 
   useEffect(() => {
     ensureDropProfileForSession()
-    setProfileTick((x) => x + 1)
+    queueMicrotask(() => setProfileTick((x) => x + 1))
   }, [])
 
   const me = getMyDropProfile()
@@ -85,10 +91,13 @@ export function DropsProfileAccountScreen({
     [onBack],
   )
 
-  const handleSignOut = useCallback(() => {
-    signOutUser()
-    onSignOut()
-  }, [onSignOut])
+  const onOpenPeerListing = useCallback(
+    (listingId: string) => {
+      stashPeerListingOpen(listingId)
+      onBack()
+    },
+    [onBack],
+  )
 
   const openHomeTab = useCallback(
     (tab: HomeShellTabRequest) => {
@@ -111,6 +120,7 @@ export function DropsProfileAccountScreen({
         onProfileSaved={onProfileSaved}
         onRequestTab={onRequestTab}
         onOpenReel={onOpenReel}
+        onOpenPeerListing={onOpenPeerListing}
         padBottomForFooter={false}
       />
       <nav

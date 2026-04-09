@@ -66,9 +66,11 @@ export function LocationRadiusPickerSheet({
 
   useEffect(() => {
     if (!open) return
-    setCenter(initialCenter)
-    setRadiusKm(initialRadiusKm)
-    setLabel('')
+    queueMicrotask(() => {
+      setCenter(initialCenter)
+      setRadiusKm(initialRadiusKm)
+      setLabel('')
+    })
   }, [open, initialCenter.lat, initialCenter.lng, initialRadiusKm])
 
   const reverseGeocode = useCallback((pos: google.maps.LatLngLiteral) => {
@@ -235,6 +237,7 @@ export function LocationRadiusPickerSheet({
 
 export const SERVICE_AREA_STORAGE_KEY = 'fetch-service-area-v1'
 
+// eslint-disable-next-line react-refresh/only-export-components -- storage helpers used outside this sheet
 export function loadServiceAreaFromStorage(): {
   center: google.maps.LatLngLiteral
   radiusKm: ServiceRadiusKm
@@ -256,6 +259,7 @@ export function loadServiceAreaFromStorage(): {
   }
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- storage helpers used outside this sheet
 export function saveServiceAreaToStorage(value: LocationRadiusConfirm) {
   try {
     localStorage.setItem(

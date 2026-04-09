@@ -1134,6 +1134,117 @@ html[data-fetch-theme='dark'] .fetch-home-phone-stage {
   }
 }
 
+/* HomeShellReelsPage — tab click: horizontal feed nudge + swipe onboarding card */
+@keyframes fetch-reels-feed-tab-in-from-right {
+  from {
+    opacity: 0.82;
+    transform: translate3d(22px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes fetch-reels-feed-tab-in-from-left {
+  from {
+    opacity: 0.82;
+    transform: translate3d(-22px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes fetch-reels-tab-splash-in-from-right {
+  from {
+    transform: translate3d(100%, 0, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes fetch-reels-tab-splash-in-from-left {
+  from {
+    transform: translate3d(-100%, 0, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes fetch-reels-tab-splash-out-to-right {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(100%, 0, 0);
+  }
+}
+
+@keyframes fetch-reels-tab-splash-out-to-left {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-100%, 0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fetch-reels-feed-tab-enter--from-right {
+    animation: fetch-reels-feed-tab-in-from-right 0.34s cubic-bezier(0.22, 0.88, 0.24, 1) both;
+  }
+
+  .fetch-reels-feed-tab-enter--from-left {
+    animation: fetch-reels-feed-tab-in-from-left 0.34s cubic-bezier(0.22, 0.88, 0.24, 1) both;
+  }
+
+  .fetch-reels-tab-splash--in-from-right {
+    animation: fetch-reels-tab-splash-in-from-right 0.4s cubic-bezier(0.22, 0.88, 0.24, 1) both;
+  }
+
+  .fetch-reels-tab-splash--in-from-left {
+    animation: fetch-reels-tab-splash-in-from-left 0.4s cubic-bezier(0.22, 0.88, 0.24, 1) both;
+  }
+
+  .fetch-reels-tab-splash--out-to-right {
+    animation: fetch-reels-tab-splash-out-to-right 0.32s cubic-bezier(0.4, 0, 0.8, 0.4) both;
+  }
+
+  .fetch-reels-tab-splash--out-to-left {
+    animation: fetch-reels-tab-splash-out-to-left 0.32s cubic-bezier(0.4, 0, 0.8, 0.4) both;
+  }
+}
+
+@keyframes fetch-reels-tab-splash-out-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fetch-reels-feed-tab-enter--from-right,
+  .fetch-reels-feed-tab-enter--from-left {
+    animation: none;
+  }
+
+  .fetch-reels-tab-splash--in-from-right,
+  .fetch-reels-tab-splash--in-from-left {
+    animation: fetch-voice-bridge-caption-in 0.28s ease both;
+  }
+
+  .fetch-reels-tab-splash--out-to-right,
+  .fetch-reels-tab-splash--out-to-left {
+    animation: fetch-reels-tab-splash-out-fade 0.22s ease both;
+  }
+}
+
 /* Assistant card copy: exit = slide up + fade out; enter = rise slightly + fade in */
 @keyframes fetch-assistant-card-shell-enter {
   from {
@@ -4126,11 +4237,34 @@ html[data-fetch-theme='dark'] .fetch-address-suggestions-section__label {
   font-size: 0.8125rem !important;
   line-height: 1.35 !important;
   cursor: pointer;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  gap: 0.2rem !important;
+  white-space: normal !important;
+}
+
+/* Places often sets .pac-item { font-size: 0 }; unstyled sibling spans stay invisible without this. */
+.fetch-address-suggestions-mount .pac-item span:not(.pac-icon) {
+  font-size: inherit !important;
+  line-height: inherit !important;
+  opacity: 1 !important;
+  max-height: none !important;
+}
+
+.fetch-address-suggestions-mount .pac-secondary-text {
+  display: block !important;
+  font-size: 0.75rem !important;
+  color: rgba(82, 82, 91, 0.95) !important;
 }
 
 html[data-fetch-theme='dark'] .fetch-address-suggestions-mount .pac-item {
   border-bottom-color: rgba(255, 255, 255, 0.12) !important;
   color: rgba(228, 228, 231, 0.92) !important;
+}
+
+html[data-fetch-theme='dark'] .fetch-address-suggestions-mount .pac-secondary-text {
+  color: rgba(161, 161, 170, 0.95) !important;
 }
 
 .fetch-address-suggestions-mount .pac-item:last-child {
@@ -4152,6 +4286,64 @@ html[data-fetch-theme='dark'] .fetch-address-suggestions-mount .pac-item {
 .fetch-address-suggestions-mount .pac-item-selected .pac-item-query {
   color: inherit !important;
   font-weight: 600;
+}
+
+/* Custom Places list (AutocompleteService) — full address lines under “Suggestions”. */
+.fetch-address-suggestions-mount .fetch-places-suggestions {
+  width: 100%;
+  max-height: min(42dvh, 22rem);
+  overflow-y: auto;
+  padding: 0;
+  margin: 0;
+}
+
+.fetch-address-suggestions-mount .fetch-places-suggestions__item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid rgba(24, 24, 27, 0.12);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  padding: 0.4rem 0.1rem 0.4rem 0;
+  font: inherit;
+  color: inherit;
+}
+
+.fetch-address-suggestions-mount .fetch-places-suggestions__item:last-child {
+  border-bottom: none;
+}
+
+.fetch-address-suggestions-mount .fetch-places-suggestions__main {
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  color: rgba(39, 39, 42, 0.92);
+}
+
+.fetch-address-suggestions-mount .fetch-places-suggestions__secondary {
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: rgba(82, 82, 91, 0.95);
+}
+
+.fetch-address-suggestions-mount .fetch-places-suggestions__item:hover .fetch-places-suggestions__main,
+.fetch-address-suggestions-mount .fetch-places-suggestions__item--active .fetch-places-suggestions__main {
+  font-weight: 600;
+}
+
+html[data-fetch-theme='dark'] .fetch-address-suggestions-mount .fetch-places-suggestions__item {
+  border-bottom-color: rgba(255, 255, 255, 0.12);
+}
+
+html[data-fetch-theme='dark'] .fetch-address-suggestions-mount .fetch-places-suggestions__main {
+  color: rgba(228, 228, 231, 0.92);
+}
+
+html[data-fetch-theme='dark'] .fetch-address-suggestions-mount .fetch-places-suggestions__secondary {
+  color: rgba(161, 161, 170, 0.95);
 }
 
 /* A → B pickup / drop-off: single outer frame + dot-in-row fields (map-first booking). */
@@ -4185,13 +4377,13 @@ html[data-fetch-theme='dark'] .fetch-home-ab-unified:focus-within {
 }
 
 .fetch-home-ab-marker-dot--pickup {
-  background: #10b981;
-  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.22);
+  background: #111111;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.14);
 }
 
 .fetch-home-ab-marker-dot--dropoff {
-  background: #0ea5e5;
-  box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.25);
+  background: #111111;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.14);
 }
 
 /* Align saved stops / chips with typed text (after dot + gap). */
@@ -4401,49 +4593,8 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
   display: none;
 }
 
-/* Sheet top — soft fade (other surfaces); intent uses stronger frost below */
-.fetch-home-booking-sheet__top-frost {
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  /* Below in-flow sheet body — Safari composites backdrop-filter layers above z-auto siblings if this is too high */
-  z-index: 0;
-  height: min(42%, 7.5rem);
-  max-height: 9.5rem;
-  pointer-events: none;
-  border-radius: inherit;
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.55) 0%,
-    rgba(255, 255, 255, 0.18) 48%,
-    rgba(255, 255, 255, 0) 100%
-  );
-  backdrop-filter: blur(22px) saturate(1.22);
-  -webkit-backdrop-filter: blur(22px) saturate(1.22);
-  mask-image: linear-gradient(180deg, black 0%, black 55%, transparent 100%);
-  -webkit-mask-image: linear-gradient(180deg, black 0%, black 55%, transparent 100%);
-}
-
-/* Services home: light frost so map shows through; blur does the readability work */
-.fetch-home-booking-sheet[data-surface='intent'] .fetch-home-booking-sheet__top-frost {
-  height: min(48%, 9rem);
-  max-height: 11rem;
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.22) 0%,
-    rgba(255, 255, 255, 0.1) 38%,
-    rgba(255, 255, 255, 0.03) 72%,
-    rgba(255, 255, 255, 0) 100%
-  );
-  backdrop-filter: blur(40px) saturate(1.32);
-  -webkit-backdrop-filter: blur(40px) saturate(1.32);
-  mask-image: linear-gradient(180deg, black 0%, black 58%, transparent 100%);
-  -webkit-mask-image: linear-gradient(180deg, black 0%, black 58%, transparent 100%);
-}
-
 /*
- * Intent: explicit stack so body text (e.g. “Choose a service”) stays above frost in WebKit.
+ * Intent: explicit stack so handle + peek stay above the body layer for hit-testing.
  * Handle + peek stay above the body layer for hit-testing.
  */
 .fetch-home-booking-sheet[data-surface='intent'] .fetch-home-booking-sheet__handle-rail,
@@ -4455,22 +4606,6 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
 .fetch-home-booking-sheet[data-surface='intent'] .fetch-home-booking-sheet__body {
   position: relative;
   z-index: 1;
-}
-
-/* Compact intent: keep frost tight to handle — avoid haze over “Choose a service” + cards */
-.fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-booking-sheet__top-frost {
-  height: min(22%, 3.75rem);
-  max-height: 4.25rem;
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.35) 0%,
-    rgba(255, 255, 255, 0.08) 55%,
-    rgba(255, 255, 255, 0) 100%
-  );
-  backdrop-filter: blur(14px) saturate(1.12);
-  -webkit-backdrop-filter: blur(14px) saturate(1.12);
-  mask-image: linear-gradient(180deg, black 0%, black 42%, transparent 100%);
-  -webkit-mask-image: linear-gradient(180deg, black 0%, black 42%, transparent 100%);
 }
 
 /* Brain shortcut mic / magic: tuck under handle bar, aligned with edge-shell service inset. */
@@ -5455,11 +5590,6 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
   max-height: min(88dvh, 44rem);
 }
 
-/* Post–service-pick booking: no frost band over the map; handle only. */
-.fetch-home-booking-sheet[data-map-first-booking='true'] .fetch-home-booking-sheet__top-frost {
-  display: none;
-}
-
 .fetch-home-booking-sheet[data-map-first-booking='true'] .fetch-home-booking-sheet__handle-rail {
   position: relative;
   z-index: 4;
@@ -5862,7 +5992,7 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   box-shadow:
     0 -18px 56px rgba(15, 23, 42, 0.06),
     inset 0 1px 0 rgba(255, 255, 255, 0.55);
-  /* Stronger frost: more map bleed up top; blur carries readability */
+  /* Translucent top: map bleeds slightly; blur aids legibility over the map */
   background-color: rgba(255, 255, 255, 0.03);
   background-image: linear-gradient(
     180deg,
@@ -5901,12 +6031,6 @@ html[data-fetch-theme='light'] .fetch-home-vision {
     background-color: #f8fafc;
     background-image: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
     border-color: rgba(226, 232, 240, 0.9);
-  }
-
-  .fetch-home-booking-sheet__top-frost,
-  .fetch-home-booking-sheet[data-surface='intent'] .fetch-home-booking-sheet__top-frost {
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
   }
 
   .fetch-home-vision
@@ -6517,13 +6641,31 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 
 .fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon:hover {
   color: rgba(255, 255, 255, 0.78);
-  background: rgba(255, 255, 255, 0.08);
+  background: transparent;
 }
 
 .fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon--active,
 .fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon--active:hover {
   color: #fff;
   background: transparent;
+}
+
+/* Drops tab only: filled hit + upload icon reads on dark reel footer */
+.fetch-home-reels-shell-footer
+  .fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active,
+.fetch-home-reels-shell-footer
+  .fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+/* Plus glyph on white tile (active icon) — dark on reel footer, white on light bar */
+.fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon--active .fetch-reels-nav-icon__plus {
+  fill: #0a0a0a;
+}
+
+.fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active,
+.fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active:hover {
+  background: rgba(15, 23, 42, 0.09);
 }
 
 /* Full-width bottom bar — home / maps / marketplace (fixed row; safe-area on bottom). */
@@ -6566,7 +6708,7 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 
 .fetch-home-intent-bottom-nav__icon:hover {
   color: rgba(15, 23, 42, 0.8);
-  background: rgba(15, 23, 42, 0.04);
+  background: transparent;
 }
 
 .fetch-home-intent-bottom-nav__icon:active {
@@ -6603,6 +6745,43 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   outline-offset: 2px;
 }
 
+/* Tighter bottom tab bar (shop first in DOM order from HomeView). */
+.fetch-home-intent-bottom-nav--compact {
+  min-height: calc(2.4rem + env(safe-area-inset-bottom, 0px));
+  padding: 0.2rem max(0.4rem, env(safe-area-inset-left, 0px))
+    max(0.22rem, env(safe-area-inset-bottom, 0px)) max(0.4rem, env(safe-area-inset-right, 0px));
+}
+
+.fetch-home-intent-bottom-nav--compact .fetch-home-intent-bottom-nav__icon {
+  min-height: 2.2rem;
+  padding: 0.16rem 0.28rem;
+  border-radius: 0.72rem;
+}
+
+.fetch-home-intent-bottom-nav--compact .fetch-home-intent-bottom-nav__icon svg {
+  width: 1.7rem;
+  height: 1.7rem;
+}
+
+.fetch-home-intent-bottom-nav--compact .fetch-home-intent-bottom-nav__icon--active svg {
+  width: 2.05rem;
+  height: 2.05rem;
+}
+
+.fetch-home-booking-sheet[data-surface='intent'][data-snap='compact']
+  .fetch-home-intent-bottom-nav--compact {
+  min-height: calc(2.5rem + env(safe-area-inset-bottom, 0px));
+  padding-top: 0.22rem;
+  padding-bottom: max(0.28rem, env(safe-area-inset-bottom, 0px));
+}
+
+.fetch-home-booking-sheet[data-surface='intent'][data-snap='compact']
+  .fetch-home-intent-bottom-nav--compact
+  .fetch-home-intent-bottom-nav__icon {
+  min-height: 2.35rem;
+  padding: 0.18rem 0.32rem;
+}
+
 /* Intent compact: dock breathes at the sheet bottom; icon row gets a hair more inset */
 .fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-booking-sheet__shell-footer {
   padding-top: 0.42rem;
@@ -6634,7 +6813,7 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   padding-bottom: 0;
 }
 
-/* Compact intent: keep a floor below handle + frosted band so cards never tuck under the sheet header */
+/* Compact intent: keep a floor below handle so cards never tuck under the sheet header */
 .fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-booking-sheet__body--compact {
   padding-top: max(2.95rem, calc(6.5rem * 0.34 + 0.72rem));
   padding-bottom: 0.05rem;
@@ -6659,7 +6838,7 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   padding-bottom: 0.42rem;
 }
 
-/* Bottom-align intent landing in compact; fixed ~10dvh spacer keeps cards just below frosted band */
+/* Bottom-align intent landing in compact; fixed ~10dvh spacer clears the handle band */
 .fetch-home-booking-sheet[data-surface='intent'][data-snap='compact']
   .fetch-home-sheet-inner:not(:has(.fetch-home-booking-step--stack)) {
   flex: 1 1 0;

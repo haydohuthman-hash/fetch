@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react'
 import { useFetchVoice } from '../voice/FetchVoiceContext'
-import { VoiceMuteControl } from './FetchHomeStepOne/VoiceMuteControl'
 
 export type AppTab = 'home' | 'notifications' | 'account'
 
@@ -64,7 +63,6 @@ export function FetchHomeTopBubbleBar({ tab, onTab, unreadCount }: FetchHomeTopB
   return (
     <div className="pointer-events-none absolute left-4 right-4 top-[max(0.5rem,env(safe-area-inset-top))] z-[52] flex items-center gap-2">
       <div className="pointer-events-auto flex min-w-0 flex-wrap items-center gap-2">
-        <VoiceMuteControl />
         {items.map((item) => (
           <button
             key={item.id}

@@ -311,23 +311,25 @@ export function FetchBrainCortexDirectory({
 
   useEffect(() => {
     if (!focusedMemoryId) return
-    const hub = hubFromFocusId(focusedMemoryId)
-    if (hub) {
-      setActiveHub(hub)
-      setStage('cluster')
-    }
-    setInspectId(focusedMemoryId)
-    if (
-      focusedMemoryId.startsWith('activity:') ||
-      focusedMemoryId.startsWith('alert:') ||
-      focusedMemoryId.startsWith('address:') ||
-      focusedMemoryId.startsWith('chat_turn:') ||
-      focusedMemoryId === 'mem:mileage'
-    ) {
-      setStage('recall')
-    } else if (focusedMemoryId.startsWith('section:')) {
-      setStage('recall')
-    }
+    queueMicrotask(() => {
+      const hub = hubFromFocusId(focusedMemoryId)
+      if (hub) {
+        setActiveHub(hub)
+        setStage('cluster')
+      }
+      setInspectId(focusedMemoryId)
+      if (
+        focusedMemoryId.startsWith('activity:') ||
+        focusedMemoryId.startsWith('alert:') ||
+        focusedMemoryId.startsWith('address:') ||
+        focusedMemoryId.startsWith('chat_turn:') ||
+        focusedMemoryId === 'mem:mileage'
+      ) {
+        setStage('recall')
+      } else if (focusedMemoryId.startsWith('section:')) {
+        setStage('recall')
+      }
+    })
   }, [focusedMemoryId])
 
   const goBack = () => {

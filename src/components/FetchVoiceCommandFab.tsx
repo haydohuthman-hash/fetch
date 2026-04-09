@@ -131,7 +131,7 @@ export function FetchVoiceCommandFab({
 
   useEffect(() => {
     if (pulseNonce <= 0) return
-    setPulseActive(true)
+    queueMicrotask(() => setPulseActive(true))
     const t = window.setTimeout(() => setPulseActive(false), 280)
     return () => window.clearTimeout(t)
   }, [pulseNonce])

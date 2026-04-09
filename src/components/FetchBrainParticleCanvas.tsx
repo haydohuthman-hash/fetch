@@ -47,15 +47,21 @@ export function FetchBrainParticleCanvas({
   const ingestBufRef = useRef<BrainMemoryIngestBuffers | null>(null)
   const scratchRef = useRef<BrainParticleScratch | null>(null)
   const graphNodesRef = useRef(graphNodes)
-  graphNodesRef.current = graphNodes
   const rafRef = useRef(0)
   const t0Ref = useRef(0)
   const lastRef = useRef(0)
   const entryStartRef = useRef(0)
   const runningRef = useRef(running)
-  runningRef.current = running
   const wasListeningRef = useRef(false)
   const wasSpeakingRef = useRef(false)
+
+  useEffect(() => {
+    graphNodesRef.current = graphNodes
+  }, [graphNodes])
+
+  useEffect(() => {
+    runningRef.current = running
+  }, [running])
 
   useEffect(() => {
     const canvas = canvasRef.current

@@ -33,7 +33,7 @@ const EVENT_CONFIG: Record<UiFeedbackEvent, CueConfig> = {
   error: { debounceMs: 450, haptic: [12, 18, 12] },
 }
 
-let lastPlayByEvent = new Map<UiFeedbackEvent, number>()
+const lastPlayByEvent = new Map<UiFeedbackEvent, number>()
 let sharedCtx: AudioContext | null = null
 
 function getAudioContext(): AudioContext | null {

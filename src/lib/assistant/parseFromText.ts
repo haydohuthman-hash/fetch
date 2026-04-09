@@ -107,11 +107,11 @@ export function parseFromText(raw: string): ParsedExtraction {
     dropoff = tidyPlace(fromTo[2])
   }
 
-  const pAt = text.match(/\b(?:pickup|collect|from)\s+(?:at|from)?\s*[:\-]?\s*(.+?)(?:\s+(?:to|drop|deliver)|\.|$)/i)
+  const pAt = text.match(/\b(?:pickup|collect|from)\s+(?:at|from)?\s*[-:]?\s*(.+?)(?:\s+(?:to|drop|deliver)|\.|$)/i)
   if (pAt && !pickup) pickup = tidyPlace(pAt[1])
 
   const dAt = text.match(
-    /\b(?:drop(?:[- ]?off)?|deliver(?:y)?|to)\s+(?:at|to)?\s*[:\-]?\s*(.+?)(?:\.|$)/i,
+    /\b(?:drop(?:[- ]?off)?|deliver(?:y)?|to)\s+(?:at|to)?\s*[-:]?\s*(.+?)(?:\.|$)/i,
   )
   if (dAt && !dropoff) dropoff = tidyPlace(dAt[1])
 

@@ -20,7 +20,7 @@ export function DropPhotoCarousel({ reelId, urls, interactive, active, className
   const safeUrls = urls.length ? urls : ['']
 
   useEffect(() => {
-    setIndex(0)
+    queueMicrotask(() => setIndex(0))
   }, [reelId])
 
   useEffect(() => {

@@ -18,6 +18,7 @@ function usePrefersReducedMotion(): boolean {
 }
 
 /** Call synchronously from the Drinks promo click so AudioContext stays in the user-gesture chain. */
+// eslint-disable-next-line react-refresh/only-export-components -- imperative audio helper for user-gesture chain
 export function playDrinksFreezerStormSound(opts: { durationMs: number; reducedMotion?: boolean }): void {
   if (opts.reducedMotion || opts.durationMs < 200) return
   const durationMs = Math.min(5500, Math.max(600, opts.durationMs))

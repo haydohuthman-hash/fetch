@@ -34,8 +34,11 @@ export function PlacesAddressGeocodeField({
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const onResolvedRef = useRef(onResolved)
-  onResolvedRef.current = onResolved
   const geocoderRef = useRef<google.maps.Geocoder | null>(null)
+
+  useEffect(() => {
+    onResolvedRef.current = onResolved
+  }, [onResolved])
 
   const { isLoaded } = useJsApiLoader({
     id: 'fetch-google-maps',

@@ -81,9 +81,22 @@ export function createPeerListingsStore(filePath) {
   return {
     sellerKey,
 
-    async listListings({ status = 'published', q, category, minPrice, maxPrice, cursor, limit = 24 }) {
+    async listListings({
+      status = 'published',
+      q,
+      category,
+      minPrice,
+      maxPrice,
+      profileAuthorId,
+      cursor,
+      limit = 24,
+    }) {
       const { listings } = await readAll()
       let rows = listings.filter((l) => !status || l.status === status)
+      if (profileAuthorId && typeof profileAuthorId === 'string' && profileAuthorId.trim()) {
+        const pid = profileAuthorId.trim()
+        rows = rows.filter((l) => String(l.profileAuthorId ?? '').trim() === pid)
+      }
       if (q && typeof q === 'string' && q.trim()) {
         const raw = q.trim().toLowerCase()
         const tokens = raw.split(/\s+/).filter((t) => t.length > 0)

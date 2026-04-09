@@ -1,6 +1,6 @@
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { FETCH_MAPBOX_STYLE_URL } from '../../lib/mapboxStyle'
 /** Brisbane CBD — fallback when no user location */
 const FALLBACK_CENTER: [number, number] = [153.0251, -27.4698]
@@ -86,13 +86,18 @@ export function MapboxMapLayer({
   const pickupMarkerRef = useRef<mapboxgl.Marker | null>(null)
   const onMapReadyRef = useRef(onMapReady)
   const onJsReadyRef = useRef(onJavaScriptReady)
-  onMapReadyRef.current = onMapReady
-  onJsReadyRef.current = onJavaScriptReady
+
+  useEffect(() => {
+    onMapReadyRef.current = onMapReady
+    onJsReadyRef.current = onJavaScriptReady
+  }, [onMapReady, onJavaScriptReady])
 
   const initialCenterRef = useRef<[number, number]>(FALLBACK_CENTER)
-  if (userLocationCoords) {
-    initialCenterRef.current = lngLatFromGoogle(userLocationCoords)
-  }
+  useLayoutEffect(() => {
+    initialCenterRef.current = userLocationCoords
+      ? lngLatFromGoogle(userLocationCoords)
+      : FALLBACK_CENTER
+  }, [userLocationCoords])
 
   const [mapReady, setMapReady] = useState(false)
   const mapBootReportedRef = useRef(false)

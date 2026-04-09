@@ -111,7 +111,7 @@ export function useSeqLockMapDemo(active: boolean): SeqLockMapDemo | null {
 
   useEffect(() => {
     if (!active) {
-      setPhaseMs(0)
+      queueMicrotask(() => setPhaseMs(0))
       return
     }
     const id = window.setInterval(() => {

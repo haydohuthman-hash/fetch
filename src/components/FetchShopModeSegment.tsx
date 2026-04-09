@@ -1,5 +1,6 @@
 /**
- * Toggle between Fetch Shop supplies and peer buy & sell — lives under the Fetch Shop header.
+ * Toggle between peer buy & sell and Fetch Shop supplies — Buy & sell is the first (left) option.
+ * Flat layout: no pill backgrounds; active state is a bottom border + stronger text.
  */
 export type FetchShopMode = 'supplies' | 'peer'
 
@@ -10,40 +11,27 @@ export type FetchShopModeSegmentProps = {
 }
 
 export function FetchShopModeSegment({ active, onChange, className = '' }: FetchShopModeSegmentProps) {
+  const tabClass = (isActive: boolean) =>
+    [
+      'flex-1 bg-transparent py-2 text-center text-[12px] font-semibold transition-colors',
+      'border-b-2 -mb-px outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/40 focus-visible:ring-offset-2',
+      isActive ? 'border-zinc-900 text-zinc-900' : 'border-transparent text-zinc-500 active:text-zinc-700',
+    ].join(' ')
+
   return (
-    <div
-      className={['w-full', className].filter(Boolean).join(' ')}
-      role="tablist"
-      aria-label="Shop mode"
-    >
-      <div className="flex rounded-full border border-zinc-200/90 bg-zinc-100/90 p-1 shadow-inner shadow-zinc-900/[0.02]">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={active === 'supplies'}
-          className={[
-            'min-h-[2.25rem] flex-1 rounded-full px-3 text-[13px] font-semibold transition-all',
-            active === 'supplies'
-              ? 'bg-white text-zinc-900 shadow-sm shadow-zinc-900/10'
-              : 'text-zinc-600 active:bg-zinc-200/50',
-          ].join(' ')}
-          onClick={() => onChange('supplies')}
-        >
-          Supplies
+    <div className={['w-full border-b border-zinc-200/90', className].filter(Boolean).join(' ')} role="tablist" aria-label="Shop mode">
+      <div className="flex w-full min-w-0">
+        <button type="button" role="tab" aria-selected={active === 'peer'} className={tabClass(active === 'peer')} onClick={() => onChange('peer')}>
+          Buy &amp; sell
         </button>
         <button
           type="button"
           role="tab"
-          aria-selected={active === 'peer'}
-          className={[
-            'min-h-[2.25rem] flex-1 rounded-full px-3 text-[13px] font-semibold transition-all',
-            active === 'peer'
-              ? 'bg-white text-zinc-900 shadow-sm shadow-zinc-900/10'
-              : 'text-zinc-600 active:bg-zinc-200/50',
-          ].join(' ')}
-          onClick={() => onChange('peer')}
+          aria-selected={active === 'supplies'}
+          className={tabClass(active === 'supplies')}
+          onClick={() => onChange('supplies')}
         >
-          Buy &amp; sell
+          Supplies
         </button>
       </div>
     </div>

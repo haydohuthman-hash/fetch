@@ -251,7 +251,6 @@ function HomeShellBuySellPageInner({
   onRequestHomeShellTab,
   dropsListingHandoff = null,
   onDropsListingHandoffConsumed,
-  onBookDriver: _onBookDriver,
 }: HomeShellBuySellPageProps) {
   const mapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ?? ''
   const [panel, setPanel] = useState<Panel>('feed')
@@ -906,6 +905,26 @@ function HomeShellBuySellPageInner({
     }
   }, [mapsApiKey, locationLabel])
 
+  const scopeTabClass = (isActive: boolean) =>
+    [
+      'flex-1 bg-transparent py-2 text-center text-[11px] font-semibold transition-colors',
+      'border-b-2 -mb-px outline-none focus-visible:ring-2 focus-visible:ring-zinc-400/40 focus-visible:ring-offset-2',
+      isActive ? 'border-zinc-900 text-zinc-900' : 'border-transparent text-zinc-500 active:text-zinc-700',
+    ].join(' ')
+
+  const marketplaceScopePillsRow = (
+    <div className="w-full min-w-0 border-b border-zinc-200/90" role="group" aria-label="Marketplace scope">
+      <div className="flex w-full min-w-0">
+        <button type="button" className={scopeTabClass(marketScope === 'local')} onClick={() => persistScope('local')}>
+          Fetch local
+        </button>
+        <button type="button" className={scopeTabClass(marketScope === 'global')} onClick={() => persistScope('global')}>
+          Fetch world
+        </button>
+      </div>
+    </div>
+  )
+
   const feedChrome = (
     <>
       <header className="shrink-0 border-b border-zinc-200/80 bg-white px-3 pb-2 pt-[max(0.5rem,env(safe-area-inset-top,0px))] sm:px-4">
@@ -955,7 +974,7 @@ function HomeShellBuySellPageInner({
         </div>
 
         {onRequestHomeShellTab ? (
-          <div className="mx-auto mt-2.5 w-full min-w-0 max-w-lg">
+          <div className="mx-auto mt-2 w-full min-w-0 max-w-lg">
             <FetchShopModeSegment
               active="peer"
               onChange={(mode) => {
@@ -965,47 +984,8 @@ function HomeShellBuySellPageInner({
           </div>
         ) : null}
 
-        <div className="mx-auto mt-2.5 w-full min-w-0 max-w-lg px-0.5">
-          <div
-            className="mb-2 inline-flex rounded-full border border-zinc-200/90 bg-zinc-100/90 p-1 shadow-inner shadow-zinc-900/[0.02]"
-            role="group"
-            aria-label="Marketplace scope"
-          >
-            <button
-              type="button"
-              onClick={() => persistScope('local')}
-              className={[
-                'min-h-[1.9rem] rounded-full px-2.5 text-[11px] font-semibold transition-all',
-                marketScope === 'local'
-                  ? 'bg-white text-zinc-900 shadow-sm shadow-zinc-900/10'
-                  : 'text-zinc-600 active:bg-zinc-200/50',
-              ].join(' ')}
-            >
-              Fetch local
-            </button>
-            <button
-              type="button"
-              onClick={() => persistScope('global')}
-              className={[
-                'min-h-[1.9rem] rounded-full px-2.5 text-[11px] font-semibold transition-all',
-                marketScope === 'global'
-                  ? 'bg-white text-zinc-900 shadow-sm shadow-zinc-900/10'
-                  : 'text-zinc-600 active:bg-zinc-200/50',
-              ].join(' ')}
-            >
-              Fetch world
-            </button>
-          </div>
-          <p className="text-center text-[12px] leading-snug text-zinc-600">
-            Same-day &amp; next-day windows are often available with{' '}
-            <span className="font-semibold text-zinc-800">Fetch delivery</span> when you shop near your set location.
-            Choose <span className="font-semibold text-zinc-800">Australia wide</span> in Categories to browse
-            everywhere.
-          </p>
-        </div>
-
         <div
-          className="mx-auto mt-2.5 flex w-full min-w-0 max-w-lg flex-wrap justify-start gap-1.5"
+          className="mx-auto mt-2 flex w-full min-w-0 max-w-lg flex-wrap justify-start gap-1.5 px-0.5"
           role="group"
           aria-label="Quick actions"
         >
@@ -1044,7 +1024,7 @@ function HomeShellBuySellPageInner({
           </button>
         </div>
 
-        <div className="mx-auto mt-2.5 flex w-full min-w-0 max-w-lg items-center gap-2 px-1">
+        <div className="mx-auto mt-2 flex w-full min-w-0 max-w-lg items-center gap-2 px-1">
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
             <MapPinIcon className="h-4 w-4 shrink-0 text-zinc-500" aria-hidden />
             <span className="min-w-0 truncate text-[13px] font-semibold text-zinc-800">{locationDisplayLine}</span>
@@ -1360,8 +1340,10 @@ function HomeShellBuySellPageInner({
             <div className="mx-auto w-full min-w-0 max-w-lg flex-1 px-3 pb-4 pt-2 sm:px-4">
               {listErr ? <p className="text-[13px] font-medium text-red-600">{listErr}</p> : null}
 
+              <div className="mt-2 mb-3">{marketplaceScopePillsRow}</div>
+
               {todaysPicks.length > 0 ? (
-                <section className="mt-2" aria-labelledby="buysell-todays-picks">
+                <section className="mt-0" aria-labelledby="buysell-todays-picks">
                   <div className="flex items-end justify-between gap-2">
                     <h2 id="buysell-todays-picks" className="text-[16px] font-bold tracking-tight text-zinc-900">
                       Today&apos;s picks

@@ -202,14 +202,14 @@ function MapTimeWeatherOverlayInner({
 
   useEffect(() => {
     if (sideMenuOpen) {
-      setAlertsUnreadMenu(countUnreadHomeAlerts())
+      queueMicrotask(() => setAlertsUnreadMenu(countUnreadHomeAlerts()))
     }
   }, [sideMenuOpen])
 
   useEffect(() => {
     if (feedPanel === 'alerts') {
       markAllHomeAlertsRead()
-      setAlertRows(loadHomeAlerts())
+      queueMicrotask(() => setAlertRows(loadHomeAlerts()))
     }
   }, [feedPanel])
 

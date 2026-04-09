@@ -16,7 +16,8 @@ export function takePendingOpenPublicProfile(): OpenPublicProfileDetail | null {
   const p = pendingOpenPublicProfile
   pendingOpenPublicProfile = null
   if (!p || Date.now() - p.storedAt > PENDING_MAX_AGE_MS) return null
-  const { storedAt: _t, ...detail } = p
+  const { storedAt, ...detail } = p
+  void storedAt
   return detail
 }
 

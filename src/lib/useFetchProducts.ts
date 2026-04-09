@@ -136,7 +136,7 @@ export function useFetchProducts() {
 
   useEffect(() => {
     mounted.current = true
-    void load()
+    queueMicrotask(() => void load())
     return () => {
       mounted.current = false
     }

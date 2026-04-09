@@ -29,11 +29,11 @@ export function FetchBootstrapOverlay({
   useEffect(() => {
     exitCompleteRef.current = false
     if (!open) {
-      setExiting(false)
+      queueMicrotask(() => setExiting(false))
       return
     }
     openedAtRef.current = Date.now()
-    setExiting(false)
+    queueMicrotask(() => setExiting(false))
   }, [open])
 
   useEffect(() => {

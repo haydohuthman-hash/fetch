@@ -85,6 +85,8 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
   return <AdminAuthContext.Provider value={value}>{children}</AdminAuthContext.Provider>
 }
 
+/** Context consumer for `/admin/*` routes — colocated with provider by design. */
+// eslint-disable-next-line react-refresh/only-export-components -- intentional hook export alongside provider
 export function useAdminAuth(): AdminAuthContextValue {
   const ctx = useContext(AdminAuthContext)
   if (!ctx) throw new Error('useAdminAuth must be used within AdminAuthProvider')

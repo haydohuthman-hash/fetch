@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/set-state-in-effect -- map preview effects reset animation state when props change; batching would desync timed markers */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Circle, Marker, Polyline } from '@react-google-maps/api'
 import {
@@ -193,7 +194,10 @@ export function BookingMapReflection({
   const [routeLoadPulseT, setRouteLoadPulseT] = useState<number | null>(null)
   const prevProvisionalRouteRef = useRef(provisionalRoute)
   const realRoutePathRef = useRef(realRoutePath)
-  realRoutePathRef.current = realRoutePath
+
+  useEffect(() => {
+    realRoutePathRef.current = realRoutePath
+  }, [realRoutePath])
 
   const routeAnimTimer = useRef<number | null>(null)
   const searchSweepTimer = useRef<number | null>(null)
@@ -239,12 +243,12 @@ export function BookingMapReflection({
     () => ({
       path: google.maps.SymbolPath.CIRCLE,
       scale: 8,
-      fillColor: accentHex,
+      fillColor: '#111111',
       fillOpacity: 1,
       strokeColor: '#ffffff',
       strokeWeight: 2,
     }),
-    [accentHex],
+    [],
   )
 
   const userLocationIcon = useMemo(
@@ -1219,7 +1223,7 @@ export function BookingMapReflection({
           icon={{
             path: google.maps.SymbolPath.CIRCLE,
             scale: navigationRouteActive ? 10 : 8,
-            fillColor: navigationRouteActive ? '#34C759' : '#252a35',
+            fillColor: '#111111',
             fillOpacity: 1,
             strokeColor: '#ffffff',
             strokeWeight: navigationRouteActive ? 2.5 : 2,

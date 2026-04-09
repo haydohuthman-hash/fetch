@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type AnimationEvent,
   type ReactNode,
 } from 'react'
 import {
@@ -14,7 +15,6 @@ import {
   setBoostTierForReel,
 } from '../lib/drops/boostStore'
 import { CURATED_DROP_REELS } from '../lib/drops/constants'
-import { shuffleReels, sortReelsByRanking } from '../lib/drops/feedRanking'
 import {
   buildLocalTabOrderedReels,
   buildDropsTabOrderedReels,
@@ -35,6 +35,11 @@ import type {
 } from '../lib/drops/types'
 import { addWatchMsForReel } from '../lib/drops/watchStore'
 import { mergeFeedReels } from '../lib/drops/mergeFeedReels'
+import {
+  REELS_TOP_TAB_ORDER,
+  markReelsTabOnboardingSeen,
+  reelsTabOnboardingSeen,
+} from '../lib/drops/reelsTabOnboardingStorage'
 import { uploadDropMedia } from '../lib/drops/uploadDropMedia'
 import { useDropsApiFeed } from '../lib/drops/useDropsApiFeed'
 import { syncCustomerSessionCookie } from '../lib/fetchServerSession'
@@ -60,6 +65,35 @@ export type { DropsCommerceActionMeta, DropsCommerceTarget } from '../lib/drops/
 
 type ReelsTopTab = 'drops' | 'local' | 'live'
 
+type TabSplashPhase = 'in' | 'wait' | 'out'
+
+type TabSplashState = { tab: ReelsTopTab; dir: 1 | -1; phase: TabSplashPhase }
+
+const REELS_TAB_SPLASH_COPY: Record<ReelsTopTab, { title: string; line: string }> = {
+  drops: {
+    title: 'Drops',
+    line: 'This tab is the main feed — local sellers and live replays are mixed in with everything else. Local and Live show only those.',
+  },
+  local: {
+    title: 'Local',
+    line: 'Only drops from sellers offering pickup or same-day near you. Tap Fetch it on a clip to buy.',
+  },
+  live: {
+    title: 'Live',
+    line: 'Live streams, auctions, and replays. Bid or buy during the show; to sell live, use Menu → Go live.',
+  },
+}
+
+function tabSplashPanelClass(s: TabSplashState): string {
+  if (s.phase === 'in') {
+    return s.dir === 1 ? 'fetch-reels-tab-splash--in-from-right' : 'fetch-reels-tab-splash--in-from-left'
+  }
+  if (s.phase === 'out') {
+    return s.dir === 1 ? 'fetch-reels-tab-splash--out-to-right' : 'fetch-reels-tab-splash--out-to-left'
+  }
+  return 'translate-x-0'
+}
+
 /** Sliding window: unload distant reels (no video src); keep prev + current + next + one ahead buffered. */
 type ReelMediaTier = 'none' | 'prev' | 'current' | 'next' | 'ahead2'
 
@@ -82,6 +116,8 @@ export type HomeShellReelsPageProps = {
     meta?: DropsCommerceActionMeta,
   ) => void
   onRequestHomeShellTab?: (tab: HomeShellTabRequest) => void
+  /** Profile sheet Items tab → open this listing on Buy & sell */
+  onOpenPeerListingFromProfile?: (listingId: string) => void
 }
 
 function formatCount(n: number): string {
@@ -156,6 +192,7 @@ function HomeShellReelsPageInner({
   onMenuAccount,
   onCommerceAction,
   onRequestHomeShellTab,
+  onOpenPeerListingFromProfile,
 }: HomeShellReelsPageProps) {
   const { reels: apiFeedReels, database: dropsDb, refresh: refreshApiDropsFeed } = useDropsApiFeed()
   const [userReels, setUserReels] = useState<DropReel[]>([])
@@ -203,6 +240,9 @@ function HomeShellReelsPageInner({
   const [liveMyListings, setLiveMyListings] = useState<PeerListing[]>([])
   const [livePickProducts, setLivePickProducts] = useState<Record<string, boolean>>({})
   const [livePickListings, setLivePickListings] = useState<Record<string, boolean>>({})
+  const [feedAnimKey, setFeedAnimKey] = useState(0)
+  const [feedEnterDir, setFeedEnterDir] = useState<1 | -1>(1)
+  const [tabSplash, setTabSplash] = useState<TabSplashState | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const slideEls = useRef<Map<string, HTMLDivElement>>(new Map())
   const videoRefs = useRef<Map<string, HTMLVideoElement>>(new Map())
@@ -304,13 +344,55 @@ function HomeShellReelsPageInner({
   const prevTopTabRef = useRef<ReelsTopTab>(topTab)
   useLayoutEffect(() => {
     if (prevTopTabRef.current === topTab) return
+    const prev = prevTopTabRef.current
     prevTopTabRef.current = topTab
+    const di = REELS_TOP_TAB_ORDER.indexOf(topTab) - REELS_TOP_TAB_ORDER.indexOf(prev)
+    setFeedEnterDir(di > 0 ? 1 : -1)
+    setFeedAnimKey((k) => k + 1)
     const first = orderedReels[0]?.id
     if (first) {
       setActiveId(first)
       scrollRef.current?.scrollTo({ top: 0, behavior: 'auto' })
     }
   }, [topTab, orderedReels])
+
+  useEffect(() => {
+    setTabSplash((s) => (s && s.tab !== topTab ? null : s))
+  }, [topTab])
+
+  const onTabSplashAnimationEnd = useCallback((e: AnimationEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget) return
+    setTabSplash((s) => {
+      if (!s) return null
+      if (s.phase === 'in') return { ...s, phase: 'wait' }
+      if (s.phase === 'out') {
+        markReelsTabOnboardingSeen(s.tab)
+        return null
+      }
+      return s
+    })
+  }, [])
+
+  const dismissTabSplash = useCallback(() => {
+    setTabSplash((s) => {
+      if (!s || s.phase === 'out') return s
+      return { ...s, phase: 'out' }
+    })
+  }, [])
+
+  const selectReelsTopTab = useCallback(
+    (next: ReelsTopTab) => {
+      if (next === topTab) return
+      const dir = (REELS_TOP_TAB_ORDER.indexOf(next) > REELS_TOP_TAB_ORDER.indexOf(topTab) ? 1 : -1) as 1 | -1
+      setTopTab(next)
+      if (!reelsTabOnboardingSeen(next)) {
+        setTabSplash({ tab: next, dir, phase: 'in' })
+      } else {
+        setTabSplash(null)
+      }
+    },
+    [topTab],
+  )
 
   useLayoutEffect(() => {
     const root = scrollRef.current
@@ -618,7 +700,7 @@ function HomeShellReelsPageInner({
                 type="button"
                 role="tab"
                 aria-selected={topTab === id}
-                onClick={() => setTopTab(id)}
+                onClick={() => selectReelsTopTab(id)}
                 className={[
                   'min-w-0 flex-1 rounded-[0.65rem] py-2 text-center text-[12px] font-bold tracking-tight transition-all sm:text-[13px]',
                   topTab === id
@@ -634,16 +716,28 @@ function HomeShellReelsPageInner({
         <button
           type="button"
           onClick={openReelsMenu}
-          className="shrink-0 rounded-xl px-2.5 py-2 text-[13px] font-semibold text-white/85 ring-1 ring-white/20 transition-colors hover:bg-white/10 active:bg-white/15"
+          className="shrink-0 rounded-xl px-2.5 py-2 text-[13px] font-semibold text-white/85 ring-1 ring-white/20 transition-colors active:bg-white/10"
         >
           Menu
         </button>
       </header>
 
-      <div
-        ref={scrollRef}
-        className="fetch-home-reels-scroll min-h-0 flex-1 snap-y snap-mandatory overflow-y-auto overflow-x-hidden overscroll-y-contain [-webkit-overflow-scrolling:touch] touch-pan-y"
-      >
+      <div className="relative min-h-0 flex-1 overflow-hidden">
+        <div
+          key={`${topTab}-${feedAnimKey}`}
+          className={[
+            'flex min-h-0 flex-1 flex-col',
+            feedAnimKey > 0
+              ? feedEnterDir === 1
+                ? 'fetch-reels-feed-tab-enter--from-right'
+                : 'fetch-reels-feed-tab-enter--from-left'
+              : '',
+          ].join(' ')}
+        >
+          <div
+            ref={scrollRef}
+            className="fetch-home-reels-scroll min-h-0 flex-1 snap-y snap-mandatory overflow-y-auto overflow-x-hidden overscroll-y-contain [-webkit-overflow-scrolling:touch] touch-pan-y"
+          >
         {orderedReels.length === 0 ? (
           <div className="flex min-h-[100dvh] snap-start flex-col items-center justify-center bg-black px-8 pb-32 pt-24 text-center">
             <p className="text-[17px] font-bold text-white">
@@ -905,6 +999,44 @@ function HomeShellReelsPageInner({
             </div>
           )
         })}
+          </div>
+        </div>
+
+        {tabSplash ? (
+          <div className="pointer-events-none absolute inset-0 z-[15] flex flex-col justify-end px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[min(40%,12rem)]">
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="fetch-reels-tab-splash-title"
+              onAnimationEnd={onTabSplashAnimationEnd}
+              className={[
+                'pointer-events-auto mx-auto w-full max-w-md rounded-2xl border border-white/20 bg-zinc-950/95 p-5 text-left shadow-[0_20px_50px_rgba(0,0,0,0.55)] ring-1 ring-white/10 backdrop-blur-md',
+                tabSplashPanelClass(tabSplash),
+              ].join(' ')}
+            >
+              <p
+                id="fetch-reels-tab-splash-title"
+                className="text-[11px] font-bold uppercase tracking-[0.14em] text-violet-300/95"
+              >
+                {REELS_TAB_SPLASH_COPY[tabSplash.tab].title}
+              </p>
+              <p
+                id="fetch-reels-tab-splash-body"
+                className="mt-4 text-[16px] font-semibold leading-snug tracking-tight text-white"
+              >
+                {REELS_TAB_SPLASH_COPY[tabSplash.tab].line}
+              </p>
+              <button
+                type="button"
+                onClick={dismissTabSplash}
+                className="mt-8 w-full rounded-xl bg-white py-3.5 text-[15px] font-bold text-zinc-900 shadow-lg active:opacity-90"
+                aria-describedby="fetch-reels-tab-splash-body"
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {bottomNav ? (
@@ -1117,6 +1249,7 @@ function HomeShellReelsPageInner({
           onProfileSaved={onProfileSavedFromSheet}
           onRequestTab={requestHomeTab}
           onOpenReel={onOpenReelFromSheet}
+          onOpenPeerListing={onOpenPeerListingFromProfile}
         />
       ) : null}
 
@@ -1249,7 +1382,7 @@ function HomeShellReelsPageInner({
               {HARDWARE_PRODUCTS.map((p) => (
                 <label
                   key={p.id}
-                  className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 text-[13px] hover:bg-white/8"
+                  className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 text-[13px]"
                 >
                   <input
                     type="checkbox"
@@ -1269,7 +1402,7 @@ function HomeShellReelsPageInner({
               {SUPPLY_PRODUCTS.map((p) => (
                 <label
                   key={p.id}
-                  className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 text-[13px] hover:bg-white/8"
+                  className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 text-[13px]"
                 >
                   <input
                     type="checkbox"
@@ -1294,7 +1427,7 @@ function HomeShellReelsPageInner({
                 liveMyListings.map((l) => (
                   <label
                     key={l.id}
-                    className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 text-[13px] hover:bg-white/8"
+                    className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 text-[13px]"
                   >
                     <input
                       type="checkbox"

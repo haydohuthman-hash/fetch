@@ -66,12 +66,15 @@ async function listingsJson<T>(path: string, init?: RequestInit): Promise<T> {
 export async function fetchPublishedListings(params?: {
   q?: string
   category?: string
+  /** Drops public profile id — lists published peer listings tied to that profile */
+  profileAuthorId?: string
   cursor?: string
   limit?: number
 }): Promise<{ listings: PeerListing[]; nextCursor: string | null }> {
   const qs = new URLSearchParams()
   if (params?.q) qs.set('q', params.q)
   if (params?.category) qs.set('category', params.category)
+  if (params?.profileAuthorId?.trim()) qs.set('profileAuthorId', params.profileAuthorId.trim())
   if (params?.cursor) qs.set('cursor', params.cursor)
   if (params?.limit != null && Number.isFinite(params.limit)) qs.set('limit', String(Math.floor(params.limit)))
   const suffix = qs.toString()

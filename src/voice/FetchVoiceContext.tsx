@@ -21,6 +21,7 @@ import {
 import { playUiFeedback, type UiFeedbackEvent } from './fetchFeedback'
 import type { SpeakLineOptions, VoiceEventOptions, VoiceEventType } from './fetchVoice'
 import { pickVoiceInstantAck } from './voiceAckPhrases'
+import { isFetchVoiceChatOutputActive } from './fetchVoiceOutputPolicy'
 
 const STORAGE_KEY = 'fetch_voice_muted'
 
@@ -62,7 +63,7 @@ export function FetchVoiceProvider({ children }: { children: React.ReactNode }) 
   const [voiceHoldPulseNonce, setVoiceHoldPulseNonce] = useState(0)
 
   useEffect(() => {
-    setMutedState(readInitialMuted())
+    queueMicrotask(() => setMutedState(readInitialMuted()))
   }, [])
 
   useEffect(() => {
@@ -102,6 +103,7 @@ export function FetchVoiceProvider({ children }: { children: React.ReactNode }) 
 
   const playEvent = useCallback(
     (type: VoiceEventType, options?: VoiceEventOptions) => {
+      if (!isFetchVoiceChatOutputActive()) return
       if (muted) {
         return
       }
@@ -112,6 +114,7 @@ export function FetchVoiceProvider({ children }: { children: React.ReactNode }) 
 
   const speakFetchAssistant = useCallback(
     async (text: string) => {
+      if (!isFetchVoiceChatOutputActive()) return
       if (muted) return
       await speakFetch(text)
     },
@@ -121,6 +124,10 @@ export function FetchVoiceProvider({ children }: { children: React.ReactNode }) 
   const speakAssistantLine = useCallback(
     async (text: string, options?: FetchSpeakLineOptions) => {
       const { withVoiceHold, ...rest } = options ?? {}
+      if (!isFetchVoiceChatOutputActive()) {
+        if (withVoiceHold) setVoiceHoldCaption(null)
+        return
+      }
       if (withVoiceHold && !muted) {
         setVoiceHoldCaption(pickVoiceInstantAck())
         setVoiceHoldPulseNonce((n) => n + 1)
@@ -189,6 +196,7 @@ export function FetchVoiceProvider({ children }: { children: React.ReactNode }) 
   )
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- hook colocated with provider
 export function useFetchVoice(): FetchVoiceContextValue {
   const ctx = useContext(FetchVoiceContext)
   if (!ctx) {

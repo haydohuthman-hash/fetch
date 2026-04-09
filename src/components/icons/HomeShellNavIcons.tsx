@@ -150,16 +150,34 @@ export function BuySellNavIconFilled({ className, active = true }: IconProps) {
   )
 }
 
-/** Marketplace — rounded dollar mark for commerce. */
+/** Shop / supplies — storefront (awning + facade + door). */
 export function MarketplaceNavIconFilled({ className, active = true }: IconProps) {
   if (!active) {
     return (
       <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
         <path
-          d="M12 4.9v14.2M15.45 8.35c0-1.25-1.35-2.15-3.25-2.15-1.95 0-3.3.95-3.3 2.35 0 1.55 1.55 2.2 3.2 2.6 1.85.45 3.7.95 3.7 2.95 0 1.65-1.5 2.85-3.7 2.85-2.05 0-3.65-1.05-3.75-2.65"
+          d="M4.75 8.85L5.85 6.35h12.3l1.1 2.5H4.75z"
+          stroke="currentColor"
+          strokeWidth={navStroke}
+          strokeLinejoin="round"
+        />
+        <path
+          d="M4.25 8.85h15.5v1.35H4.25V8.85z"
           stroke="currentColor"
           strokeWidth={navStroke}
           strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M5.5 10.2h13v9.65a1.6 1.6 0 01-1.6 1.6H7.1a1.6 1.6 0 01-1.6-1.6V10.2z"
+          stroke="currentColor"
+          strokeWidth={navStroke}
+          strokeLinejoin="round"
+        />
+        <path
+          d="M9.5 14.1h5v5.35H9.5V14.1z"
+          stroke="currentColor"
+          strokeWidth={1.55}
           strokeLinejoin="round"
         />
       </svg>
@@ -169,18 +187,41 @@ export function MarketplaceNavIconFilled({ className, active = true }: IconProps
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
       <path
         fill="currentColor"
-        d="M12 4.2a.95.95 0 01.95.95v.95c1.95.2 3.45 1.3 3.45 3.05a.95.95 0 01-1.9 0c0-.8-.95-1.35-2.35-1.35-1.45 0-2.35.6-2.35 1.45 0 .9 1 1.25 2.8 1.7 1.95.45 4.1 1.2 4.1 3.85 0 1.9-1.55 3.25-3.75 3.55v.95a.95.95 0 01-1.9 0v-.95c-2.15-.3-3.8-1.65-3.8-3.75a.95.95 0 011.9 0c0 1.1 1.05 1.95 2.45 1.95 1.5 0 2.5-.75 2.5-1.8 0-1-.9-1.45-2.95-1.95-1.8-.45-3.95-1-3.95-3.6 0-1.95 1.55-3.15 3.7-3.4v-.95a.95.95 0 01.95-.95z"
+        d="M5.25 10.2h13.5v9.55a1.65 1.65 0 01-1.65 1.65H6.9a1.65 1.65 0 01-1.65-1.65V10.2z"
       />
+      <path fill="currentColor" fillOpacity="0.55" d="M4.75 8.85L5.9 6.2h12.2l1.15 2.65H4.75z" />
+      <path fill="currentColor" fillOpacity="0.34" d="M4 8.85h16v1.35H4V8.85z" />
+      <path fill="currentColor" fillOpacity="0.5" d="M9.35 13.95h5.3v5.5H9.35v-5.5z" />
     </svg>
   )
 }
 
-/** Drops tab — rounded-corner play glyph only (no background). */
+/** Drops tab — play when inactive; filled tile + plus when active (bottom nav upload affordance). */
 export function ReelsNavIconFilled({ className, active = true }: IconProps) {
   const play = 'M7.7 6.2c0-1.08 1.2-1.73 2.18-1.19l6.5 3.66c1.02.57 1.02 2.05 0 2.62l-6.5 3.66c-.98.55-2.18-.1-2.18-1.19V6.2z'
+  if (!active) {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
+        <path d={play} fill="currentColor" fillOpacity={0.55} />
+      </svg>
+    )
+  }
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d={play} fill="currentColor" fillOpacity={active ? 1 : 0.55} />
+      <rect
+        className="fetch-reels-nav-icon__tile"
+        x="3.25"
+        y="3.25"
+        width="17.5"
+        height="17.5"
+        rx="5.25"
+        fill="currentColor"
+      />
+      <path
+        className="fetch-reels-nav-icon__plus"
+        fill="#fff"
+        d="M11.15 7.85h1.7v3.3h3.35v1.65h-3.35v3.35h-1.7v-3.35H7.8v-1.65h3.35v-3.3z"
+      />
     </svg>
   )
 }

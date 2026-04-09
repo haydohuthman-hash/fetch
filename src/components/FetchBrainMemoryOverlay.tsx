@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -19,6 +20,7 @@ import { FetchBrainFieldPanel } from './FetchBrainFieldPanel'
 import { FetchBrainOrbDock } from './FetchBrainOrbDock'
 import { FetchSplashEyes, type FetchSplashEyesMode } from './FetchSplashEyes'
 import { useFetchVoice } from '../voice/FetchVoiceContext'
+import { setFetchVoiceChatOutputActive } from '../voice/fetchVoiceOutputPolicy'
 import { primeVoicePlaybackFromUserGesture } from '../voice/fetchVoice'
 import { voiceFlowSttError } from '../voice/voiceFlowDebug'
 import { BRAIN_SERVICE_INTAKE_FLOWS, getBrainIntakeFlow } from '../lib/brainServiceIntakeFlows'
@@ -151,6 +153,11 @@ export function FetchBrainMemoryOverlay({
   const recognitionRef = useRef<{ abort: () => void } | null>(null)
   const listenTimerRef = useRef<number | null>(null)
   const { speakLine, playUiEvent, muted, toggleMute, isSpeechPlaying } = useFetchVoice()
+
+  useLayoutEffect(() => {
+    setFetchVoiceChatOutputActive(true)
+    return () => setFetchVoiceChatOutputActive(false)
+  }, [])
 
   const renderAssistantBubbleBody = useCallback(
     (turn: Pick<BrainChatCatalogLine, 'text' | 'ui'>) => {
@@ -608,11 +615,13 @@ export function FetchBrainMemoryOverlay({
   const thinkingActive = brainReplyPending || mind === 'thinking'
 
   useEffect(() => {
-    if (thinkingActive) {
-      setBrainEyesPhase('thinking')
-      return
-    }
-    setBrainEyesPhase((p) => (p === 'thinking' ? 'settle' : p))
+    queueMicrotask(() => {
+      if (thinkingActive) {
+        setBrainEyesPhase('thinking')
+        return
+      }
+      setBrainEyesPhase((p) => (p === 'thinking' ? 'settle' : p))
+    })
   }, [thinkingActive])
 
   const onBrainEyesSettle = useCallback(() => {

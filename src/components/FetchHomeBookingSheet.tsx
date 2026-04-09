@@ -135,7 +135,7 @@ export type FetchHomeBookingSheetProps = {
   navMapsExploreKeepsOpen?: boolean
   /**
    * Maps tab while a nav/route strip is active (not map explore). Enables tighter peek chrome,
-   * Fetch wordmark, frosted top, and 25% / 50% / 80% snap heights.
+   * Fetch wordmark, and 25% / 50% / 80% snap heights.
    */
   navMapChrome?: boolean
   /** Intent home: bottom nav replaces top header (Home / Nav / Account). */
@@ -169,11 +169,11 @@ export type FetchHomeBookingSheetProps = {
    */
   routeBuildingForMapPeek?: boolean
   /**
-   * After the user picks a service: minimize top frost / handle padding so the map stays the
+   * After the user picks a service: tighten handle padding so the map stays the
    * visual focus for the rest of the booking flow (addresses → quote → pay).
    */
   mapFirstBookingLayout?: boolean
-  /** Hide drag handle bar + top frost (Uber-style bare sheet edge). */
+  /** Hide drag handle bar (Uber-style bare sheet edge). */
   bareBookingSheetTop?: boolean
   /** No voice halo / particles / speaking tint on the sheet panel. */
   suppressSheetVoiceAura?: boolean
@@ -186,7 +186,7 @@ export type FetchHomeBookingSheetProps = {
 }
 
 /**
- * Single control: Home ↔ full-screen Fetch supplies marketplace (peer buy & sell is a separate nav tab).
+ * Single control: Home ↔ Fetch shop (opens buy & sell first; supplies from in-tab toggle).
  */
 function ShellModeSwitchButton({
   tab,
@@ -206,19 +206,19 @@ function ShellModeSwitchButton({
   const baseBtn =
     sizeClass +
     ' fetch-home-sheet-chrome-btn flex shrink-0 items-center justify-center rounded-full transition-[transform,colors,box-shadow] active:scale-[0.94] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/35'
-  const goMarketplace = tab === 'services' || tab === 'reels'
+  const goShop = tab === 'services' || tab === 'reels'
   return (
     <button
       type="button"
       className={[baseBtn, className ?? ''].join(' ')}
-      aria-label={goMarketplace ? 'Open Fetch supplies marketplace' : 'Back to home'}
-      title={goMarketplace ? 'Supplies' : 'Home'}
+      aria-label={goShop ? 'Open Fetch shop' : 'Back to home'}
+      title={goShop ? 'Shop' : 'Home'}
       onClick={(e) => {
         e.stopPropagation()
-        onChange(goMarketplace ? 'marketplace' : 'services')
+        onChange(goShop ? 'buySell' : 'services')
       }}
     >
-      {goMarketplace ? (
+      {goShop ? (
         <MarketplaceNavIconFilled className={navChrome ? 'h-[21px] w-[21px]' : 'h-6 w-6'} />
       ) : (
         <FetchEyesHomeIcon className={navChrome ? 'h-[19px] w-[19px]' : 'h-6 w-6'} tight={navChrome} />
@@ -616,7 +616,6 @@ export function FetchHomeBookingSheet({
           aria-label="Booking"
           aria-hidden={!cardVisible}
         >
-        <div className="fetch-home-booking-sheet__top-frost" aria-hidden />
         {topLeftAccessory ? (
           <div className="fetch-home-booking-sheet__top-left-slot pointer-events-auto absolute left-6 z-[4] top-[1.14rem] sm:left-7 sm:top-[1.26rem]">
             {topLeftAccessory}
@@ -653,7 +652,7 @@ export function FetchHomeBookingSheet({
                 'fetch-home-sheet-chrome-btn flex shrink-0 items-center justify-center rounded-full transition-transform active:scale-[0.94] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/35',
                 navMapChrome ? 'h-9 w-9' : 'h-11 w-11',
               ].join(' ')}
-              aria-label="Open Fetch supplies marketplace"
+              aria-label="Open Fetch shop"
             >
               <MarketplaceNavIconFilled
                 className={navMapChrome ? 'h-[21px] w-[21px]' : 'h-6 w-6'}
@@ -846,7 +845,7 @@ export function FetchHomeBookingSheet({
                         'fetch-home-sheet-peek-map fetch-home-sheet-chrome-btn flex shrink-0 items-center justify-center rounded-full transition-transform active:scale-[0.94]',
                         navMapChrome ? 'h-9 w-9' : 'h-11 w-11',
                       ].join(' ')}
-                      aria-label="Open Fetch supplies marketplace"
+                      aria-label="Open Fetch shop"
                     >
                       <MarketplaceNavIconFilled
                         className={navMapChrome ? 'h-[21px] w-[21px]' : 'h-6 w-6'}

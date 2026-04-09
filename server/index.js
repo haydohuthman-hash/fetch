@@ -3207,12 +3207,15 @@ app.post(
 
 app.get('/api/listings', async (req, res) => {
   const statusRaw = typeof req.query.status === 'string' ? req.query.status.trim() : 'published'
+  const profileAuthorId =
+    typeof req.query.profileAuthorId === 'string' ? req.query.profileAuthorId.trim() : undefined
   const r = await peerListingsStore.listListings({
     status: statusRaw || 'published',
     q: typeof req.query.q === 'string' ? req.query.q : undefined,
     category: typeof req.query.category === 'string' ? req.query.category : undefined,
     minPrice: req.query.minPrice,
     maxPrice: req.query.maxPrice,
+    profileAuthorId: profileAuthorId || undefined,
     cursor: typeof req.query.cursor === 'string' ? req.query.cursor : undefined,
     limit:
       typeof req.query.limit === 'string' && Number.isFinite(Number(req.query.limit))

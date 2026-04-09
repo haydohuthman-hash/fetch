@@ -27,6 +27,7 @@ type DraftPayload = {
   updatedAt: number
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- sessionStorage helper for intake drafts
 export function clearBrainIntakeDraft(): void {
   try {
     sessionStorage.removeItem(BRAIN_INTAKE_DRAFT_STORAGE_KEY)
@@ -150,16 +151,18 @@ export function FetchBrainServiceIntakeSheet({
 
   useEffect(() => {
     const restored = tryRestoreDraft(flow)
-    if (restored) {
-      setStack(restored.stack)
-      setPath(restored.path)
-      setShowResumeBanner(restored.stack.length > 1 || restored.path.length > 0)
-    } else {
-      setStack([flow.startStepId])
-      setPath([])
-      setShowResumeBanner(false)
-    }
-    setPhase('idle')
+    queueMicrotask(() => {
+      if (restored) {
+        setStack(restored.stack)
+        setPath(restored.path)
+        setShowResumeBanner(restored.stack.length > 1 || restored.path.length > 0)
+      } else {
+        setStack([flow.startStepId])
+        setPath([])
+        setShowResumeBanner(false)
+      }
+      setPhase('idle')
+    })
   }, [flow.id, flow.startStepId])
 
   const runTransition = useCallback(

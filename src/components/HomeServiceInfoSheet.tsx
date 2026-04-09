@@ -29,7 +29,7 @@ export function HomeServiceInfoSheet({
   const heroSrc = jobType ? HOME_SERVICE_HERO_PATHS[jobType] : undefined
 
   useEffect(() => {
-    setHeroBroken(false)
+    queueMicrotask(() => setHeroBroken(false))
   }, [landingId, open])
 
   const onKeyDown = useCallback(

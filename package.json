@@ -21,6 +21,7 @@
     "@react-google-maps/api": "^2.20.8",
     "@stripe/react-stripe-js": "^6.1.0",
     "@stripe/stripe-js": "^9.0.1",
+    "@supabase/supabase-js": "^2.102.1",
     "bcryptjs": "^3.0.3",
     "cloudinary": "^2.9.0",
     "cors": "^2.8.6",

@@ -73,7 +73,8 @@ function safeParse(raw: string | null): BrainChatStoredLine[] {
       if (typeof att === 'string' && att.length > 0 && !att.startsWith('blob:')) {
         return { ...row, attachmentUrl: att.slice(0, 2000) }
       }
-      const { attachmentUrl: _a, ...rest } = row as BrainChatStoredLine
+      const { attachmentUrl, ...rest } = row as BrainChatStoredLine
+      void attachmentUrl
       return rest
     })
   } catch {
@@ -95,7 +96,8 @@ export function saveBrainChatLines(lines: BrainChatStoredLine[]) {
   const capped = lines.slice(-MAX_MESSAGES)
   const forDisk = capped.map((l) => {
     if (l.attachmentUrl?.startsWith('blob:')) {
-      const { attachmentUrl: _a, ...rest } = l
+      const { attachmentUrl, ...rest } = l
+      void attachmentUrl
       return rest
     }
     return l

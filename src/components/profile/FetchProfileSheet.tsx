@@ -6,11 +6,13 @@ import {
   updateMyDropProfile,
 } from '../../lib/drops/profileStore'
 import { loadSession, updateUserProfile } from '../../lib/fetchUserSession'
+import { formatProfileDropViews } from '../../lib/drops/formatProfileDropViews'
 import { dropIsPhotoCarousel, dropIsVideo, type DropReel } from '../../lib/drops/types'
 import { isFollowingAuthor, toggleFollowAuthor } from '../../lib/fetchProfile/followGraphStore'
 import { isAuthorSaved, toggleSavedAuthor } from '../../lib/fetchProfile/savedAuthorsStore'
 import { resolvePublicProfile } from '../../lib/fetchProfile/resolvePublicProfile'
 import type { FetchProfileTabId, FetchPublicProfileVm } from '../../lib/fetchProfile/types'
+import { fetchPublishedListings, listingImageAbsoluteUrl, type PeerListing } from '../../lib/listingsApi'
 import {
   FetchProfileHero,
   FetchProfilePrimaryActions,
@@ -30,6 +32,8 @@ export type FetchProfileSheetProps = {
   onProfileSaved: () => void
   onRequestTab: (tab: HomeShellTabRequest) => void
   onOpenReel: (reelId: string) => void
+  /** Buy & sell: open listing detail (parent switches to Buy & sell tab + handoff). */
+  onOpenPeerListing?: (listingId: string) => void
   /** Extra scroll bottom inset when a fixed bar sits under the sheet (standalone profile screen). */
   padBottomForFooter?: boolean
 }
@@ -39,6 +43,10 @@ type ProfileTile = {
   thumb: string
   isVideo: boolean
   label: string
+  /** Drops tab: compact estimated views from server view ms / seed. */
+  viewsLabel?: string | null
+  /** Items tab: listing price */
+  priceLabel?: string | null
 }
 
 function reelThumb(r: DropReel): string {
@@ -46,10 +54,20 @@ function reelThumb(r: DropReel): string {
   return r.poster ?? ''
 }
 
+function formatAudFromCents(cents: number): string {
+  return new Intl.NumberFormat('en-AU', {
+    style: 'currency',
+    currency: 'AUD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(cents / 100)
+}
+
 function tilesForTab(
   tab: FetchProfileTabId,
   authorReels: DropReel[],
   profile: FetchPublicProfileVm,
+  peerListings: PeerListing[],
 ): ProfileTile[] {
   if (tab === 'drops') {
     return authorReels.map((r) => ({
@@ -57,26 +75,20 @@ function tilesForTab(
       thumb: reelThumb(r),
       isVideo: dropIsVideo(r),
       label: r.title.slice(0, 40),
+      viewsLabel: formatProfileDropViews(r),
     }))
   }
   if (tab === 'items') {
-    if (profile.kind === 'store') {
-      const thumbs = [
-        'https://images.unsplash.com/photo-1523275335684-37898b6baf30?auto=format&fit=crop&w=400&q=60',
-        'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&w=400&q=60',
-        'https://images.unsplash.com/photo-1542291026-7eec264c27ff?auto=format&fit=crop&w=400&q=60',
-        'https://images.unsplash.com/photo-1586495777744-4413f21062fa?auto=format&fit=crop&w=400&q=60',
-        'https://images.unsplash.com/photo-1607082348824-0a96f2a4b9da?auto=format&fit=crop&w=400&q=60',
-        'https://images.unsplash.com/photo-1556228720-195a672e8a03?auto=format&fit=crop&w=400&q=60',
-      ]
-      return thumbs.map((thumb, i) => ({
-        id: `demo-item-${profile.authorId}-${i}`,
-        thumb,
+    return peerListings.map((l) => {
+      const first = l.images?.[0]?.url
+      return {
+        id: l.id,
+        thumb: first ? listingImageAbsoluteUrl(first) : '',
         isVideo: false,
-        label: ['Bulk pack', 'Refill kit', 'Local bundle', 'Crate deal', 'Saver duo', 'Pro stack'][i % 6]!,
-      }))
-    }
-    return []
+        label: l.title?.slice(0, 48) || 'Listing',
+        priceLabel: formatAudFromCents(l.priceCents ?? 0),
+      }
+    })
   }
   if (tab === 'services') {
     if (profile.kind === 'partner') {
@@ -121,9 +133,13 @@ export function FetchProfileSheet({
   onProfileSaved,
   onRequestTab,
   onOpenReel,
+  onOpenPeerListing,
   padBottomForFooter = false,
 }: FetchProfileSheetProps) {
   const [tab, setTab] = useState<FetchProfileTabId>('drops')
+  const [profilePeerListings, setProfilePeerListings] = useState<PeerListing[]>([])
+  const [profileListingsLoading, setProfileListingsLoading] = useState(false)
+  const [profileListingsErr, setProfileListingsErr] = useState<string | null>(null)
   const [saved, setSaved] = useState(() => isAuthorSaved(authorId))
   const [editOpen, setEditOpen] = useState(false)
   const [draftName, setDraftName] = useState('')
@@ -149,25 +165,55 @@ export function FetchProfileSheet({
   )
 
   useEffect(() => {
-    if (!open) return
-    setSaved(isAuthorSaved(authorId))
-    setTab(defaultTabFor(profile))
-    const me = getMyDropProfile()
-    if (me && me.id === authorId) {
-      setDraftName(me.displayName)
-      setDraftAvatar(me.avatar)
-    } else {
-      setDraftName('')
-      setDraftAvatar('🎯')
+    if (!open || !authorId || authorId === '__self__') {
+      setProfilePeerListings([])
+      setProfileListingsErr(null)
+      setProfileListingsLoading(false)
+      return
     }
-    setFormErr(null)
-    setEditOpen(false)
-    setIFollow(
-      Boolean(viewerAuthorId && authorId && isFollowingAuthor(viewerAuthorId, authorId)),
-    )
+    let cancelled = false
+    setProfileListingsLoading(true)
+    setProfileListingsErr(null)
+    void fetchPublishedListings({ profileAuthorId: authorId, limit: 48 })
+      .then((r) => {
+        if (!cancelled) setProfilePeerListings(r.listings)
+      })
+      .catch((e) => {
+        if (!cancelled) setProfileListingsErr(e instanceof Error ? e.message : 'Could not load listings')
+      })
+      .finally(() => {
+        if (!cancelled) setProfileListingsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [open, authorId])
+
+  useEffect(() => {
+    if (!open) return
+    queueMicrotask(() => {
+      setSaved(isAuthorSaved(authorId))
+      setTab(defaultTabFor(profile))
+      const me = getMyDropProfile()
+      if (me && me.id === authorId) {
+        setDraftName(me.displayName)
+        setDraftAvatar(me.avatar)
+      } else {
+        setDraftName('')
+        setDraftAvatar('🎯')
+      }
+      setFormErr(null)
+      setEditOpen(false)
+      setIFollow(
+        Boolean(viewerAuthorId && authorId && isFollowingAuthor(viewerAuthorId, authorId)),
+      )
+    })
   }, [open, authorId, profile, viewerAuthorId])
 
-  const gridTiles = useMemo(() => tilesForTab(tab, authorReels, profile), [tab, authorReels, profile])
+  const gridTiles = useMemo(
+    () => tilesForTab(tab, authorReels, profile, profilePeerListings),
+    [tab, authorReels, profile, profilePeerListings],
+  )
 
   const bookLabel = profile.kind === 'store' ? 'Buy' : profile.kind === 'partner' ? 'Book' : 'Book / Buy'
 
@@ -353,6 +399,11 @@ export function FetchProfileSheet({
           </div>
 
           <div className="mt-4">
+            {tab === 'items' && profileListingsErr ? (
+              <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+                {profileListingsErr}
+              </p>
+            ) : null}
             {tab === 'reviews' ? (
               <ul className="space-y-3">
                 {DEMO_REVIEWS.map((rev) => (
@@ -369,12 +420,16 @@ export function FetchProfileSheet({
                 ))}
                 <p className="text-center text-[11px] text-zinc-500">Demo reviews — production ties to completed jobs.</p>
               </ul>
+            ) : tab === 'items' && profileListingsLoading && gridTiles.length === 0 ? (
+              <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-300 bg-white px-6 py-16 text-center">
+                <p className="text-[14px] font-semibold text-zinc-700">Loading marketplace listings…</p>
+              </div>
             ) : gridTiles.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-300 bg-white px-6 py-16 text-center">
                 <p className="text-[15px] font-semibold text-zinc-800">Nothing here yet</p>
                 <p className="mt-2 max-w-xs text-[13px] leading-snug text-zinc-500">
                   {tab === 'items'
-                    ? 'Listings and bundles appear when this seller publishes inventory.'
+                    ? 'Published Buy &amp; sell items tied to this @handle show here.'
                     : tab === 'services'
                       ? 'Services show when this partner enables offerings on Fetch.'
                       : 'No Drops from this creator in your current feed.'}
@@ -392,6 +447,10 @@ export function FetchProfileSheet({
                         onClose()
                       } else if (tab === 'drops') {
                         onOpenReel(t.id)
+                        onClose()
+                      } else if (tab === 'items') {
+                        if (onOpenPeerListing) onOpenPeerListing(t.id)
+                        else onRequestTab('buySell')
                         onClose()
                       } else {
                         onBookBuy()
@@ -412,6 +471,19 @@ export function FetchProfileSheet({
                         {t.label}
                       </div>
                     )}
+                    {tab === 'drops' && t.viewsLabel ? (
+                      <span
+                        className="pointer-events-none absolute bottom-1 left-1 rounded bg-black/55 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-white ring-1 ring-white/20 backdrop-blur-[2px]"
+                        aria-label={`${t.viewsLabel} views`}
+                      >
+                        👁 {t.viewsLabel}
+                      </span>
+                    ) : null}
+                    {tab === 'items' && t.priceLabel ? (
+                      <span className="pointer-events-none absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-extrabold tabular-nums text-white ring-1 ring-white/15">
+                        {t.priceLabel}
+                      </span>
+                    ) : null}
                     {t.isVideo ? (
                       <span className="pointer-events-none absolute bottom-1 right-1 rounded bg-white/90 px-1 text-[10px] text-zinc-800 ring-1 ring-zinc-200">
                         ▶

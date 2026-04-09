@@ -104,8 +104,9 @@ export type BrainParticleBuffers = {
 export function createBrainParticleField(
   w: number,
   h: number,
-  _graphNodes: BrainNode[],
+  graphNodes: BrainNode[],
 ): BrainParticleBuffers | null {
+  void graphNodes
   if (w < 80 || h < 80) return null
 
   const n = BRAIN_ANCHOR_N
@@ -298,8 +299,9 @@ export function ensureBrainParticleScratch(
   _w: number,
   _h: number,
   prev: BrainParticleScratch | null,
-  _cellSize = 36,
+  cellSize = 36,
 ): BrainParticleScratch {
+  void cellSize
   const cols = 1
   const rows = 1
   if (prev && prev.cols === cols && prev.rows === rows) return prev
@@ -330,13 +332,15 @@ export function drawBrainParticles(
   dissolve01: number,
   speechAmp: number,
   glowRgb: { r: number; g: number; b: number },
-  _scratch: BrainParticleScratch,
+  scratch: BrainParticleScratch,
   cortexCalm = false,
   cortexSpread01 = 0,
-  _cellSize = 36,
+  cellSize = 36,
   reducedMotion = false,
   graphNodes: BrainNode[] = [],
 ) {
+  void scratch
+  void cellSize
   const { n, px, py, hubNear01, hue01, open01, phase, innerByte } = buf
   const dMix = Math.max(0.35, Math.min(1, dissolve01))
   const isLight = theme === 'light'
@@ -561,7 +565,8 @@ export function stepBrainMemoryIngest(
 }
 
 /** @deprecated Listening-driven ingest no longer uses a fixed envelope window. */
-export function memoryIngestEnvelope(_elapsedMs: number): number {
+export function memoryIngestEnvelope(elapsedMs: number): number {
+  void elapsedMs
   return 1
 }
 
@@ -576,8 +581,9 @@ export function drawBrainMemoryIngest(
   h: number,
   theme: 'light' | 'dark',
   strength01: number,
-  _glowRgb: { r: number; g: number; b: number },
+  glowRgb: { r: number; g: number; b: number },
 ) {
+  void glowRgb
   if (strength01 < 0.04) return
   const isLight = theme === 'light'
   ctx.save()

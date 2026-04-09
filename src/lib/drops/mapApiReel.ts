@@ -73,6 +73,9 @@ export function mapApiDropToReel(raw: Record<string, unknown>): DropReel | null 
   const vidKind =
     raw.mediaKind === 'live_replay' ? ('live_replay' as const) : ('video' as const)
 
+  const viewMsRounded =
+    Number.isFinite(viewMsTotal) && viewMsTotal >= 0 ? Math.round(viewMsTotal) : 0
+
   const reel: DropReel = {
     id,
     title,
@@ -84,7 +87,8 @@ export function mapApiDropToReel(raw: Record<string, unknown>): DropReel | null 
     growthVelocityScore: Number.isFinite(growthVelocityScore) && growthVelocityScore > 0 ? growthVelocityScore : 1,
     watchTimeMsSeed:
       (Number.isFinite(watchTimeMsSeed) && watchTimeMsSeed >= 0 ? Math.round(watchTimeMsSeed) : 0) +
-      (Number.isFinite(viewMsTotal) && viewMsTotal > 0 ? Math.round(viewMsTotal) : 0),
+      (viewMsRounded > 0 ? viewMsRounded : 0),
+    ...(viewMsRounded > 0 ? { viewMsTotal: viewMsRounded } : {}),
     categories: categories.length ? categories : ['community'],
     region,
     ...(imageUrls?.length ? { imageUrls, mediaKind: 'images' as const } : {}),

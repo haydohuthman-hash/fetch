@@ -77,6 +77,7 @@ export function FetchThemeProvider({ children }: { children: ReactNode }) {
   return <FetchThemeContext.Provider value={value}>{children}</FetchThemeContext.Provider>
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- hook colocated with provider
 export function useFetchTheme(): FetchThemeContextValue {
   const ctx = useContext(FetchThemeContext)
   if (!ctx) {

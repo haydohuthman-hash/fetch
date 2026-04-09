@@ -110,7 +110,9 @@ export function useMessagesUnreadPolling(
   onCounts: (c: { listing: number; support: number; total: number }) => void,
 ): void {
   const onRef = useRef(onCounts)
-  onRef.current = onCounts
+  useEffect(() => {
+    onRef.current = onCounts
+  }, [onCounts])
   useEffect(() => {
     if (!enabled) return
     let cancelled = false

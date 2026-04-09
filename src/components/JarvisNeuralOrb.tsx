@@ -10,6 +10,7 @@ import {
 } from '../lib/orb/fetchOrbExpressions'
 import { getSpeechAmplitude } from '../voice/fetchVoice'
 
+/* eslint-disable react-refresh/only-export-components -- re-exports orb types + voice-level hook live next to canvas orb */
 /** Four-point sparkle — reference-style glow dust near the sphere rim. */
 function drawOrbSparkle(
   ctx: CanvasRenderingContext2D,
@@ -610,7 +611,7 @@ export function useFetchOrbVoiceLevel(active: boolean): number {
 
   useEffect(() => {
     if (!active || typeof window === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
-      setLevel(0)
+      queueMicrotask(() => setLevel(0))
       return
     }
 
@@ -694,17 +695,19 @@ export function JarvisNeuralOrb({
 }: JarvisNeuralOrbProps) {
   const [autoMood, setAutoMood] = useState<FetchOrbExpression>('curious')
   const autoMoodRef = useRef(autoMood)
-  autoMoodRef.current = autoMood
   const autonomousEnabledRef = useRef(autonomous)
   const suspendAutonomousRef = useRef(suspendAutonomous)
-  autonomousEnabledRef.current = autonomous
-  suspendAutonomousRef.current = suspendAutonomous
   const reduceMotionRef = useRef(false)
   useEffect(() => {
     reduceMotionRef.current =
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true
   }, [])
+  useEffect(() => {
+    autoMoodRef.current = autoMood
+    autonomousEnabledRef.current = autonomous
+    suspendAutonomousRef.current = suspendAutonomous
+  }, [autoMood, autonomous, suspendAutonomous])
   const waveVisualRef = useRef(0)
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -732,21 +735,35 @@ export function JarvisNeuralOrb({
   const lastMapRef = useRef(mapAttention)
   const lastExprRef = useRef<FetchOrbExpression | null>(null)
   const lookAtCardRef = useRef(lookAtCard)
-  lookAtCardRef.current = lookAtCard
   const lookDownRef = useRef(lookDown)
-  lookDownRef.current = lookDown
   const lookDownDepthRef = useRef(lookDownDepth)
-  lookDownDepthRef.current = lookDownDepth
   const glowRef = useRef(glowColor)
-  glowRef.current = glowColor
   const orbAppearanceRef = useRef(orbAppearance)
-  orbAppearanceRef.current = orbAppearance
 
-  expressionRef.current = expressionProp
-  stateRef.current = state
-  speakingRef.current = speaking
-  activityRef.current = clamp01(activity)
-  voiceRef.current = clamp01(voiceLevel ?? 0)
+  useEffect(() => {
+    lookAtCardRef.current = lookAtCard
+    lookDownRef.current = lookDown
+    lookDownDepthRef.current = lookDownDepth
+    glowRef.current = glowColor
+    orbAppearanceRef.current = orbAppearance
+    expressionRef.current = expressionProp
+    stateRef.current = state
+    speakingRef.current = speaking
+    activityRef.current = clamp01(activity)
+    voiceRef.current = clamp01(voiceLevel ?? 0)
+  }, [
+    lookAtCard,
+    lookDown,
+    lookDownDepth,
+    glowColor,
+    orbAppearance,
+    expressionProp,
+    state,
+    speaking,
+    activity,
+    voiceLevel,
+  ])
+
   void awakened
 
   const effectiveExpression: FetchOrbExpression =

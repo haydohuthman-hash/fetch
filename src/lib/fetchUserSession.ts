@@ -139,7 +139,7 @@ export function updateUserProfile(patch: {
   const cur = loadSession()
   if (!cur) return { ok: false, error: 'Not signed in.' }
 
-  let nextEmail = normalizeEmail(patch.email ?? cur.email)
+  const nextEmail = normalizeEmail(patch.email ?? cur.email)
   const nextName = (patch.displayName ?? cur.displayName).trim()
   const nextPhone = (patch.phone ?? cur.phone).trim()
 

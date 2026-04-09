@@ -221,6 +221,17 @@ const DRIVER_GPS_FRESH_MS = 45_000
 const DEFAULT_BOOKING_DISPATCH_MATCHING: 'pool' | 'sequential' =
   import.meta.env.VITE_BOOKING_MATCHING_MODE === 'sequential' ? 'sequential' : 'pool'
 
+/**
+ * Vite dev server or explicit localhost — skip SEQ-only geo gate so “Choose a service” cards
+ * stay reachable when geofill is denied or the machine is outside SEQ.
+ */
+function isFetchLocalSeqLockBypassed(): boolean {
+  if (import.meta.env.DEV) return true
+  if (typeof window === 'undefined') return false
+  const h = window.location.hostname.toLowerCase()
+  return h === 'localhost' || h === '127.0.0.1' || h === '::1'
+}
+
 function sessionCustomerEmailForBooking(): string | undefined {
   const e = loadSession()?.email?.trim().toLowerCase()
   return e || undefined
@@ -555,6 +566,18 @@ export default function HomeView({
 
   useEffect(() => {
     try {
+      const rawListing = sessionStorage.getItem('fetch.pendingPeerListingHandoff')
+      if (rawListing) {
+        sessionStorage.removeItem('fetch.pendingPeerListingHandoff')
+        const p = JSON.parse(rawListing) as { listingId?: string; mode?: string }
+        if (typeof p?.listingId === 'string' && p.listingId.trim()) {
+          const mode = p.mode === 'buyNow' || p.mode === 'bid' ? p.mode : 'sheet'
+          setDropsListingHandoff({ listingId: p.listingId.trim(), mode })
+          setHomeShellTab('buySell')
+        }
+        sessionStorage.removeItem('fetch.pendingHomeShellTab')
+        return
+      }
       const raw = sessionStorage.getItem('fetch.pendingHomeShellTab')
       if (
         raw === 'chat' ||
@@ -827,6 +850,7 @@ export default function HomeView({
    * unlocked briefly so SEQ users are not flash-blocked.
    */
   const seqRegionLocked = useMemo(() => {
+    if (isFetchLocalSeqLockBypassed()) return false
     if (!homeGeolocationSettled) return false
     if (!userMapLocation) return true
     return !isLatLngInSeq(userMapLocation.lat, userMapLocation.lng)
@@ -3017,6 +3041,15 @@ export default function HomeView({
     [bumpInteraction, chatNavRoute],
   )
 
+  const onOpenPeerListingFromProfile = useCallback(
+    (listingId: string) => {
+      bumpInteraction()
+      setDropsListingHandoff({ listingId, mode: 'sheet' })
+      onHomeShellTabChange('buySell')
+    },
+    [bumpInteraction, onHomeShellTabChange],
+  )
+
   const onDropsCommerceAction = useCallback(
     (
       commerce: DropsCommerceTarget,
@@ -4651,9 +4684,33 @@ export default function HomeView({
   const homeShellFooterNav = useMemo(
     () => (
       <nav
-        className="fetch-home-intent-bottom-nav"
-        aria-label="Home, drops, Fetch shop, messages, and account"
+        className="fetch-home-intent-bottom-nav fetch-home-intent-bottom-nav--compact"
+        aria-label="Fetch shop, home, drops, messages, and account"
       >
+        <button
+          type="button"
+          className={[
+            'fetch-home-intent-bottom-nav__icon',
+            homeShellTab === 'marketplace' || homeShellTab === 'buySell'
+              ? 'fetch-home-intent-bottom-nav__icon--active'
+              : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          aria-label="Fetch shop — buy & sell and supplies"
+          aria-current={
+            homeShellTab === 'marketplace' || homeShellTab === 'buySell' ? 'page' : undefined
+          }
+          onClick={() => {
+            bumpInteraction()
+            onHomeShellTabChange('buySell')
+          }}
+        >
+          <MarketplaceNavIconFilled
+            className="block"
+            active={homeShellTab === 'marketplace' || homeShellTab === 'buySell'}
+          />
+        </button>
         <button
           type="button"
           className={[
@@ -4674,7 +4731,7 @@ export default function HomeView({
         <button
           type="button"
           className={[
-            'fetch-home-intent-bottom-nav__icon',
+            'fetch-home-intent-bottom-nav__icon fetch-home-intent-bottom-nav__icon--reels',
             homeShellTab === 'reels' ? 'fetch-home-intent-bottom-nav__icon--active' : '',
           ]
             .filter(Boolean)
@@ -4687,30 +4744,6 @@ export default function HomeView({
           }}
         >
           <ReelsNavIconFilled className="block" active={homeShellTab === 'reels'} />
-        </button>
-        <button
-          type="button"
-          className={[
-            'fetch-home-intent-bottom-nav__icon',
-            homeShellTab === 'marketplace' || homeShellTab === 'buySell'
-              ? 'fetch-home-intent-bottom-nav__icon--active'
-              : '',
-          ]
-            .filter(Boolean)
-            .join(' ')}
-          aria-label="Fetch shop — supplies and buy & sell"
-          aria-current={
-            homeShellTab === 'marketplace' || homeShellTab === 'buySell' ? 'page' : undefined
-          }
-          onClick={() => {
-            bumpInteraction()
-            onHomeShellTabChange('marketplace')
-          }}
-        >
-          <MarketplaceNavIconFilled
-            className="block"
-            active={homeShellTab === 'marketplace' || homeShellTab === 'buySell'}
-          />
         </button>
         <button
           type="button"
@@ -6960,6 +6993,7 @@ export default function HomeView({
           onMenuAccount={onAccountNavigate}
           onCommerceAction={onDropsCommerceAction}
           onRequestHomeShellTab={onHomeShellTabChange}
+          onOpenPeerListingFromProfile={onOpenPeerListingFromProfile}
         />
       ) : null}
 

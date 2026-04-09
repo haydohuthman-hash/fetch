@@ -17,6 +17,7 @@ export function FetchBootstrappingProvider({
   )
 }
 
+// eslint-disable-next-line react-refresh/only-export-components -- hook colocated with provider
 export function useFetchBootstrapping() {
   return useContext(FetchBootstrappingContext)
 }

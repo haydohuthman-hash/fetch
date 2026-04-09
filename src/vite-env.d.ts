@@ -43,6 +43,10 @@ interface ImportMetaEnv {
   readonly VITE_FETCH_AUTH_USERS_DB?: string
   /** Override photo scan URL; default is same-origin `POST /api/scan`. */
   readonly VITE_SCAN_API_URL?: string
+  /** Supabase project URL (browser client). */
+  readonly VITE_SUPABASE_URL?: string
+  /** Supabase anon / public key (browser only — not service_role). */
+  readonly VITE_SUPABASE_ANON_KEY?: string
 }
 
 interface ImportMeta {

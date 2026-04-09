@@ -28,9 +28,6 @@ import {
 } from '../lib/recentNavDestinations'
 import type { SavedAddress } from '../lib/savedAddresses'
 import { haversineMeters } from '../lib/homeDirections'
-import { useFetchVoice } from '../voice/FetchVoiceContext'
-import { primeVoicePlaybackFromUserGesture } from '../voice/fetchVoice'
-import { voiceFlowDebug, voiceFlowSttError } from '../voice/voiceFlowDebug'
 
 const GOOGLE_MAP_LIBRARIES: ('places' | 'geometry')[] = ['places', 'geometry']
 
@@ -43,25 +40,6 @@ function MapsExploreSearchIcon({ className }: { className?: string }) {
         strokeWidth="1.75"
       />
       <path d="M16.2 16.2 21 21" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function MapsExploreMicIcon({ className }: { className?: string }) {
-  return (
-    <svg className={className} width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M12 14a3 3 0 0 0 3-3V7a3 3 0 0 0-6 0v4a3 3 0 0 0 3 3Z"
-        stroke="currentColor"
-        strokeWidth="1.65"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M17 11v1a5 5 0 0 1-10 0v-1M12 18v3M8 22h8"
-        stroke="currentColor"
-        strokeWidth="1.65"
-        strokeLinecap="round"
-      />
     </svg>
   )
 }
@@ -155,117 +133,17 @@ export function MapsExploreSheet({
   const suggestBlurCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mountedRef = useRef(true)
   const inputRef = useRef<HTMLInputElement>(null)
-  const mapsSttRef = useRef<{ abort: () => void } | null>(null)
-  const [mapsSttListening, setMapsSttListening] = useState(false)
-  const { speakLine, playUiEvent } = useFetchVoice()
 
   const loaderReady = mapsJsReady && mapsJsLoaded && mapsApiKey.length > 0
-
-  const stopMapsAddressStt = useCallback(() => {
-    if (mapsSttRef.current) {
-      try {
-        mapsSttRef.current.abort()
-      } catch {
-        /* ignore */
-      }
-      mapsSttRef.current = null
-    }
-    setMapsSttListening(false)
-  }, [])
-
-  const startMapsAddressStt = useCallback(() => {
-    primeVoicePlaybackFromUserGesture()
-    const w = window as unknown as Record<string, unknown>
-    const SpeechRec = (w.SpeechRecognition ?? w.webkitSpeechRecognition) as
-      | (new () => {
-          lang: string
-          interimResults: boolean
-          maxAlternatives: number
-          onstart: (() => void) | null
-          onresult: ((e: {
-            resultIndex: number
-            results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }>
-          }) => void) | null
-          onerror: ((e: Event) => void) | null
-          onend: (() => void) | null
-          start: () => void
-          abort: () => void
-        })
-      | undefined
-    if (!SpeechRec) {
-      voiceFlowSttError('SpeechRecognition API missing (maps explore)')
-      void speakLine("Voice search isn't available in this browser.", {
-        debounceKey: 'maps_explore_no_stt',
-        debounceMs: 3200,
-      })
-      return
-    }
-    stopMapsAddressStt()
-    const rec = new SpeechRec()
-    rec.lang = 'en-AU'
-    rec.interimResults = false
-    rec.maxAlternatives = 1
-    mapsSttRef.current = rec
-    rec.onstart = () => {
-      voiceFlowDebug('listening', { source: 'maps_explore_stt' })
-      setMapsSttListening(true)
-      playUiEvent('listening_start')
-    }
-    rec.onresult = (event) => {
-      let text = ''
-      for (let i = event.resultIndex; i < event.results.length; i += 1) {
-        const row = event.results[i]
-        if (row?.isFinal) text += row[0]?.transcript ?? ''
-      }
-      if (!text.trim() && event.results.length > 0) {
-        const last = event.results[event.results.length - 1]
-        text = last?.[0]?.transcript ?? ''
-      }
-      const trimmed = text.trim()
-      playUiEvent('listening_end')
-      if (trimmed) {
-        setAddressInput(trimmed)
-        onMapsAddressFieldExpandedChange(true)
-        inputRef.current?.focus()
-      }
-    }
-    rec.onerror = (ev) => {
-      const e = ev as { error?: string }
-      voiceFlowSttError(`maps explore STT: ${e.error ?? 'unknown'}`, { error: e.error })
-      setMapsSttListening(false)
-      mapsSttRef.current = null
-      playUiEvent('error')
-    }
-    rec.onend = () => {
-      setMapsSttListening(false)
-      mapsSttRef.current = null
-    }
-    try {
-      rec.start()
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      voiceFlowSttError(`maps explore rec.start: ${msg}`)
-      setMapsSttListening(false)
-      mapsSttRef.current = null
-    }
-  }, [onMapsAddressFieldExpandedChange, playUiEvent, speakLine, stopMapsAddressStt])
 
   useEffect(() => {
     return () => {
       mountedRef.current = false
-      if (mapsSttRef.current) {
-        try {
-          mapsSttRef.current.abort()
-        } catch {
-          /* ignore */
-        }
-        mapsSttRef.current = null
-      }
     }
   }, [])
 
   useEffect(() => {
-    setRecents(loadRecentNavDestinations())
+    queueMicrotask(() => setRecents(loadRecentNavDestinations()))
   }, [])
 
   useEffect(() => {
@@ -402,8 +280,10 @@ export function MapsExploreSheet({
     if (!loaderReady || !exploreCenter) return
     const svc = placesServiceRef.current
     if (!svc) return
-    setNearbyError(null)
-    setAdventureLoading(true)
+    queueMicrotask(() => {
+      setNearbyError(null)
+      setAdventureLoading(true)
+    })
     void runAdventureNearbyBatch(svc, exploreCenter, MAPS_EXPLORE_NEARBY_RADIUS_M).then(
       (pois) => {
         if (!mountedRef.current) return
@@ -427,7 +307,7 @@ export function MapsExploreSheet({
     }
     const svc = placesServiceRef.current
     if (!loaderReady || !svc || photoSourcePois.length === 0) {
-      setPhotoEnriched([])
+      queueMicrotask(() => setPhotoEnriched([]))
       return
     }
     photoDebounceRef.current = window.setTimeout(() => {
@@ -496,9 +376,11 @@ export function MapsExploreSheet({
     }
     const line = addressInput.trim()
     if (!loaderReady || !line || !isAutocompleteAddressInput(line)) {
-      setPlacePredictions([])
-      setSuggestOpen(false)
-      setActiveSuggestionIndex(-1)
+      queueMicrotask(() => {
+        setPlacePredictions([])
+        setSuggestOpen(false)
+        setActiveSuggestionIndex(-1)
+      })
       return
     }
     predictDebounceRef.current = window.setTimeout(() => {
@@ -668,7 +550,7 @@ export function MapsExploreSheet({
             className={
               usePeekPortal
                 ? 'fetch-maps-explore-input fetch-maps-explore-input--peek-field fetch-home-stage-field-input fetch-stage-text-input w-full border-0 bg-transparent py-2 pl-0 pr-9 text-[16px] font-medium leading-snug tracking-[-0.01em] text-zinc-800 shadow-none outline-none ring-0 placeholder:text-zinc-500 focus:border-0 focus:ring-0'
-                : 'fetch-home-address-input fetch-maps-explore-input fetch-home-stage-field-input fetch-stage-text-input w-full rounded-2xl border py-3 pl-10 pr-11 text-[16px] font-semibold leading-snug tracking-[-0.01em] shadow-sm outline-none ring-0'
+                : 'fetch-home-address-input fetch-maps-explore-input fetch-home-stage-field-input fetch-stage-text-input w-full rounded-2xl border py-3 pl-10 pr-10 text-[16px] font-semibold leading-snug tracking-[-0.01em] shadow-sm outline-none ring-0'
             }
             data-sheet-no-drag
           />
@@ -685,23 +567,6 @@ export function MapsExploreSheet({
               }}
             >
               ×
-            </button>
-          ) : !usePeekPortal ? (
-            <button
-              type="button"
-              className={[
-                'fetch-maps-explore-input-mic absolute right-1.5 top-1/2 z-[1] -translate-y-1/2 rounded-full p-1.5 transition-colors',
-                mapsSttListening ? 'fetch-maps-explore-input-mic--listening' : '',
-              ].join(' ')}
-              aria-label="Voice search"
-              title="Voice search"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                if (mapsSttListening) stopMapsAddressStt()
-                else startMapsAddressStt()
-              }}
-            >
-              <MapsExploreMicIcon className="mx-auto block" />
             </button>
           ) : null}
           {placeSuggestionsVisible ? (
