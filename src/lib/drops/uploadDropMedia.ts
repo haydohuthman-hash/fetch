@@ -115,12 +115,21 @@ export async function uploadDropMedia(params: {
       { error: 'supabase_not_configured' },
     )
   }
+  console.log('[publish-upload] step 1: function start', {
+    hasVideo: Boolean(params.video),
+    imageCount: params.images?.length ?? 0,
+    bucket,
+  })
+  console.log('[publish-upload] step 2: before auth.getSession')
   const {
     data: { session },
   } = await sb.auth.getSession()
+  console.log('[publish-upload] step 3: after auth.getSession', { hasToken: Boolean(session?.access_token) })
+  console.log('[publish-upload] step 4: before auth.getUser')
   const {
     data: { user },
   } = await sb.auth.getUser()
+  console.log('[publish-upload] step 5: after auth.getUser', { hasUserId: Boolean(user?.id) })
   const uid = user?.id?.trim() || ''
   if (!session?.access_token || !uid) {
     throw new UploadDropMediaError('You must be logged in', 401, { error: 'auth_required' })
@@ -155,18 +164,33 @@ export async function uploadDropMedia(params: {
       throw new UploadDropMediaError('Video is too large (max 100MB).', 413, { error: 'invalid_video_size' })
     }
     const filePath = buildDropFilePath(uid, file)
+    console.log('[publish-upload] step 6: before supabase.storage upload (video)', {
+      filePath,
+      bytes: file.size,
+      mime,
+    })
     const { data, error } = await sb.storage.from(bucket).upload(filePath, file, {
       upsert: true,
       cacheControl: '3600',
       contentType: file.type || undefined,
     })
-    console.log('UPLOAD RESULT', { data, error })
+    console.log('[publish-upload] step 7: after supabase.storage upload (video)', {
+      ok: !error,
+      path: data?.path,
+      error: error?.message,
+    })
     if (error) {
       throwStorageUploadFailed(error, bucket, supabaseUrl, true)
     }
     const objectPath = resolveObjectPathInBucket(bucket, data, filePath)
+    console.log('[publish-upload] step 8: before public url generation (video)', { objectPath })
     const { data: pub } = sb.storage.from(bucket).getPublicUrl(objectPath)
-    return { videoUrl: pub.publicUrl }
+    console.log('[publish-upload] step 9: after public url generation (video)', {
+      hasUrl: Boolean(pub.publicUrl),
+    })
+    const out = { videoUrl: pub.publicUrl }
+    console.log('[publish-upload] step 10: function return (video)', out)
+    return out
   }
 
   const urls: string[] = []
@@ -179,18 +203,33 @@ export async function uploadDropMedia(params: {
       throw new UploadDropMediaError('Each image must be 12MB or less.', 413, { error: 'invalid_image_size' })
     }
     const filePath = buildDropFilePath(uid, file)
+    console.log('[publish-upload] step 6: before supabase.storage upload (image)', {
+      filePath,
+      bytes: file.size,
+      mime,
+    })
     const { data, error } = await sb.storage.from(bucket).upload(filePath, file, {
       upsert: true,
       cacheControl: '3600',
       contentType: file.type || undefined,
     })
-    console.log('UPLOAD RESULT', { data, error })
+    console.log('[publish-upload] step 7: after supabase.storage upload (image)', {
+      ok: !error,
+      path: data?.path,
+      error: error?.message,
+    })
     if (error) {
       throwStorageUploadFailed(error, bucket, supabaseUrl, true)
     }
     const objectPath = resolveObjectPathInBucket(bucket, data, filePath)
+    console.log('[publish-upload] step 8: before public url generation (image)', { objectPath })
     const { data: pub } = sb.storage.from(bucket).getPublicUrl(objectPath)
+    console.log('[publish-upload] step 9: after public url generation (image)', {
+      hasUrl: Boolean(pub.publicUrl),
+    })
     urls.push(pub.publicUrl)
   }
-  return { imageUrls: urls }
+  const out = { imageUrls: urls }
+  console.log('[publish-upload] step 10: function return (images)', { count: urls.length })
+  return out
 }

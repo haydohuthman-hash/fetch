@@ -29,6 +29,11 @@ export type DropsLocalPublishPayload = {
   boostTier: 0 | 1 | 2 | 3
 }
 
+export type DropsPublishActivityEvent =
+  | { type: 'idle' }
+  | { type: 'progress'; step: 'upload' | 'publish'; hasVideo: boolean; mediaLabel: string }
+  | { type: 'error'; message: string }
+
 type Props = {
   open: boolean
   onClose: () => void
@@ -39,6 +44,8 @@ type Props = {
   tryServerPublish: boolean
   /** When `tryServerPublish` is false, uploads media then builds a local feed row. */
   onLocalPublish?: (payload: DropsLocalPublishPayload) => Promise<void>
+  /** Publish / upload continues in the background after the wizard closes — drive a global banner. */
+  onPublishActivity?: (event: DropsPublishActivityEvent) => void
 }
 
 function parseTags(s: string): string[] {
@@ -49,6 +56,20 @@ function parseTags(s: string): string[] {
     .slice(0, 24)
 }
 
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: number | null = null
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = window.setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+      }),
+    ])
+  } finally {
+    if (timer != null) window.clearTimeout(timer)
+  }
+}
+
 export function DropsPostWizard({
   open,
   onClose,
@@ -57,6 +78,7 @@ export function DropsPostWizard({
   sellerDisplay,
   tryServerPublish,
   onLocalPublish,
+  onPublishActivity,
 }: Props) {
   const [step, setStep] = useState<WizardStep>('pick')
   const [err, setErr] = useState<string | null>(null)
@@ -207,12 +229,14 @@ export function DropsPostWizard({
     }
   }
 
-  const publish = async (): Promise<void> => {
+  const publish = (): void => {
+    if (busy) return
     setErr(null)
     if (!canAdvancePick) {
       setErr('Add a video or photos first.')
       return
     }
+    setBusy(true)
     const blurb = [caption.trim(), tags.map((t) => `#${t}`).join(' '), locationLabel.trim()]
       .filter(Boolean)
       .join(' · ')
@@ -223,105 +247,175 @@ export function DropsPostWizard({
       (title.match(/\d+/)?.[0] ? `$${title.match(/\d+/)![0]}` : '') ||
       'Ask'
 
+    const hasVideo = Boolean(videoFile)
+    const mediaLabel = videoFile?.name ?? (imageFiles.length ? `${imageFiles.length} photos` : 'Media')
+    console.log('[publish] step 1: handler start', {
+      tryServerPublish,
+      hasVideo,
+      imageCount: imageFiles.length,
+      mediaLabel,
+    })
+
     if (!tryServerPublish) {
-      setBusy(true)
-      try {
-        await onLocalPublish?.({
-          videoFile,
-          imageFiles: [...imageFiles],
-          title: title.trim() || 'Your drop',
-          priceLabel: priceResolved,
-          blurb: blurb || `Just posted · ${DROP_CATEGORY_LABELS[category]}`,
-          category,
-          region,
-          commerce: commercePayload,
-          commerceSaleMode,
-          boostTier,
-        })
-      } catch (e) {
-        setErr(e instanceof Error ? e.message : 'local_publish_failed')
-        setBusy(false)
-        return
+      const payload: DropsLocalPublishPayload = {
+        videoFile,
+        imageFiles: [...imageFiles],
+        title: title.trim() || 'Your drop',
+        priceLabel: priceResolved,
+        blurb: blurb || `Just posted · ${DROP_CATEGORY_LABELS[category]}`,
+        category,
+        region,
+        commerce: commercePayload,
+        commerceSaleMode,
+        boostTier,
       }
+      onPublishActivity?.({ type: 'progress', step: 'upload', hasVideo, mediaLabel })
       setBusy(false)
       onClose()
       reset()
-      onPublished(undefined)
+      void (async () => {
+        console.log('[publish] local step 2: before onLocalPublish')
+        try {
+          await withTimeout(Promise.resolve(onLocalPublish?.(payload)), 30_000, 'Local publish')
+          console.log('[publish] local step 3: after onLocalPublish')
+          onPublishActivity?.({ type: 'idle' })
+          console.log('[publish] local step 4: onPublished')
+          onPublished(undefined)
+        } catch (e) {
+          console.error('[publish] local failed', e)
+          onPublishActivity?.({
+            type: 'error',
+            message: e instanceof Error ? e.message : 'local_publish_failed',
+          })
+        } finally {
+          console.log('[publish] local finally reset state')
+          setBusy(false)
+        }
+      })()
       return
     }
 
-    setBusy(true)
-    try {
-      const sb = getSupabaseBrowserClient()
-      const { data: { session } = { session: null } } = sb
-        ? await sb.auth.getSession()
-        : { data: { session: null } }
-      if (!session?.access_token) {
-        setErr('You must be logged in')
-        setBusy(false)
-        return
-      }
-      const media = await uploadDropsMediaForPublish({
-        video: videoFile,
-        images: [...imageFiles],
-      })
-      if (!media.videoUrl && !(media.imageUrls?.length ?? 0)) {
-        setErr('Upload failed — no media URL returned.')
-        setBusy(false)
-        return
-      }
-
-      const res = await fetch(`${getFetchApiBaseUrl()}/api/publish`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${session.access_token}`,
-          ...marketplaceActorHeaders('customer'),
-        },
-        body: JSON.stringify({
-          authorId,
-          sellerDisplay,
-          title: title.trim() || 'Your drop',
-          priceLabel: priceResolved,
-          blurb: blurb || 'New drop',
-          categories: [category],
-          region,
-          commerce: commercePayload,
-          commerceSaleMode,
-          growthVelocityScore: 1.55,
-          ...(media.videoUrl ? { videoUrl: media.videoUrl } : { imageUrls: media.imageUrls ?? [] }),
-        }),
-      })
-      const payload = (await res.json().catch(() => ({}))) as { id?: string; error?: string }
-      if (!res.ok) {
-        setErr(dropsPublishApiErrorMessage(payload.error, res.status))
-        setBusy(false)
-        return
-      }
-      const id = typeof payload.id === 'string' ? payload.id : null
-      if (!id) {
-        setErr('Missing drop id')
-        setBusy(false)
-        return
-      }
-
-      if (boostTier > 0) {
-        setBoostTierForReel(id, boostTier)
-      }
-
-      onClose()
-      reset()
-      onPublished(id)
-    } catch (e) {
-      if (e instanceof UploadDropMediaError) {
-        setErr(e.message)
-      } else {
-        setErr('network_error')
-      }
-    } finally {
-      setBusy(false)
+    const snapshot = {
+      authorId,
+      sellerDisplay,
+      title: title.trim() || 'Your drop',
+      priceLabel: priceResolved,
+      blurb: blurb || 'New drop',
+      category,
+      region,
+      commerce: commercePayload,
+      commerceSaleMode,
+      boostTier,
+      video: videoFile,
+      images: [...imageFiles],
+      hasVideo,
+      mediaLabel,
     }
+
+    void (async () => {
+      console.log('[publish] step 2: before getSession')
+      const sb = getSupabaseBrowserClient()
+      try {
+        const { data: { session } = { session: null } } = sb
+          ? await withTimeout(sb.auth.getSession(), 10_000, 'Auth session lookup')
+          : { data: { session: null } }
+        console.log('[publish] step 3: after getSession', { hasSession: Boolean(session?.access_token) })
+        if (!session?.access_token) {
+          throw new Error('You must be logged in')
+        }
+
+        onPublishActivity?.({ type: 'progress', step: 'upload', hasVideo, mediaLabel: snapshot.mediaLabel })
+        setBusy(false)
+        onClose()
+        reset()
+
+        console.log('[publish] step 4: before upload')
+        const media = await withTimeout(
+          uploadDropsMediaForPublish({
+            video: snapshot.video,
+            images: snapshot.images,
+          }),
+          30_000,
+          'Upload',
+        )
+        console.log('[publish] step 5: after upload', media)
+        if (!media.videoUrl && !(media.imageUrls?.length ?? 0)) {
+          onPublishActivity?.({ type: 'error', message: 'Upload failed — no media URL returned.' })
+          return
+        }
+
+        onPublishActivity?.({
+          type: 'progress',
+          step: 'publish',
+          hasVideo: snapshot.hasVideo,
+          mediaLabel: snapshot.mediaLabel,
+        })
+
+        console.log('[publish] step 6: before createDrop')
+        const res = await withTimeout(
+          fetch(`${getFetchApiBaseUrl()}/api/publish`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${session.access_token}`,
+              ...marketplaceActorHeaders('customer'),
+            },
+            body: JSON.stringify({
+              authorId: snapshot.authorId,
+              sellerDisplay: snapshot.sellerDisplay,
+              title: snapshot.title,
+              priceLabel: snapshot.priceLabel,
+              blurb: snapshot.blurb,
+              categories: [snapshot.category],
+              region: snapshot.region,
+              commerce: snapshot.commerce,
+              commerceSaleMode: snapshot.commerceSaleMode,
+              growthVelocityScore: 1.55,
+              ...(media.videoUrl ? { videoUrl: media.videoUrl } : { imageUrls: media.imageUrls ?? [] }),
+            }),
+          }),
+          15_000,
+          'Create drop',
+        )
+        console.log('[publish] step 7: after createDrop response', { ok: res.ok, status: res.status })
+        const payload = (await res.json().catch(() => ({}))) as { id?: string; error?: string }
+        console.log('[publish] step 8: after createDrop json', payload)
+        if (!res.ok) {
+          onPublishActivity?.({
+            type: 'error',
+            message: dropsPublishApiErrorMessage(payload.error, res.status),
+          })
+          return
+        }
+        const id = typeof payload.id === 'string' ? payload.id : null
+        if (!id) {
+          onPublishActivity?.({ type: 'error', message: 'Missing drop id' })
+          return
+        }
+
+        if (snapshot.boostTier > 0) {
+          setBoostTierForReel(id, snapshot.boostTier)
+        }
+
+        console.log('[publish] step 9: onPublished', { id })
+        onPublishActivity?.({ type: 'idle' })
+        onPublished(id)
+      } catch (e) {
+        console.error('[publish] failed', e)
+        if (e instanceof UploadDropMediaError) {
+          onPublishActivity?.({ type: 'error', message: e.message })
+        } else {
+          onPublishActivity?.({
+            type: 'error',
+            message: e instanceof Error ? e.message : 'Publishing failed',
+          })
+        }
+      } finally {
+        console.log('[publish] finally reset state')
+        setBusy(false)
+      }
+    })()
   }
 
   if (!open) return null
@@ -644,7 +738,7 @@ export function DropsPostWizard({
               type="button"
               disabled={busy}
               className="flex-[1.2] rounded-xl bg-fetch-red py-3 text-[14px] font-bold text-white disabled:opacity-40"
-              onClick={() => void publish()}
+              onClick={() => publish()}
             >
               {busy ? 'Publishing…' : tryServerPublish ? 'Publish' : 'Done'}
             </button>

@@ -56,7 +56,11 @@ import { SUPPLY_PRODUCTS } from '../lib/suppliesCatalog'
 import { dropIsPhotoCarousel, dropIsVideo, type DropReel } from '../lib/drops/types'
 import { DropPhotoCarousel } from './drops/DropPhotoCarousel'
 import { DropGiftPanelArt, GiftRailIconFilled } from './drops/DropsGiftIcons'
-import { DropsPostWizard, type DropsLocalPublishPayload } from './drops/DropsPostWizard'
+import {
+  DropsPostWizard,
+  type DropsLocalPublishPayload,
+  type DropsPublishActivityEvent,
+} from './drops/DropsPostWizard'
 import {
   FetchProfileSheet,
   type HomeShellTabRequest,
@@ -69,6 +73,10 @@ type ReelsTopTab = 'drops' | 'local' | 'live'
 type TabSplashPhase = 'in' | 'wait' | 'out'
 
 type TabSplashState = { tab: ReelsTopTab; dir: 1 | -1; phase: TabSplashPhase }
+
+type ReelsPublishBanner =
+  | { kind: 'progress'; step: 'upload' | 'publish'; hasVideo: boolean; mediaLabel: string }
+  | { kind: 'error'; message: string }
 
 const REELS_TAB_SPLASH_COPY: Record<ReelsTopTab, { title: string; line: string }> = {
   drops: {
@@ -218,6 +226,7 @@ function HomeShellReelsPageInner({
   const [wizardOpen, setWizardOpen] = useState(false)
   /** Remount wizard each open so step 1 shows immediately (no stale step flash). */
   const [wizardMountKey, setWizardMountKey] = useState(0)
+  const [publishBanner, setPublishBanner] = useState<ReelsPublishBanner | null>(null)
   const [reelsMenuOpen, setReelsMenuOpen] = useState(false)
   const [liveSheetOpen, setLiveSheetOpen] = useState(false)
   const [boostOpenForId, setBoostOpenForId] = useState<string | null>(null)
@@ -699,6 +708,23 @@ function HomeShellReelsPageInner({
     })
   }, [openPostWizard])
 
+  const onPublishActivity = useCallback((e: DropsPublishActivityEvent) => {
+    if (e.type === 'idle') {
+      setPublishBanner(null)
+      return
+    }
+    if (e.type === 'error') {
+      setPublishBanner({ kind: 'error', message: e.message })
+      return
+    }
+    setPublishBanner({
+      kind: 'progress',
+      step: e.step,
+      hasVideo: e.hasVideo,
+      mediaLabel: e.mediaLabel,
+    })
+  }, [])
+
   const applyBoost = useCallback((reelId: string, tier: DropBoostTier) => {
     if (tier <= 0) return
     setBoostTierForReel(reelId, tier)
@@ -755,6 +781,51 @@ function HomeShellReelsPageInner({
           Menu
         </button>
       </header>
+
+      {publishBanner ? (
+        <div
+          className="pointer-events-auto absolute left-2 right-2 z-[24] rounded-2xl border border-white/15 bg-zinc-950/95 px-4 py-3 shadow-lg shadow-black/45 backdrop-blur-md sm:left-4 sm:right-4"
+          style={{
+            top: 'max(3.75rem, calc(env(safe-area-inset-top, 0px) + 2.85rem))',
+          }}
+          role="status"
+          aria-live="polite"
+        >
+          {publishBanner.kind === 'progress' ? (
+            <div>
+              <p className="text-[13px] font-bold text-white">
+                {publishBanner.step === 'upload'
+                  ? publishBanner.hasVideo
+                    ? 'Uploading your video'
+                    : 'Uploading your photos'
+                  : 'Publishing your drop'}
+              </p>
+              <p className="mt-0.5 truncate text-[11px] text-white/55" title={publishBanner.mediaLabel}>
+                {publishBanner.mediaLabel}
+              </p>
+              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/15">
+                <div className="h-full w-[45%] max-w-[14rem] animate-pulse rounded-full bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400" />
+              </div>
+              <p className="mt-2 text-[10px] leading-snug text-white/45">
+                Keep browsing — upload and publish continue in the background.
+              </p>
+            </div>
+          ) : (
+            <div className="flex items-start gap-2">
+              <p className="min-w-0 flex-1 text-[13px] font-semibold leading-snug text-amber-200">
+                {publishBanner.message}
+              </p>
+              <button
+                type="button"
+                className="shrink-0 rounded-lg bg-white/12 px-2.5 py-1.5 text-[11px] font-bold text-white ring-1 ring-white/15 active:bg-white/20"
+                onClick={() => setPublishBanner(null)}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+        </div>
+      ) : null}
 
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <div
@@ -1646,6 +1717,7 @@ function HomeShellReelsPageInner({
           sellerDisplay={formatDropHandle(myProfile.displayName)}
           tryServerPublish={dropsDb}
           onLocalPublish={handleWizardLocalPublish}
+          onPublishActivity={onPublishActivity}
         />
       ) : null}
     </div>

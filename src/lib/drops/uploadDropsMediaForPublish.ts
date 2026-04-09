@@ -17,5 +17,19 @@ export async function uploadDropsMediaForPublish(params: {
   video?: File | null
   images?: File[]
 }): Promise<UploadDropsMediaForPublishResult> {
-  return uploadDropMedia({ video: params.video ?? null, images: params.images })
+  console.log('[publish-upload] wrapper start', {
+    hasVideo: Boolean(params.video),
+    imageCount: params.images?.length ?? 0,
+  })
+  try {
+    const out = await uploadDropMedia({ video: params.video ?? null, images: params.images })
+    console.log('[publish-upload] wrapper done', {
+      hasVideoUrl: Boolean(out.videoUrl),
+      imageUrlCount: out.imageUrls?.length ?? 0,
+    })
+    return out
+  } catch (e) {
+    console.error('[publish-upload] wrapper failed', e)
+    throw e
+  }
 }

@@ -244,27 +244,39 @@ export async function createDropDraft(pool, sellerKey, body) {
   const watchSeed = Number(body.watchTimeMsSeed)
   const watchTimeMsSeed = Number.isFinite(watchSeed) && watchSeed >= 0 ? Math.round(watchSeed) : 0
 
-  const { rows } = await pool.query(
-    `INSERT INTO drops (user_id, seller_key, author_id, seller_display, title, price_label, blurb, categories, region, commerce, commerce_sale_mode, growth_velocity_score, watch_time_ms_seed)
-     VALUES (NULLIF($1,'')::uuid,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13)
-     RETURNING *`,
-    [
-      userId,
-      sk,
-      authorId,
-      sellerDisplay,
-      title,
-      priceLabel,
-      blurb,
-      categories,
-      region,
-      JSON.stringify(commerce),
-      commerceSaleMode,
-      growthVelocityScore,
-      watchTimeMsSeed,
-    ],
-  )
-  return rows[0] ?? null
+  console.log('[publish-db] createDropDraft insert start', {
+    userId: userId || null,
+    authorId,
+    hasCommerce: Boolean(commerce),
+    categoriesCount: categories.length,
+  })
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO drops (user_id, seller_key, author_id, seller_display, title, price_label, blurb, categories, region, commerce, commerce_sale_mode, growth_velocity_score, watch_time_ms_seed)
+       VALUES (NULLIF($1,'')::uuid,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13)
+       RETURNING *`,
+      [
+        userId,
+        sk,
+        authorId,
+        sellerDisplay,
+        title,
+        priceLabel,
+        blurb,
+        categories,
+        region,
+        JSON.stringify(commerce),
+        commerceSaleMode,
+        growthVelocityScore,
+        watchTimeMsSeed,
+      ],
+    )
+    console.log('[publish-db] createDropDraft insert done', { dropId: rows?.[0]?.id ?? null })
+    return rows[0] ?? null
+  } catch (e) {
+    console.error('[publish-db] createDropDraft insert failed', e)
+    throw e
+  }
 }
 
 /**

@@ -2921,12 +2921,17 @@ function isAllowedDropMediaUrl(url) {
 }
 
 app.post('/api/publish', dropsWriteLimiter, async (req, res) => {
+  const reqId = `pub_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+  console.log('[publish-api] step 1: request received', { reqId, method: req.method, path: req.path })
   if (!sharedPgPool) return res.status(503).json({ error: 'publish_unavailable' })
+  console.log('[publish-api] step 2: before auth check', { reqId })
   const authUser = await supabaseAuthUserFromRequest(req)
+  console.log('[publish-api] step 3: after auth check', { reqId, hasUser: Boolean(authUser?.id) })
   if (!authUser?.id) return res.status(401).json({ error: 'auth_required' })
   const sk = peerListingsStore.sellerKey(authUser.id, authUser.email || '')
   if (!sk) return res.status(401).json({ error: 'auth_required' })
   try {
+    console.log('[publish-api] step 4: body parsed', { reqId, hasBody: Boolean(req.body) })
     const body = req.body ?? {}
     const userId = String(authUser.id).trim()
     const userEmail = String(authUser.email || '').trim().toLowerCase()
@@ -2948,15 +2953,19 @@ app.post('/api/publish', dropsWriteLimiter, async (req, res) => {
       if (!isAllowedDropMediaUrl(u)) return res.status(400).json({ error: 'invalid_media_url' })
     }
 
+    console.log('[publish-api] step 5: before recent uploads query', { reqId, userId })
     const recentUploads = await countRecentDropsByUser(sharedPgPool, userId, 60)
+    console.log('[publish-api] step 6: after recent uploads query', { reqId, recentUploads })
     if (recentUploads >= 5) {
       return res.status(429).json({ error: 'rate_limited', detail: 'Max 5 uploads per minute.' })
     }
 
+    console.log('[publish-api] step 7: before profile username query', { reqId, userId })
     const { rows: profRows } = await sharedPgPool.query(
       `SELECT username FROM profiles WHERE id = $1::uuid LIMIT 1`,
       [userId],
     )
+    console.log('[publish-api] step 8: after profile username query', { reqId, rowCount: profRows?.length ?? 0 })
     const username = String(profRows?.[0]?.username || '').trim()
     console.log('USERNAME', username || null)
     const authorId = userId
@@ -2967,6 +2976,7 @@ app.post('/api/publish', dropsWriteLimiter, async (req, res) => {
           ? body.sellerDisplay.trim().slice(0, 120)
           : `@${userEmail.split('@')[0] || 'seller'}`
 
+    console.log('[publish-api] step 9: db insert start createDropDraft', { reqId })
     const row = await createDropDraft(sharedPgPool, sk, {
       userId,
       authorId,
@@ -2981,25 +2991,38 @@ app.post('/api/publish', dropsWriteLimiter, async (req, res) => {
       growthVelocityScore: body.growthVelocityScore,
       watchTimeMsSeed: body.watchTimeMsSeed,
     })
+    console.log('[publish-api] step 10: db insert done createDropDraft', { reqId, dropId: row?.id ?? null })
     if (!row?.id) return res.status(500).json({ error: 'create_failed' })
     const dropId = String(row.id)
 
     if (videoUrl) {
+      console.log('[publish-api] step 11: before addDropMedia video', { reqId, dropId })
       await addDropMedia(sharedPgPool, dropId, { kind: 'video', url: videoUrl, sortOrder: 0 })
+      console.log('[publish-api] step 12: after addDropMedia video', { reqId, dropId })
     } else {
       let sort = 0
       for (const u of imageUrls) {
+        console.log('[publish-api] step 11: before addDropMedia image', { reqId, dropId, sort })
         await addDropMedia(sharedPgPool, dropId, { kind: 'image', url: u, sortOrder: sort++ })
+        console.log('[publish-api] step 12: after addDropMedia image', { reqId, dropId, sort })
       }
     }
 
+    console.log('[publish-api] step 13: before publishDrop', { reqId, dropId })
     await publishDrop(sharedPgPool, dropId, sk)
+    console.log('[publish-api] step 14: after publishDrop', { reqId, dropId })
     const mediaKind = videoUrl ? 'video' : 'carousel'
+    console.log('[publish-api] step 15: before insertMarketplacePost', { reqId, dropId, mediaKind })
     await insertMarketplacePost(sharedPgPool, dropId, sk, mediaKind)
+    console.log('[publish-api] step 16: after insertMarketplacePost', { reqId, dropId })
 
+    console.log('[publish-api] step 17: before getDropWithMedia', { reqId, dropId })
     const full = await getDropWithMedia(sharedPgPool, dropId)
+    console.log('[publish-api] step 18: after getDropWithMedia', { reqId, hasPublic: Boolean(full?.public) })
+    console.log('[publish-api] step 19: response returned', { reqId, dropId })
     return res.json({ ok: true, id: dropId, drop: full?.public ?? null })
   } catch (e) {
+    console.error('[publish-api] failed', { reqId, error: e instanceof Error ? e.message : String(e) })
     const msg = e instanceof Error ? e.message : String(e)
     if (msg === 'seller_key_required') return res.status(400).json({ error: msg })
     if (msg === 'forbidden') return res.status(403).json({ error: msg })

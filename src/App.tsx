@@ -23,6 +23,7 @@ import {
   refreshSessionFromSupabase,
   seedSessionCacheFromSupabaseUser,
 } from './lib/fetchUserSession'
+import { isAutomaticDefaultUsername } from './lib/supabase/profiles'
 import { getSupabaseBrowserClient } from './lib/supabase/client'
 import { cleanupSupabaseOAuthUrl } from './lib/supabase/oauthSession'
 import { setAuthState } from './lib/authState'
@@ -56,7 +57,7 @@ const dropsCreatorSetupChunk = () => import('./views/DropsCreatorSetupView')
 const DropsCreatorSetupView = lazy(dropsCreatorSetupChunk)
 
 type AppPhase = 'boot' | 'splash' | 'home' | 'auth' | 'onboarding' | 'dropsSetup' | 'account' | 'driver'
-type PostAuthTarget = 'home' | 'onboarding' | 'dropsSetup'
+type PostAuthTarget = 'auth' | 'home' | 'onboarding' | 'dropsSetup'
 type PostAuthTrace = {
   source: 'auth-success' | 'auth-event'
   startedAtMs: number
@@ -93,6 +94,8 @@ function initialHomeBootstrapOpen(): boolean {
 }
 
 const SPLASH_SESSION_WAIT_MS = 4500
+/** Never block the boot screen on `getSession()` (offline / wedged client). */
+const BOOT_GET_SESSION_TIMEOUT_MS = 10_000
 
 function nowMs(): number {
   if (typeof performance !== 'undefined' && typeof performance.now === 'function') return performance.now()
@@ -100,6 +103,9 @@ function nowMs(): number {
 }
 
 function likelyPostAuthTargetFromHints(): PostAuthTarget {
+  const s = loadSession()
+  const u = s?.username?.trim()
+  if (!u || isAutomaticDefaultUsername(u, s?.id)) return 'auth'
   if (needsPlatformOnboarding()) return 'onboarding'
   if (needsDropsCreatorOnboarding()) return 'dropsSetup'
   return 'home'
@@ -238,6 +244,19 @@ function App() {
     [],
   )
 
+  // Absolute guard: never remain on boot forever.
+  useEffect(() => {
+    if (phase !== 'boot') return
+    const t = window.setTimeout(() => {
+      if (phaseRef.current !== 'boot') return
+      console.warn('[AUTH] boot hard-timeout guard triggered; forcing splash')
+      shellHydrateDoneRef.current = true
+      setShellHydrateDone(true)
+      setPhase((p) => (p === 'boot' ? 'splash' : p))
+    }, 2200)
+    return () => window.clearTimeout(t)
+  }, [phase])
+
   useEffect(() => {
     const sb = getSupabaseBrowserClient()
     if (!sb) {
@@ -248,7 +267,18 @@ function App() {
       return
     }
     void (async () => {
-      const { data, error } = await sb.auth.getSession()
+      const sessionResult = await Promise.race([
+        sb.auth.getSession(),
+        new Promise<{ data: { session: null } }>((resolve) =>
+          window.setTimeout(() => {
+            console.warn('[AUTH] getSession timeout — leaving boot without session', {
+              ms: BOOT_GET_SESSION_TIMEOUT_MS,
+            })
+            resolve({ data: { session: null } })
+          }, BOOT_GET_SESSION_TIMEOUT_MS),
+        ),
+      ])
+      const { data, error } = sessionResult as Awaited<ReturnType<typeof sb.auth.getSession>>
       console.log('[AUTH] initial session:', data, error)
       console.log('[AUTH] auth state snapshot', {
         pathname: typeof window !== 'undefined' ? window.location.pathname : '',
@@ -256,23 +286,19 @@ function App() {
         hasSession: Boolean(data.session?.user),
       })
       if (data.session?.user) console.log('[AUTH] session present:', data.session.user.id)
-      setAuthSessionUserId(data.session?.user?.id ?? null)
-      setAuthState({ sessionUserId: data.session?.user?.id ?? null, loading: true })
-      try {
-        console.log('[AUTH] profile fetch start')
-        await refreshSessionFromSupabase()
-        const prof = loadSession()?.username?.trim()
-        if (prof) console.log('[AUTH] profile fetch success (session cache)')
-        else console.log('[AUTH] profile fetch missing (session cache username empty — may still be valid)')
-        setProfileSyncPending(Boolean(data.session?.user?.id) && !Boolean(loadSession()?.username?.trim()))
-      } finally {
-        setAuthState({ loading: false })
-        shellHydrateDoneRef.current = true
-        setShellHydrateDone(true)
-      }
 
       const authedUser = data.session?.user ?? null
+      setAuthSessionUserId(authedUser?.id ?? null)
+      if (authedUser) seedSessionCacheFromSupabaseUser(authedUser)
+      setAuthState({ sessionUserId: authedUser?.id ?? null, loading: false })
+      setProfileSyncPending(
+        Boolean(authedUser?.id) && !Boolean(loadSession()?.username?.trim()),
+      )
+      shellHydrateDoneRef.current = true
+      setShellHydrateDone(true)
+
       if (authedUser) {
+        console.log('[AUTH] boot: leaving boot → authenticated shell (before profile refresh)')
         console.log('[AUTH] splash removed — authenticated cold start → main shell')
         console.log('[AUTH] skip splash: authenticated session on cold start')
         if (!fetchAppSplashHandoffDone) {
@@ -287,17 +313,37 @@ function App() {
         console.log('[AUTH] computePostAuthAppPhase result (cold start target):', postAuth)
         if (postAuth === 'dropsSetup') setDropsCreatorReturnTarget('home')
         setPhase((p) => (p === 'boot' || p === 'splash' ? (postAuth ?? 'home') : p))
+
         const reconcile = () => {
           void refreshSessionFromSupabase().then(() => {
             applyPostAuthRouteIfNeeded(() => setDropsCreatorReturnTarget('home'), setPhase)
           })
         }
+        console.log('[AUTH] profile fetch start (background cold start)')
+        void refreshSessionFromSupabase()
+          .then(() => {
+            const prof = loadSession()?.username?.trim()
+            if (prof) console.log('[AUTH] profile fetch success (session cache)')
+            else
+              console.log(
+                '[AUTH] profile fetch missing (session cache username empty — may still be valid)',
+              )
+            setProfileSyncPending(
+              Boolean(authedUser.id) && !Boolean(loadSession()?.username?.trim()),
+            )
+          })
+          .catch((e) => console.warn('[AUTH] profile refresh failed (cold start)', e))
         reconcile()
         window.setTimeout(reconcile, 700)
         window.setTimeout(reconcile, 2200)
       } else {
+        console.log('[AUTH] boot: leaving boot → splash (guest / no session)')
         console.log('[AUTH] guest cold start: show splash after boot')
         setPhase((p) => (p === 'boot' ? 'splash' : p))
+        console.log('[AUTH] profile fetch start (background guest cold start)')
+        void refreshSessionFromSupabase().catch((e) =>
+          console.warn('[AUTH] profile refresh skipped or failed (guest cold start)', e),
+        )
       }
     })()
   }, [])
