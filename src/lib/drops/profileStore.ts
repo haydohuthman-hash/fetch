@@ -60,7 +60,7 @@ export function accountAuthorIdFromEmail(email: string): string {
 export function ensureDropProfileForSession(): DropCreatorProfile | null {
   const session = loadSession()
   if (!session) return null
-  const id = accountAuthorIdFromEmail(session.email)
+  const id = session.id?.trim() || accountAuthorIdFromEmail(session.email)
   const s = loadRaw()
   if (s.byId[id]) {
     setMyDropProfileId(id)
@@ -119,7 +119,7 @@ export function ensureDropProfileForSession(): DropCreatorProfile | null {
 export function syncAccountDisplayToDropProfile(displayName: string): void {
   const session = loadSession()
   if (!session) return
-  const id = accountAuthorIdFromEmail(session.email)
+  const id = session.id?.trim() || accountAuthorIdFromEmail(session.email)
   const s = loadRaw()
   const me = s.byId[id]
   if (!me) return
@@ -135,7 +135,7 @@ export function getMyDropProfile(): DropCreatorProfile | null {
   try {
     const session = loadSession()
     if (session) {
-      const acctId = accountAuthorIdFromEmail(session.email)
+      const acctId = session.id?.trim() || accountAuthorIdFromEmail(session.email)
       const s = loadRaw()
       if (s.byId[acctId]) return s.byId[acctId]
     }

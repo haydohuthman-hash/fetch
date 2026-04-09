@@ -47,6 +47,8 @@ interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL?: string
   /** Supabase anon / public key (browser only — not service_role). */
   readonly VITE_SUPABASE_ANON_KEY?: string
+  /** OAuth redirect base (Google / Apple). Overrides dev/prod detection when set. */
+  readonly VITE_SITE_URL?: string
 }
 
 interface ImportMeta {

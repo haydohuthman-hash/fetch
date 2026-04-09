@@ -10,6 +10,7 @@ import {
   getMyDropProfile,
   updateMyDropProfile,
 } from '../lib/drops/profileStore'
+import { getMySupabaseProfile, updateMySupabaseProfile, validateUsername } from '../lib/supabase/profiles'
 
 const AVATAR_PRESETS = ['🎯', '🛍️', '📦', '⭐', '🔥', '💼', '🌿', '🏪', '🎬', '✨', '🚀', '💜']
 
@@ -25,13 +26,18 @@ export default function DropsCreatorSetupView({ onDone }: DropsCreatorSetupViewP
   const [err, setErr] = useState<string | null>(null)
 
   useEffect(() => {
-    ensureDropProfileForSession()
-    const me = getMyDropProfile()
-    if (me) {
-      setDisplayName(me.displayName)
-      setAvatar(me.avatar && !me.avatar.startsWith('http') ? me.avatar : '🎯')
-      if (me.avatar?.startsWith('http')) setAvatarUrl(me.avatar)
-    }
+    void (async () => {
+      ensureDropProfileForSession()
+      const me = getMyDropProfile()
+      const sp = await getMySupabaseProfile().catch(() => null)
+      if (me) {
+        setDisplayName(sp?.username?.trim() || me.displayName)
+        setAvatar(me.avatar && !me.avatar.startsWith('http') ? me.avatar : '🎯')
+        if (me.avatar?.startsWith('http')) setAvatarUrl(me.avatar)
+      } else if (sp?.username) {
+        setDisplayName(sp.username)
+      }
+    })()
   }, [])
 
   const finish = useCallback(
@@ -53,13 +59,30 @@ export default function DropsCreatorSetupView({ onDone }: DropsCreatorSetupViewP
 
   const saveProfileAndContinue = useCallback(() => {
     setErr(null)
-    const pic = avatarUrl.trim().startsWith('https://') ? avatarUrl.trim().slice(0, 2048) : avatar.trim() || '🎯'
-    const r = updateMyDropProfile(displayName.trim(), pic)
-    if ('error' in r) {
-      setErr(r.error)
+    const usernameErr = validateUsername(displayName.trim())
+    if (usernameErr) {
+      setErr(usernameErr)
       return
     }
-    setStep(2)
+    const pic = avatarUrl.trim().startsWith('https://') ? avatarUrl.trim().slice(0, 2048) : avatar.trim() || '🎯'
+    void (async () => {
+      try {
+        await updateMySupabaseProfile({
+          username: displayName.trim(),
+          avatar_url: pic.startsWith('http') ? pic : null,
+        })
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Could not save profile.'
+        setErr(msg.toLowerCase().includes('duplicate') ? 'That username is already taken.' : msg)
+        return
+      }
+      const r = updateMyDropProfile(displayName.trim(), pic)
+      if ('error' in r) {
+        setErr(r.error)
+        return
+      }
+      setStep(2)
+    })()
   }, [avatar, avatarUrl, displayName])
 
   const goUploadFirst = useCallback(() => {

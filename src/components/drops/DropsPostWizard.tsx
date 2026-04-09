@@ -252,6 +252,15 @@ export function DropsPostWizard({
 
     setBusy(true)
     try {
+      const sb = getSupabaseBrowserClient()
+      const { data: { session } = { session: null } } = sb
+        ? await sb.auth.getSession()
+        : { data: { session: null } }
+      if (!session?.access_token) {
+        setErr('You must be logged in')
+        setBusy(false)
+        return
+      }
       const media = await uploadDropsMediaForPublish({
         video: videoFile,
         images: [...imageFiles],
@@ -267,6 +276,7 @@ export function DropsPostWizard({
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
           ...marketplaceActorHeaders('customer'),
         },
         body: JSON.stringify({

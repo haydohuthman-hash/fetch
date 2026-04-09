@@ -6,6 +6,8 @@ import {
   updateMyDropProfile,
 } from '../../lib/drops/profileStore'
 import { loadSession, updateUserProfile } from '../../lib/fetchUserSession'
+import { getSupabaseBrowserClient } from '../../lib/supabase/client'
+import { updateMySupabaseProfile, validateUsername } from '../../lib/supabase/profiles'
 import { formatProfileDropViews } from '../../lib/drops/formatProfileDropViews'
 import { dropIsPhotoCarousel, dropIsVideo, type DropReel } from '../../lib/drops/types'
 import { isFollowingAuthor, toggleFollowAuthor } from '../../lib/fetchProfile/followGraphStore'
@@ -145,6 +147,9 @@ export function FetchProfileSheet({
   const [draftName, setDraftName] = useState('')
   const [draftAvatar, setDraftAvatar] = useState('🎯')
   const [formErr, setFormErr] = useState<string | null>(null)
+  const [authMsg, setAuthMsg] = useState<string | null>(null)
+  const [newEmail, setNewEmail] = useState('')
+  const [newPassword, setNewPassword] = useState('')
   const [iFollow, setIFollow] = useState(false)
 
   const viewerAuthorId = useMemo(() => getMyDropProfile()?.id ?? '', [profileRevision, open])
@@ -198,6 +203,8 @@ export function FetchProfileSheet({
       if (me && me.id === authorId) {
         setDraftName(me.displayName)
         setDraftAvatar(me.avatar)
+        setNewEmail(loadSession()?.email ?? '')
+        setNewPassword('')
       } else {
         setDraftName('')
         setDraftAvatar('🎯')
@@ -240,21 +247,62 @@ export function FetchProfileSheet({
 
   const saveDropIdentity = useCallback(() => {
     setFormErr(null)
-    const me = getMyDropProfile()
-    const r = me
-      ? updateMyDropProfile(draftName, draftAvatar)
-      : createLocalDropProfile(draftName, draftAvatar)
-    if ('error' in r) {
-      setFormErr(r.error)
+    const usernameErr = validateUsername(draftName.trim())
+    if (usernameErr) {
+      setFormErr(usernameErr)
       return
     }
-    onProfileSaved()
-    setEditOpen(false)
-    if (loadSession()) {
-      const r = updateUserProfile({ displayName: draftName.trim() })
-      if (!r.ok) setFormErr(r.error)
-    }
+    void (async () => {
+      try {
+        await updateMySupabaseProfile({
+          username: draftName.trim(),
+          avatar_url: draftAvatar.startsWith('http') ? draftAvatar.trim() : null,
+        })
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Could not save username.'
+        setFormErr(msg.toLowerCase().includes('duplicate') ? 'That username is already taken.' : msg)
+        return
+      }
+      const me = getMyDropProfile()
+      const r = me ? updateMyDropProfile(draftName, draftAvatar) : createLocalDropProfile(draftName, draftAvatar)
+      if ('error' in r) {
+        setFormErr(r.error)
+        return
+      }
+      onProfileSaved()
+      setEditOpen(false)
+      if (loadSession()) {
+        const up = updateUserProfile({ displayName: draftName.trim() })
+        if (!up.ok) setFormErr(up.error)
+      }
+    })()
   }, [draftAvatar, draftName, onProfileSaved])
+
+  const updateAuthCredentials = useCallback(async () => {
+    setAuthMsg(null)
+    const sb = getSupabaseBrowserClient()
+    if (!sb) {
+      setAuthMsg('Supabase is not configured.')
+      return
+    }
+    if (!newEmail.trim() && !newPassword.trim()) {
+      setAuthMsg('Enter a new email or password.')
+      return
+    }
+    if (newPassword.trim() && newPassword.trim().length < 8) {
+      setAuthMsg('Password must be at least 8 characters.')
+      return
+    }
+    const { error } = await sb.auth.updateUser({
+      ...(newEmail.trim() ? { email: newEmail.trim() } : {}),
+      ...(newPassword.trim() ? { password: newPassword.trim() } : {}),
+    })
+    if (error) {
+      setAuthMsg(error.message || 'Could not update account settings.')
+      return
+    }
+    setAuthMsg('Account updated.')
+  }, [newEmail, newPassword])
 
   if (!open) return null
 
@@ -390,6 +438,30 @@ export function FetchProfileSheet({
               >
                 Save profile
               </button>
+              <div className="mt-4 border-t border-zinc-200 pt-3">
+                <p className="text-[12px] font-semibold text-zinc-600">Account security</p>
+                <input
+                  className="mt-2 w-full border-0 border-b border-zinc-200 bg-transparent px-0 py-2 text-[15px] text-zinc-900 outline-none focus:border-zinc-400"
+                  placeholder="New email (optional)"
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                />
+                <input
+                  className="mt-2 w-full border-0 border-b border-zinc-200 bg-transparent px-0 py-2 text-[15px] text-zinc-900 outline-none focus:border-zinc-400"
+                  placeholder="New password (optional)"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => void updateAuthCredentials()}
+                  className="mt-3 w-full py-2.5 text-[14px] font-semibold text-zinc-900"
+                >
+                  Update email/password
+                </button>
+                {authMsg ? <p className="mt-1 text-[12px] text-zinc-600">{authMsg}</p> : null}
+              </div>
               <p className="mt-2 text-[11px] leading-snug text-zinc-500">
                 One profile for Drops, Buy &amp; sell, and chat. Your account email stays private.
               </p>

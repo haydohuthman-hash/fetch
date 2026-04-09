@@ -8,7 +8,9 @@ import {
   needsPlatformOnboarding,
   setOnboardingReturnTarget,
 } from './lib/fetchPlatformIdentity'
-import { loadSession } from './lib/fetchUserSession'
+import { loadSession, refreshSessionFromSupabase } from './lib/fetchUserSession'
+import { getSupabaseBrowserClient } from './lib/supabase/client'
+import { cleanupSupabaseOAuthUrl } from './lib/supabase/oauthSession'
 import { FetchVoiceProvider } from './voice/FetchVoiceContext'
 import { FetchBootstrappingProvider } from './boot/FetchBootstrappingContext'
 import { FetchBootstrapOverlay } from './components/FetchBootstrapOverlay'
@@ -84,13 +86,30 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (import.meta.env.VITE_FETCH_AUTH_USERS_DB !== '1') return
-    void (async () => {
-      const { fetchAuthMe } = await import('./lib/fetchServerAuth')
-      const { applyServerUserProfile } = await import('./lib/fetchUserSession')
-      const me = await fetchAuthMe()
-      if (me) applyServerUserProfile(me)
-    })()
+    void refreshSessionFromSupabase()
+  }, [])
+
+  useEffect(() => {
+    const sb = getSupabaseBrowserClient()
+    if (!sb) return
+    const {
+      data: { subscription },
+    } = sb.auth.onAuthStateChange(async (event, session) => {
+      if (
+        event === 'INITIAL_SESSION' ||
+        event === 'SIGNED_IN' ||
+        event === 'TOKEN_REFRESHED'
+      ) {
+        if (session?.user) {
+          await refreshSessionFromSupabase()
+          cleanupSupabaseOAuthUrl()
+        }
+      }
+      if (event === 'SIGNED_OUT') {
+        cleanupSupabaseOAuthUrl()
+      }
+    })
+    return () => subscription.unsubscribe()
   }, [])
 
   const goAccountFromHome = useCallback(() => {

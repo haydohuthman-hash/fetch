@@ -102,6 +102,7 @@ import {
   listPublishedDropsFeed,
   getDropWithMedia,
   createDropDraft,
+  countRecentDropsByUser,
   updateDrop,
   publishDrop,
   addDropMedia,
@@ -909,7 +910,7 @@ app.post('/api/auth/customer-session', authRouteLimiter, (req, res) => {
   return res.json({ ok: true })
 })
 
-app.post('/api/auth/register', authRouteLimiter, async (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   if (!FETCH_AUTH_USERS_DB_ENABLED) {
     return res.status(503).json({ error: 'server_auth_not_configured' })
   }
@@ -937,7 +938,7 @@ app.post('/api/auth/register', authRouteLimiter, async (req, res) => {
   }
 })
 
-app.post('/api/auth/login', authRouteLimiter, async (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   if (!FETCH_AUTH_USERS_DB_ENABLED) {
     return res.status(503).json({ error: 'server_auth_not_configured' })
   }
@@ -2704,6 +2705,16 @@ function peerListingSellerKey(req) {
   return peerListingsStore.sellerKey(actor.customerUserId, actor.customerEmail)
 }
 
+async function supabaseAuthUserFromRequest(req) {
+  const accessToken = parseBearerAccessToken(req)
+  if (!accessToken) return null
+  const sb = getSupabaseClientForUserAccessToken(accessToken)
+  if (!sb) return null
+  const { data, error } = await sb.auth.getUser()
+  if (error || !data?.user?.id) return null
+  return data.user
+}
+
 function peerMessageJson(message, viewerKey) {
   return {
     id: message.id,
@@ -2758,6 +2769,64 @@ app.get('/api/drops/feed', async (req, res) => {
   }
 })
 
+app.get('/api/profiles/:username', async (req, res) => {
+  if (!sharedPgPool) return res.status(503).json({ error: 'profiles_unavailable' })
+  const username = String(req.params.username || '')
+    .trim()
+    .toLowerCase()
+  if (!username) return res.status(400).json({ error: 'username_required' })
+  try {
+    const { rows: pRows } = await sharedPgPool.query(
+      `SELECT id, username, avatar_url, created_at FROM profiles WHERE lower(username) = $1 LIMIT 1`,
+      [username],
+    )
+    const profile = pRows[0]
+    if (!profile) return res.status(404).json({ error: 'profile_not_found' })
+    const { rows: dRows } = await sharedPgPool.query(
+      `SELECT d.* FROM drops d
+       WHERE d.user_id = $1::uuid AND d.status = 'published' AND d.moderation_state = 'ok'
+       ORDER BY d.published_at DESC NULLS LAST
+       LIMIT 50`,
+      [profile.id],
+    )
+    const ids = dRows.map((r) => r.id)
+    const { rows: mediaRows } = ids.length
+      ? await sharedPgPool.query(
+          `SELECT * FROM drop_media WHERE drop_id = ANY($1::uuid[]) ORDER BY drop_id, sort_order`,
+          [ids],
+        )
+      : { rows: [] }
+    const byDrop = new Map()
+    for (const m of mediaRows) {
+      const k = String(m.drop_id)
+      if (!byDrop.has(k)) byDrop.set(k, [])
+      byDrop.get(k).push(m)
+    }
+    const drops = dRows.map((d) => {
+      const media = byDrop.get(String(d.id)) ?? []
+      const images = media.filter((m) => m.kind === 'image').map((m) => m.url)
+      const vid = media.find((m) => m.kind === 'video' || m.kind === 'live_replay')
+      return {
+        id: String(d.id),
+        userId: d.user_id ? String(d.user_id) : null,
+        title: d.title,
+        seller: d.seller_display,
+        authorId: d.author_id,
+        priceLabel: d.price_label,
+        blurb: d.blurb,
+        categories: Array.isArray(d.categories) ? d.categories : [],
+        region: d.region,
+        ...(images.length ? { mediaKind: 'images', imageUrls: images } : {}),
+        ...(!images.length && vid ? { mediaKind: vid.kind === 'live_replay' ? 'live_replay' : 'video', videoUrl: vid.url } : {}),
+      }
+    })
+    return res.json({ profile, drops })
+  } catch (e) {
+    console.error('[profiles/get]', e)
+    return res.status(500).json({ error: 'profiles_get_failed' })
+  }
+})
+
 app.get('/api/drops/:id', async (req, res) => {
   if (!sharedPgPool) return res.status(503).json({ error: 'drops_db_not_configured' })
   try {
@@ -2774,17 +2843,19 @@ app.get('/api/drops/:id', async (req, res) => {
 
 app.post('/api/drops', dropsWriteLimiter, async (req, res) => {
   if (!sharedPgPool) return res.status(503).json({ error: 'drops_db_not_configured' })
-  const sk = peerListingSellerKey(req)
+  const authUser = await supabaseAuthUserFromRequest(req)
+  if (!authUser?.id) return res.status(401).json({ error: 'auth_required' })
+  const sk = peerListingsStore.sellerKey(authUser.id, authUser.email || '')
   if (!sk) return res.status(401).json({ error: 'auth_required' })
   try {
-    const actor = resolveMarketplaceActor(req)
     const body = req.body ?? {}
-    const authorId =
-      typeof body.authorId === 'string' && body.authorId.trim()
-        ? body.authorId.trim()
-        : actor.customerUserId || actor.customerEmail || 'user'
+    const userId = String(authUser.id).trim()
+    const authorId = userId
+    const recentUploads = await countRecentDropsByUser(sharedPgPool, userId, 60)
+    if (recentUploads >= 5) return res.status(429).json({ error: 'rate_limited' })
     const row = await createDropDraft(sharedPgPool, sk, {
       ...body,
+      userId,
       authorId,
     })
     if (!row) return res.status(500).json({ error: 'create_failed' })
@@ -2851,10 +2922,15 @@ function isAllowedDropMediaUrl(url) {
 
 app.post('/api/publish', dropsWriteLimiter, async (req, res) => {
   if (!sharedPgPool) return res.status(503).json({ error: 'publish_unavailable' })
-  const sk = peerListingSellerKey(req)
+  const authUser = await supabaseAuthUserFromRequest(req)
+  if (!authUser?.id) return res.status(401).json({ error: 'auth_required' })
+  const sk = peerListingsStore.sellerKey(authUser.id, authUser.email || '')
   if (!sk) return res.status(401).json({ error: 'auth_required' })
   try {
     const body = req.body ?? {}
+    const userId = String(authUser.id).trim()
+    const userEmail = String(authUser.email || '').trim().toLowerCase()
+    console.log('AUTH USER', userId)
     const videoUrl = typeof body.videoUrl === 'string' ? body.videoUrl.trim() : ''
     const imageUrls = Array.isArray(body.imageUrls)
       ? body.imageUrls.map((x) => String(x || '').trim()).filter(Boolean)
@@ -2872,17 +2948,27 @@ app.post('/api/publish', dropsWriteLimiter, async (req, res) => {
       if (!isAllowedDropMediaUrl(u)) return res.status(400).json({ error: 'invalid_media_url' })
     }
 
-    const actor = resolveMarketplaceActor(req)
-    const authorId =
-      typeof body.authorId === 'string' && body.authorId.trim()
-        ? body.authorId.trim()
-        : actor.customerUserId || actor.customerEmail || 'user'
+    const recentUploads = await countRecentDropsByUser(sharedPgPool, userId, 60)
+    if (recentUploads >= 5) {
+      return res.status(429).json({ error: 'rate_limited', detail: 'Max 5 uploads per minute.' })
+    }
+
+    const { rows: profRows } = await sharedPgPool.query(
+      `SELECT username FROM profiles WHERE id = $1::uuid LIMIT 1`,
+      [userId],
+    )
+    const username = String(profRows?.[0]?.username || '').trim()
+    console.log('USERNAME', username || null)
+    const authorId = userId
     const sellerDisplay =
-      typeof body.sellerDisplay === 'string' && body.sellerDisplay.trim()
-        ? body.sellerDisplay.trim().slice(0, 120)
-        : '@seller'
+      username && /^user_/i.test(username) === false
+        ? `@${username}`
+        : typeof body.sellerDisplay === 'string' && body.sellerDisplay.trim()
+          ? body.sellerDisplay.trim().slice(0, 120)
+          : `@${userEmail.split('@')[0] || 'seller'}`
 
     const row = await createDropDraft(sharedPgPool, sk, {
+      userId,
       authorId,
       sellerDisplay,
       title: typeof body.title === 'string' ? body.title : undefined,
@@ -3004,15 +3090,16 @@ app.get('/api/drops/moderation/pending', async (req, res) => {
 
 app.post('/api/drops/live/start', dropsWriteLimiter, async (req, res) => {
   if (!sharedPgPool) return res.status(503).json({ error: 'drops_db_not_configured' })
-  const sk = peerListingSellerKey(req)
+  const authUser = await supabaseAuthUserFromRequest(req)
+  if (!authUser?.id) return res.status(401).json({ error: 'auth_required' })
+  const sk = peerListingsStore.sellerKey(authUser.id, authUser.email || '')
   if (!sk) return res.status(401).json({ error: 'auth_required' })
   try {
-    const actor = resolveMarketplaceActor(req)
     const body = req.body ?? {}
-    const authorId =
-      typeof body.authorId === 'string' && body.authorId.trim()
-        ? body.authorId.trim()
-        : actor.customerUserId || actor.customerEmail || 'user'
+    const userId = String(authUser.id).trim()
+    const authorId = userId
+    const recentUploads = await countRecentDropsByUser(sharedPgPool, userId, 60)
+    if (recentUploads >= 5) return res.status(429).json({ error: 'rate_limited' })
     const sellerDisplay =
       typeof body.sellerDisplay === 'string' && body.sellerDisplay.trim()
         ? body.sellerDisplay.trim().slice(0, 120)
@@ -3082,6 +3169,7 @@ app.post('/api/drops/live/start', dropsWriteLimiter, async (req, res) => {
         ? body.priceLabel.trim().slice(0, 80)
         : priceLabelBuilt
     const row = await createDropDraft(sharedPgPool, sk, {
+      userId,
       authorId,
       sellerDisplay,
       title,

@@ -8,6 +8,9 @@ export function dropsUploadApiErrorMessage(
   httpStatus: number,
   opts?: { detail?: string; storageCode?: string },
 ): string {
+  if (error === 'auth_required' || httpStatus === 401) {
+    return 'You must be logged in to upload media.'
+  }
   if (error === 'supabase_not_configured') {
     return 'Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in the app, create a public `drops` bucket (or set VITE_SUPABASE_DROP_BUCKET), and allow uploads for your policies. You can use Done for a local-only post.'
   }
@@ -32,7 +35,10 @@ export function dropsUploadApiErrorMessage(
 
 export function dropsPublishApiErrorMessage(error: string | undefined, httpStatus: number): string {
   if (error === 'auth_required') {
-    return 'Sign in (same session as Buy & Sell) to publish to the server feed.'
+    return 'You must be logged in to publish.'
+  }
+  if (error === 'rate_limited' || httpStatus === 429) {
+    return 'Too many uploads. Max 5 per minute.'
   }
   if (
     error === 'publish_unavailable' ||

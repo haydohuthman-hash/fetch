@@ -16,6 +16,7 @@ export async function ensureDropsTables(pool) {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS drops (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id uuid,
       seller_key text NOT NULL,
       author_id text NOT NULL,
       seller_display text NOT NULL,
@@ -39,6 +40,8 @@ export async function ensureDropsTables(pool) {
       updated_at timestamptz NOT NULL DEFAULT now()
     );
   `)
+  await pool.query(`ALTER TABLE drops ADD COLUMN IF NOT EXISTS user_id uuid;`)
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_drops_user_created ON drops (user_id, created_at DESC);`)
   await pool.query(`
     CREATE TABLE IF NOT EXISTS drop_media (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -107,6 +110,7 @@ export function serializeDropPublic(row, media) {
   /** @type {Record<string, unknown>} */
   const out = {
     id: String(row.id),
+    userId: row.user_id ? String(row.user_id) : undefined,
     title: row.title,
     seller: row.seller_display,
     authorId: row.author_id,
@@ -225,6 +229,7 @@ export async function getDropWithMedia(pool, id) {
 export async function createDropDraft(pool, sellerKey, body) {
   const sk = typeof sellerKey === 'string' ? sellerKey.trim() : ''
   if (!sk) throw new Error('seller_key_required')
+  const userId = typeof body.userId === 'string' ? body.userId.trim() : ''
   const authorId = typeof body.authorId === 'string' ? body.authorId.trim().slice(0, 128) : 'anon'
   const sellerDisplay = typeof body.sellerDisplay === 'string' ? body.sellerDisplay.trim().slice(0, 120) : '@seller'
   const title = typeof body.title === 'string' ? body.title.trim().slice(0, 200) : 'Untitled'
@@ -240,12 +245,45 @@ export async function createDropDraft(pool, sellerKey, body) {
   const watchTimeMsSeed = Number.isFinite(watchSeed) && watchSeed >= 0 ? Math.round(watchSeed) : 0
 
   const { rows } = await pool.query(
-    `INSERT INTO drops (seller_key, author_id, seller_display, title, price_label, blurb, categories, region, commerce, commerce_sale_mode, growth_velocity_score, watch_time_ms_seed)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12)
+    `INSERT INTO drops (user_id, seller_key, author_id, seller_display, title, price_label, blurb, categories, region, commerce, commerce_sale_mode, growth_velocity_score, watch_time_ms_seed)
+     VALUES (NULLIF($1,'')::uuid,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12,$13)
      RETURNING *`,
-    [sk, authorId, sellerDisplay, title, priceLabel, blurb, categories, region, JSON.stringify(commerce), commerceSaleMode, growthVelocityScore, watchTimeMsSeed],
+    [
+      userId,
+      sk,
+      authorId,
+      sellerDisplay,
+      title,
+      priceLabel,
+      blurb,
+      categories,
+      region,
+      JSON.stringify(commerce),
+      commerceSaleMode,
+      growthVelocityScore,
+      watchTimeMsSeed,
+    ],
   )
   return rows[0] ?? null
+}
+
+/**
+ * @param {PgPool} pool
+ * @param {string} userId
+ * @param {number} windowSeconds
+ */
+export async function countRecentDropsByUser(pool, userId, windowSeconds = 60) {
+  const uid = typeof userId === 'string' ? userId.trim() : ''
+  if (!uid) return 0
+  const sec = Math.max(1, Math.min(3600, Math.round(Number(windowSeconds) || 60)))
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS c
+       FROM drops
+      WHERE user_id = $1::uuid
+        AND created_at > now() - make_interval(secs => $2::int)`,
+    [uid, sec],
+  )
+  return Number(rows?.[0]?.c || 0)
 }
 
 /**

@@ -20,7 +20,15 @@ export function getSupabaseBrowserClient(): SupabaseClient | null {
     cached = null
     return null
   }
-  cached = createClient(url, key)
+  cached = createClient(url, key, {
+    auth: {
+      flowType: 'pkce',
+      detectSessionInUrl: true,
+      persistSession: true,
+      autoRefreshToken: true,
+      storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+    },
+  })
   return cached
 }
 

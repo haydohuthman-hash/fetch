@@ -1,10 +1,5 @@
-import { loadSession } from '../fetchUserSession'
 import { getSupabaseBrowserClient } from '../supabase/client'
-import {
-  resolveObjectPathInBucket,
-  sanitizeFileName,
-  userIdFromEmail,
-} from './uploadDropMediaPaths'
+import { resolveObjectPathInBucket, sanitizeFileName } from './uploadDropMediaPaths'
 
 export type UploadDropMediaResult = {
   videoUrl?: string
@@ -35,12 +30,8 @@ function dropBucketName(): string {
   return import.meta.env.VITE_SUPABASE_DROP_BUCKET?.trim() || 'drops'
 }
 
-function userIdFromSession(): string {
-  return userIdFromEmail(loadSession()?.email)
-}
-
-function buildDropFilePath(file: File): string {
-  return `${userIdFromSession()}/${Date.now()}-${sanitizeFileName(file.name)}`
+function buildDropFilePath(userId: string, file: File): string {
+  return `${userId}/${Date.now()}-${sanitizeFileName(file.name)}`
 }
 
 function supabaseEnvForLogs(): { supabaseUrl: string; supabaseAnonKeyConfigured: boolean } {
@@ -124,6 +115,16 @@ export async function uploadDropMedia(params: {
       { error: 'supabase_not_configured' },
     )
   }
+  const {
+    data: { session },
+  } = await sb.auth.getSession()
+  const {
+    data: { user },
+  } = await sb.auth.getUser()
+  const uid = user?.id?.trim() || ''
+  if (!session?.access_token || !uid) {
+    throw new UploadDropMediaError('You must be logged in', 401, { error: 'auth_required' })
+  }
   const hasVideo = Boolean(params.video)
   const images = params.images ?? []
 
@@ -153,7 +154,7 @@ export async function uploadDropMedia(params: {
     if (file.size > DROP_VIDEO_MAX_BYTES) {
       throw new UploadDropMediaError('Video is too large (max 100MB).', 413, { error: 'invalid_video_size' })
     }
-    const filePath = buildDropFilePath(file)
+    const filePath = buildDropFilePath(uid, file)
     const { data, error } = await sb.storage.from(bucket).upload(filePath, file, {
       upsert: true,
       cacheControl: '3600',
@@ -177,7 +178,7 @@ export async function uploadDropMedia(params: {
     if (file.size > DROP_IMAGE_MAX_BYTES) {
       throw new UploadDropMediaError('Each image must be 12MB or less.', 413, { error: 'invalid_image_size' })
     }
-    const filePath = buildDropFilePath(file)
+    const filePath = buildDropFilePath(uid, file)
     const { data, error } = await sb.storage.from(bucket).upload(filePath, file, {
       upsert: true,
       cacheControl: '3600',
