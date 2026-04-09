@@ -85,6 +85,24 @@ export function applyServerUserProfile(user: { id?: string; email: string; displ
   })
 }
 
+/**
+ * Write minimal session cache from the live Supabase user so post-auth routing can run
+ * synchronously on `SIGNED_IN` / OAuth before `refreshSessionFromSupabase()` finishes.
+ */
+export function seedSessionCacheFromSupabaseUser(user: User): void {
+  const email = primaryEmailFromSupabaseUser(user)
+  if (!email?.trim()) return
+  const displayName =
+    (typeof user.user_metadata?.display_name === 'string' && user.user_metadata.display_name.trim()) ||
+    (typeof user.user_metadata?.full_name === 'string' && user.user_metadata.full_name.trim()) ||
+    (typeof user.user_metadata?.name === 'string' && user.user_metadata.name.trim()) ||
+    email.split('@')[0] ||
+    'there'
+  const uname =
+    typeof user.user_metadata?.username === 'string' ? user.user_metadata.username.trim() : undefined
+  applyServerUserProfile({ id: user.id, email, displayName, username: uname })
+}
+
 export function loadSession(): FetchUserRecord | null {
   return readSessionCache()
 }
