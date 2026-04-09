@@ -115,6 +115,42 @@ function profileInsertPayload(user: User): { id: string; username: string; avata
   }
 }
 
+export async function ensureProfile(user: User | null | undefined): Promise<void> {
+  if (!user?.id) return
+  const sb = getSupabaseBrowserClient()
+  if (!sb) {
+    console.warn('PROFILE UPSERT SKIP: supabase client missing')
+    return
+  }
+  const fullName =
+    (typeof user.user_metadata?.full_name === 'string' && user.user_metadata.full_name.trim()) ||
+    (typeof user.user_metadata?.name === 'string' && user.user_metadata.name.trim()) ||
+    ''
+  const profileRich = {
+    id: user.id,
+    email: user.email || '',
+    full_name: fullName,
+    avatar_url:
+      (typeof user.user_metadata?.avatar_url === 'string' && user.user_metadata.avatar_url.trim()) ||
+      (typeof user.user_metadata?.picture === 'string' && user.user_metadata.picture.trim()) ||
+      '',
+    updated_at: new Date().toISOString(),
+  }
+  const { error: richError } = await sb.from('profiles').upsert(profileRich as never, { onConflict: 'id' })
+  if (!richError) {
+    console.log('PROFILE UPSERT SUCCESS:', user.id)
+    return
+  }
+  console.error('PROFILE UPSERT ERROR (rich payload):', richError)
+  const fallback = profileInsertPayload(user)
+  const { error: fallbackError } = await sb.from('profiles').upsert(fallback as never, { onConflict: 'id' })
+  if (fallbackError) {
+    console.error('PROFILE UPSERT ERROR (fallback payload):', fallbackError)
+  } else {
+    console.log('PROFILE UPSERT SUCCESS (fallback):', user.id)
+  }
+}
+
 /**
  * Single entry for ensuring `public.profiles` has a row for this auth user.
  * Safe when `user` is missing (returns null). Uses JWT from the browser Supabase client (must be logged in).
@@ -136,6 +172,7 @@ export async function ensureUserProfile(user: User | null | undefined): Promise<
 
   const uid = user.id
   console.info(LOG, 'ensure start', { userId: uid })
+  await ensureProfile(user)
 
   const { data: existing, error: selErr } = await sb
     .from('profiles')

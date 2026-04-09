@@ -47,6 +47,7 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
   const [displayName, setDisplayName] = useState('')
   const [phone, setPhone] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [needsProfileSetup, setNeedsProfileSetup] = useState(false)
   const [username, setUsername] = useState('')
@@ -54,7 +55,21 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null)
 
+  const requireAuthenticatedSessionUser = useCallback(async () => {
+    const sb = getSupabaseBrowserClient()
+    if (!sb) throw new Error('Supabase is not configured in this app.')
+    const { data, error: sessionError } = await sb.auth.getSession()
+    console.log('AUTH SESSION CHECK:', data, sessionError)
+    if (sessionError) throw sessionError
+    const user = data.session?.user ?? null
+    if (!user) throw new Error('Authentication incomplete. Please sign in again.')
+    return user
+  }, [])
+
   const afterSupabaseAuth = useCallback(async () => {
+    console.log('AUTH FLOW: afterSupabaseAuth start')
+    const sessionUser = await requireAuthenticatedSessionUser()
+    console.log('AUTH FLOW: session confirmed', sessionUser.id)
     const me = await refreshSessionFromSupabase()
     if (!me) throw new Error('Could not load your session.')
     // #region agent log
@@ -92,8 +107,9 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
       displayName: me.displayName,
       username: profile.username ?? undefined,
     })
+    console.log('AUTH FLOW: full auth + profile complete; redirecting')
     onSuccess()
-  }, [onSuccess])
+  }, [onSuccess, requireAuthenticatedSessionUser])
 
   useEffect(() => {
     void (async () => {
@@ -116,6 +132,7 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
   const onSignIn = async (e: FormEvent) => {
     e.preventDefault()
     setError(null)
+    setMessage(null)
     if (serverDbAuth) {
       if (password.length < 8) {
         setError('Enter your password (at least 8 characters).')
@@ -128,15 +145,21 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
           setError('Supabase is not configured in this app.')
           return
         }
-        const { error: authError } = await sb.auth.signInWithPassword({
+        const { data, error: authError } = await sb.auth.signInWithPassword({
           email: email.trim(),
           password,
         })
-        if (authError) {
-          setError(authError.message || mapServerAuthError('invalid_credentials'))
-          return
-        }
+        console.log('LOGIN RESULT:', data, authError)
+        if (authError) throw authError
+        const session = data?.session || null
+        const user = data?.user || null
+        if (!session || !user) throw new Error('Login failed: no session')
+        console.log('LOGIN SUCCESS:', user.id)
         await afterSupabaseAuth()
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : mapServerAuthError('invalid_credentials')
+        console.error('LOGIN ERROR:', e)
+        setError(msg)
       } finally {
         setBusy(false)
       }
@@ -147,6 +170,7 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
   const onSignUp = async (e: FormEvent) => {
     e.preventDefault()
     setError(null)
+    setMessage(null)
     if (serverDbAuth) {
       if (password.length < 8) {
         setError('Choose a password at least 8 characters long.')
@@ -159,30 +183,31 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
           setError('Supabase is not configured in this app.')
           return
         }
-        const { data: signUpData, error: authError } = await sb.auth.signUp({
+        const { data, error: authError } = await sb.auth.signUp({
           email: email.trim(),
           password,
           options: {
-            data: { display_name: displayName.trim() },
+            data: { full_name: displayName.trim() || '' },
           },
         })
+        console.log('SIGNUP RESULT:', data, authError)
         if (authError) {
-          setError(authError.message || mapServerAuthError('invalid_credentials'))
+          console.error('SIGNUP ERROR:', authError)
+          throw authError
+        }
+        const session = data?.session || null
+        const user = data?.user || null
+        if (!user) throw new Error('Signup succeeded but no user returned')
+        if (!session) {
+          console.log('NO SESSION — EMAIL CONFIRMATION REQUIRED')
+          setMessage('Account created. Check your email to confirm your account.')
           return
         }
-        if (!signUpData.session) {
-          const { error: signInErr } = await sb.auth.signInWithPassword({
-            email: email.trim(),
-            password,
-          })
-          if (signInErr) {
-            setError(
-              'Account created. Check your email to verify, then log in to continue setup.',
-            )
-            return
-          }
-        }
+        console.log('SIGNUP SUCCESS SESSION:', session.user.id)
         await afterSupabaseAuth()
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : mapServerAuthError('invalid_credentials')
+        setError(msg)
       } finally {
         setBusy(false)
       }
@@ -199,6 +224,7 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
   const onCompleteProfileSetup = async (e: FormEvent) => {
     e.preventDefault()
     setError(null)
+    setMessage(null)
     const err = validateUsername(username)
     if (err) {
       setError(err)
@@ -230,6 +256,8 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
         })
       }
       setNeedsProfileSetup(false)
+      const user = await requireAuthenticatedSessionUser()
+      console.log('PROFILE SETUP SUCCESS:', user.id)
       onSuccess()
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Could not save profile.'
@@ -241,6 +269,7 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
 
   const signInWithGoogleOAuth = async () => {
     setError(null)
+    setMessage(null)
     setBusy(true)
     try {
       const supabase = getSupabaseBrowserClient()
@@ -249,10 +278,12 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
         return
       }
       const redirectTo = getOAuthRedirectTo()
-      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+      console.log('OAuth redirectTo:', redirectTo)
+      const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo },
       })
+      console.log('GOOGLE OAUTH RESULT:', data, oauthError)
       if (oauthError) setError(oauthError.message || 'Google sign-in failed.')
     } finally {
       setBusy(false)
@@ -261,6 +292,7 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
 
   const signInWithAppleOAuth = async () => {
     setError(null)
+    setMessage(null)
     setBusy(true)
     try {
       const supabase = getSupabaseBrowserClient()
@@ -269,10 +301,12 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
         return
       }
       const redirectTo = getOAuthRedirectTo()
-      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+      console.log('OAuth redirectTo:', redirectTo)
+      const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: 'apple',
         options: { redirectTo },
       })
+      console.log('APPLE OAUTH RESULT:', data, oauthError)
       if (oauthError) setError(oauthError.message || 'Apple sign-in failed.')
     } finally {
       setBusy(false)
@@ -404,6 +438,7 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
           >
             {emailInsteadLabel}
           </button>
+          {message ? <p className="mt-1 text-[11px] text-emerald-300/90">{message}</p> : null}
           {error ? <p className="mt-1 text-[11px] text-red-300/90">{error}</p> : null}
         </div>
       ) : tab === 'signin' ? (
@@ -444,6 +479,7 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
               />
             </>
           ) : null}
+          {message ? <p className="text-[11px] text-emerald-300/90">{message}</p> : null}
           {error ? <p className="text-[11px] text-red-300/90">{error}</p> : null}
           <button
             type="submit"
@@ -513,6 +549,7 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
               />
             </>
           ) : null}
+          {message ? <p className="text-[11px] text-emerald-300/90">{message}</p> : null}
           {error ? <p className="text-[11px] text-red-300/90">{error}</p> : null}
           <button
             type="submit"

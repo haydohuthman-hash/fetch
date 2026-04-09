@@ -53,6 +53,8 @@ interface ImportMetaEnv {
   readonly VITE_SUPABASE_DROP_BUCKET?: string
   /** OAuth redirect base (Google / Apple). Overrides dev/prod detection when set. */
   readonly VITE_SITE_URL?: string
+  /** Explicit OAuth callback URL for Supabase providers; preferred over VITE_SITE_URL when set. */
+  readonly VITE_SUPABASE_REDIRECT_URL?: string
 }
 
 interface ImportMeta {

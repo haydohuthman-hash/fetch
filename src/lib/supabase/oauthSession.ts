@@ -45,11 +45,13 @@ export function getOAuthRedirectTo(): string {
     typeof window !== 'undefined' &&
     (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
 
+  const redirectEnvRaw = import.meta.env.VITE_SUPABASE_REDIRECT_URL
+  const redirectFromEnv =
+    typeof redirectEnvRaw === 'string' && redirectEnvRaw.trim() ? redirectEnvRaw.trim() : ''
   const envRaw = import.meta.env.VITE_SITE_URL
   const fromEnv = typeof envRaw === 'string' ? envRaw.trim() : ''
 
-  let redirectTo =
-    fromEnv || (isLocalhost ? LOCAL_DEV : LIVE_SITE)
+  let redirectTo = redirectFromEnv || fromEnv || (isLocalhost ? LOCAL_DEV : LIVE_SITE)
 
   redirectTo = redirectTo.replace(/\/$/, '')
 
@@ -57,6 +59,7 @@ export function getOAuthRedirectTo(): string {
     redirectTo = LIVE_SITE.replace(/\/$/, '')
   }
 
+  console.log('OAuth redirectTo:', redirectTo)
   return redirectTo
 }
 

@@ -130,6 +130,7 @@ function App() {
     const {
       data: { subscription },
     } = sb.auth.onAuthStateChange(async (event, session) => {
+      console.log('AUTH CHANGE:', event, session?.user?.id)
       // #region agent log
       fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'App.tsx:onAuthStateChange',message:'auth event',data:{event,hasUser:Boolean(session?.user),unlocked:postAuthRouteUnlockedRef.current,hypothesisId:'H3'},timestamp:Date.now(),hypothesisId:'H3'})}).catch(()=>{});
       // #endregion
@@ -137,7 +138,9 @@ function App() {
         await refreshSessionFromSupabase()
         cleanupSupabaseOAuthUrl()
       } else if (event === 'SIGNED_OUT') {
+        await refreshSessionFromSupabase()
         cleanupSupabaseOAuthUrl()
+        setPhase((cur) => (cur === 'auth' || cur === 'splash' ? cur : 'home'))
       }
 
       if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {

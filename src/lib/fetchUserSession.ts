@@ -1,6 +1,6 @@
 import type { User } from '@supabase/supabase-js'
 import { getSupabaseBrowserClient } from './supabase/client'
-import { ensureUserProfile } from './supabase/profiles'
+import { ensureProfile, ensureUserProfile } from './supabase/profiles'
 
 /** True while URL still has OAuth/PKCE params (session may not be in storage yet). */
 function isBrowserOAuthRedirect(): boolean {
@@ -118,7 +118,8 @@ async function refreshSessionFromSupabaseBody(): Promise<FetchUserRecord | null>
     return readSessionCache()
   }
 
-  const { data: sessionData } = await sb.auth.getSession()
+  const { data: sessionData, error: sessionError } = await sb.auth.getSession()
+  console.log('INITIAL SESSION:', sessionData, sessionError)
   const sess = sessionData.session
   const oauthRedir = isBrowserOAuthRedirect()
   const cacheBefore = Boolean(readSessionCache()?.email)
@@ -172,6 +173,7 @@ async function refreshSessionFromSupabaseBody(): Promise<FetchUserRecord | null>
     typeof user.user_metadata?.username === 'string' ? user.user_metadata.username.trim() : undefined
 
   try {
+    await ensureProfile(user)
     const sp = await ensureUserProfile(user)
     if (sp?.username?.trim()) profileUsername = profileUsername ?? sp.username.trim()
   } catch (e) {
