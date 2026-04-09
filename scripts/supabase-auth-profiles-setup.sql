@@ -40,7 +40,10 @@ $$ language plpgsql security definer;
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
 after insert on auth.users
-for each row execute procedure public.handle_new_user();
+for each row execute function public.handle_new_user();
+
+-- Older Postgres images may require instead of the line above:
+--   for each row execute procedure public.handle_new_user();
 
 -- Drops storage policies: authenticated only (not anon)
 drop policy if exists "drops insert anon" on storage.objects;

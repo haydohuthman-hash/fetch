@@ -1,5 +1,15 @@
 import type { User } from '@supabase/supabase-js'
 import { getSupabaseBrowserClient } from './supabase/client'
+import { ensureUserProfile } from './supabase/profiles'
+
+/** True while URL still has OAuth/PKCE params (session may not be in storage yet). */
+function isBrowserOAuthRedirect(): boolean {
+  if (typeof window === 'undefined') return false
+  const q = new URLSearchParams(window.location.search)
+  if (q.has('code')) return true
+  const h = window.location.hash ?? ''
+  return h.includes('access_token') || h.includes('error')
+}
 
 /** Apple / Google may omit top-level email; read from metadata / identities. */
 export function primaryEmailFromSupabaseUser(user: User): string {
@@ -29,6 +39,8 @@ export type FetchUserRecord = {
   phone: string
   createdAt: number
 }
+
+let refreshSessionInFlight: Promise<FetchUserRecord | null> | null = null
 
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase()
@@ -77,35 +89,107 @@ export function loadSession(): FetchUserRecord | null {
   return readSessionCache()
 }
 
+/**
+ * Sync Supabase auth into `fetch.sessionCache`. Single-flight: overlapping calls share one refresh
+ * so parallel `getSession`/PKCE races don’t clear the cache after the other path wrote it.
+ *
+ * Never clears local session cache just because `getUser()` failed while `getSession()` still has a session.
+ */
 export async function refreshSessionFromSupabase(): Promise<FetchUserRecord | null> {
+  if (!refreshSessionInFlight) {
+    refreshSessionInFlight = (async () => {
+      try {
+        return await refreshSessionFromSupabaseBody()
+      } finally {
+        refreshSessionInFlight = null
+      }
+    })()
+  }
+  return refreshSessionInFlight
+}
+
+async function refreshSessionFromSupabaseBody(): Promise<FetchUserRecord | null> {
+  const t0 = Date.now()
   const sb = getSupabaseBrowserClient()
-  if (!sb) return readSessionCache()
+  if (!sb) {
+    // #region agent log
+    fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'fetchUserSession.ts:refreshBody',message:'no supabase client',data:{hypothesisId:'H2'},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
+    // #endregion
+    return readSessionCache()
+  }
+
   const { data: sessionData } = await sb.auth.getSession()
-  if (!sessionData.session) {
+  const sess = sessionData.session
+  const oauthRedir = isBrowserOAuthRedirect()
+  const cacheBefore = Boolean(readSessionCache()?.email)
+  // #region agent log
+  fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'fetchUserSession.ts:afterGetSession',message:'getSession result',data:{hasSession:Boolean(sess),oauthRedirect:oauthRedir,cacheHadEmail:cacheBefore,hypothesisId:'H1'},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
+  // #endregion
+  if (!sess) {
+    // During OAuth return, `getSession()` can briefly be empty while PKCE finishes — don’t wipe cache.
+    if (oauthRedir) {
+      console.info('[fetch:session] no session yet during OAuth redirect; keeping cache')
+      // #region agent log
+      fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'fetchUserSession.ts:noSessOAuth',message:'keeping cache oauth redirect',data:{hypothesisId:'H1'},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
+      // #endregion
+      return readSessionCache()
+    }
+    // #region agent log
+    fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'fetchUserSession.ts:clearCache',message:'writeSessionCache null no session',data:{hypothesisId:'H1'},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
+    // #endregion
     writeSessionCache(null)
     return null
   }
-  const { data } = await sb.auth.getUser()
-  const user = data.user
+
+  console.info('[fetch:session] access token present, loading user')
+  const { data: userData, error: userErr } = await sb.auth.getUser()
+  let user: User | null = userData.user ?? null
+  const getUserFailed = Boolean(userErr || !user?.id)
+  if (userErr || !user?.id) {
+    if (userErr) {
+      console.warn('[fetch:session] getUser failed, falling back to session user', userErr.message)
+    }
+    user = sess.user
+  }
   if (!user?.id) {
-    writeSessionCache(null)
-    return null
+    console.warn('[fetch:session] no user id on session; keeping prior cache')
+    // #region agent log
+    fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'fetchUserSession.ts:noUserId',message:'keeping prior cache',data:{getUserFailed,hypothesisId:'H5'},timestamp:Date.now(),hypothesisId:'H5'})}).catch(()=>{});
+    // #endregion
+    return readSessionCache()
   }
+
+  console.info('[fetch:session] user id', user.id)
   const email = primaryEmailFromSupabaseUser(user)
   const displayName =
     (typeof user.user_metadata?.display_name === 'string' && user.user_metadata.display_name.trim()) ||
     (typeof user.user_metadata?.full_name === 'string' && user.user_metadata.full_name.trim()) ||
+    (typeof user.user_metadata?.name === 'string' && user.user_metadata.name.trim()) ||
     email.split('@')[0] ||
     'there'
+
+  let profileUsername: string | undefined =
+    typeof user.user_metadata?.username === 'string' ? user.user_metadata.username.trim() : undefined
+
+  try {
+    const sp = await ensureUserProfile(user)
+    if (sp?.username?.trim()) profileUsername = profileUsername ?? sp.username.trim()
+  } catch (e) {
+    console.error('[fetch:profile] ensureUserProfile during refreshSessionFromSupabase failed', e)
+  }
+
   const row: FetchUserRecord = {
     id: user.id,
     email,
     displayName,
-    username: typeof user.user_metadata?.username === 'string' ? user.user_metadata.username.trim() : undefined,
+    username: profileUsername,
     phone: '',
     createdAt: Date.now(),
   }
   writeSessionCache(row)
+  // #region agent log
+  fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'fetchUserSession.ts:refreshOk',message:'cache written',data:{ms:Date.now()-t0,emailLen:email.length,hasUsername:Boolean(profileUsername),hypothesisId:'H2'},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
+  // #endregion
   return row
 }
 

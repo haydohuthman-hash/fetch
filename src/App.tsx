@@ -1,8 +1,18 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from 'react'
 import {
   setDropsCreatorReturnTarget,
   needsDropsCreatorOnboarding,
 } from './lib/drops/fetchDropsCreatorOnboarding'
+import { computePostAuthAppPhase } from './lib/fetchPostAuthRouting'
 import {
   consumeOnboardingReturnTarget,
   needsPlatformOnboarding,
@@ -70,11 +80,36 @@ function PhaseFallback() {
   return <div className="fetch-app-phase-fallback fetch-app-shell-bg min-h-dvh" aria-hidden />
 }
 
+const SPLASH_SESSION_WAIT_MS = 4500
+
+function applyPostAuthRouteIfNeeded(
+  setDropsHome: () => void,
+  setPhase: Dispatch<SetStateAction<AppPhase>>,
+): void {
+  const target = computePostAuthAppPhase()
+  // #region agent log
+  fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'App.tsx:applyPostAuth',message:'applyPostAuth target',data:{target,hypothesisId:'H4'},timestamp:Date.now(),hypothesisId:'H4'})}).catch(()=>{});
+  // #endregion
+  if (!target) return
+  if (target === 'dropsSetup') setDropsHome()
+  setPhase((cur) => {
+    if (cur === 'account' || cur === 'driver') return cur
+    if (cur === 'auth' || cur === 'onboarding' || cur === 'dropsSetup') return cur
+    if (cur === 'splash' || cur === 'home') return target
+    return cur
+  })
+}
+
 function App() {
   const [phase, setPhase] = useState<AppPhase>(initialAppPhase)
   const [homeBootstrapOpen, setHomeBootstrapOpen] = useState(initialHomeBootstrapOpen)
   const [homeMapBootReady, setHomeMapBootReady] = useState(false)
   const [onboardingAllowDismiss, setOnboardingAllowDismiss] = useState(false)
+  /**
+   * When false, ignore post-auth phase jumps from onAuthStateChange so splash can finish and session cache can hydrate.
+   * Seed from module splash flag so React Strict Mode remounts after handoff don’t stay “locked” on home.
+   */
+  const postAuthRouteUnlockedRef = useRef(fetchAppSplashHandoffDone)
 
   useEffect(() => {
     void homeChunk()
@@ -95,18 +130,20 @@ function App() {
     const {
       data: { subscription },
     } = sb.auth.onAuthStateChange(async (event, session) => {
-      if (
-        event === 'INITIAL_SESSION' ||
-        event === 'SIGNED_IN' ||
-        event === 'TOKEN_REFRESHED'
-      ) {
-        if (session?.user) {
-          await refreshSessionFromSupabase()
-          cleanupSupabaseOAuthUrl()
-        }
-      }
-      if (event === 'SIGNED_OUT') {
+      // #region agent log
+      fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'App.tsx:onAuthStateChange',message:'auth event',data:{event,hasUser:Boolean(session?.user),unlocked:postAuthRouteUnlockedRef.current,hypothesisId:'H3'},timestamp:Date.now(),hypothesisId:'H3'})}).catch(()=>{});
+      // #endregion
+      if (session?.user) {
+        await refreshSessionFromSupabase()
         cleanupSupabaseOAuthUrl()
+      } else if (event === 'SIGNED_OUT') {
+        cleanupSupabaseOAuthUrl()
+      }
+
+      if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
+        if (session?.user && postAuthRouteUnlockedRef.current) {
+          applyPostAuthRouteIfNeeded(() => setDropsCreatorReturnTarget('home'), setPhase)
+        }
       }
     })
     return () => subscription.unsubscribe()
@@ -182,14 +219,38 @@ function App() {
   }, [])
 
   const handleSplashComplete = useCallback(() => {
-    if (!fetchAppSplashHandoffDone) {
-      fetchAppSplashHandoffDone = true
-      fetchAppBootstrapExitDone = false
-      setHomeMapBootReady(false)
-      setHomeBootstrapOpen(true)
-    }
-    // Always leave splash if we are still on it (guards Strict Mode / duplicate callbacks).
-    setPhase((p) => (p === 'splash' ? 'home' : p))
+    void (async () => {
+      if (!fetchAppSplashHandoffDone) {
+        fetchAppSplashHandoffDone = true
+        fetchAppBootstrapExitDone = false
+        setHomeMapBootReady(false)
+        setHomeBootstrapOpen(true)
+      }
+      try {
+        await Promise.race([
+          refreshSessionFromSupabase(),
+          new Promise<void>((resolve) => window.setTimeout(resolve, SPLASH_SESSION_WAIT_MS)),
+        ])
+      } catch {
+        /* session refresh must not trap the app on splash */
+      }
+      postAuthRouteUnlockedRef.current = true
+      const postAuth = computePostAuthAppPhase()
+      // #region agent log
+      fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'App.tsx:splashComplete',message:'splash handoff postAuth',data:{postAuth,fallbackHome:!postAuth,hypothesisId:'H4'},timestamp:Date.now(),hypothesisId:'H4'})}).catch(()=>{});
+      // #endregion
+      if (postAuth === 'dropsSetup') setDropsCreatorReturnTarget('home')
+      setPhase((p) => (p === 'splash' ? (postAuth ?? 'home') : p))
+
+      const reconcile = () => {
+        void refreshSessionFromSupabase().then(() => {
+          applyPostAuthRouteIfNeeded(() => setDropsCreatorReturnTarget('home'), setPhase)
+        })
+      }
+      reconcile()
+      window.setTimeout(reconcile, 700)
+      window.setTimeout(reconcile, 2200)
+    })()
   }, [])
 
   useEffect(() => {

@@ -3,7 +3,7 @@ import { applyServerUserProfile, refreshSessionFromSupabase } from '../lib/fetch
 import { getSupabaseBrowserClient } from '../lib/supabase/client'
 import {
   getMySupabaseProfile,
-  isDefaultUsername,
+  isAutomaticDefaultUsername,
   updateMySupabaseProfile,
   validateUsername,
 } from '../lib/supabase/profiles'
@@ -52,12 +52,21 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
   const afterSupabaseAuth = useCallback(async () => {
     const me = await refreshSessionFromSupabase()
     if (!me) throw new Error('Could not load your session.')
+    // #region agent log
+    fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'AuthScreen:afterSupabaseAuth',message:'session loaded',data:{hasProfileStep:true,uidLen:me.id?.length??0,hypothesisId:'P1'},timestamp:Date.now(),hypothesisId:'P1'})}).catch(()=>{});
+    // #endregion
     const profile = await getMySupabaseProfile()
     if (!profile) throw new Error('Could not create or load your profile. Run the profiles SQL in Supabase.')
     console.log('USERNAME', profile?.username ?? null)
-    if (!profile?.username || isDefaultUsername(profile.username)) {
+    const needHandle = !profile?.username || isAutomaticDefaultUsername(profile.username, me.id)
+    // #region agent log
+    fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'AuthScreen:afterSupabaseAuth',message:'profile gate',data:{needHandle,unameLen:(profile.username||'').length,hypothesisId:'P1'},timestamp:Date.now(),hypothesisId:'P1'})}).catch(()=>{});
+    // #endregion
+    if (needHandle) {
       setNeedsUsername(true)
-      setUsername(profile?.username && !isDefaultUsername(profile.username) ? profile.username : '')
+      setUsername(
+        profile?.username && !isAutomaticDefaultUsername(profile.username, me.id) ? profile.username : '',
+      )
       return
     }
     applyServerUserProfile({
@@ -175,6 +184,9 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
     setBusy(true)
     try {
       const updated = await updateMySupabaseProfile({ username: username.trim() })
+      // #region agent log
+      fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'AuthScreen:onCompleteUsername',message:'username saved',data:{ok:true,hypothesisId:'P2'},timestamp:Date.now(),hypothesisId:'P2'})}).catch(()=>{});
+      // #endregion
       await refreshSessionFromSupabase()
       const me = await refreshSessionFromSupabase()
       if (me?.email) {
