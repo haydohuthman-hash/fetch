@@ -9,12 +9,13 @@
     "dev:e2e-stack": "concurrently -n server,vite -c blue,magenta \"cross-env PORT=8792 npm run server\" \"cross-env FETCH_DEV_PORT=5179 FETCH_DEV_API_PORT=8792 vite\"",
     "server": "tsx server/index.js",
     "build": "tsc -b && vite build",
-    "test": "tsx --test server/lib/booking-flow.test.js server/llm/fetchChatParse.test.js src/lib/booking/bookingLifecycle.test.ts src/lib/booking/bookingSessionPhase.test.ts src/lib/booking/specialtyItemCatalog.test.ts src/lib/booking/tripSheetPhase.test.ts",
+    "test": "tsx --test server/lib/booking-flow.test.js server/llm/fetchChatParse.test.js src/lib/booking/bookingLifecycle.test.ts src/lib/booking/bookingSessionPhase.test.ts src/lib/booking/specialtyItemCatalog.test.ts src/lib/booking/tripSheetPhase.test.ts src/lib/drops/uploadDropMediaPaths.test.ts",
     "test:e2e": "playwright test",
     "lint": "eslint .",
     "preview": "vite preview",
     "generate:supply-images": "tsx scripts/generate-supply-product-images.ts",
-    "seed:products": "node scripts/seed-products-from-store-catalog.mjs"
+    "seed:products": "node scripts/seed-products-from-store-catalog.mjs",
+    "verify:drops-deploy": "node scripts/verify-drops-deploy.mjs"
   },
   "dependencies": {
     "@googlemaps/markerclusterer": "^2.6.2",
@@ -23,7 +24,6 @@
     "@stripe/stripe-js": "^9.0.1",
     "@supabase/supabase-js": "^2.102.1",
     "bcryptjs": "^3.0.3",
-    "cloudinary": "^2.9.0",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",

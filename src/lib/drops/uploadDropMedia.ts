@@ -1,4 +1,10 @@
-import { fetchApiAbsoluteUrl } from '../fetchApiBase'
+import { loadSession } from '../fetchUserSession'
+import { getSupabaseBrowserClient } from '../supabase/client'
+import {
+  resolveObjectPathInBucket,
+  sanitizeFileName,
+  userIdFromEmail,
+} from './uploadDropMediaPaths'
 
 export type UploadDropMediaResult = {
   videoUrl?: string
@@ -7,9 +13,13 @@ export type UploadDropMediaResult = {
 
 export class UploadDropMediaError extends Error {
   status: number
-  body?: { error?: string; detail?: string }
+  body?: { error?: string; detail?: string; storageCode?: string }
 
-  constructor(message: string, status: number, body?: { error?: string; detail?: string }) {
+  constructor(
+    message: string,
+    status: number,
+    body?: { error?: string; detail?: string; storageCode?: string },
+  ) {
     super(message)
     this.name = 'UploadDropMediaError'
     this.status = status
@@ -17,43 +27,169 @@ export class UploadDropMediaError extends Error {
   }
 }
 
+const DROP_VIDEO_MAX_BYTES = 100 * 1024 * 1024
+const DROP_IMAGE_MAX_BYTES = 12 * 1024 * 1024
+const DROP_MAX_IMAGE_COUNT = 12
+
+function dropBucketName(): string {
+  return import.meta.env.VITE_SUPABASE_DROP_BUCKET?.trim() || 'drops'
+}
+
+function userIdFromSession(): string {
+  return userIdFromEmail(loadSession()?.email)
+}
+
+function buildDropFilePath(file: File): string {
+  return `${userIdFromSession()}/${Date.now()}-${sanitizeFileName(file.name)}`
+}
+
+function supabaseEnvForLogs(): { supabaseUrl: string; supabaseAnonKeyConfigured: boolean } {
+  return {
+    supabaseUrl: import.meta.env.VITE_SUPABASE_URL?.trim() || '',
+    supabaseAnonKeyConfigured: Boolean(import.meta.env.VITE_SUPABASE_ANON_KEY?.trim()),
+  }
+}
+
+/** Pull Storage API code / name from @supabase/storage-js errors. */
+function storageFailureFields(err: { message: string; name?: string; statusCode?: string; status?: number }) {
+  const code = err.statusCode?.trim() || err.name?.trim() || 'unknown'
+  const http = typeof err.status === 'number' && Number.isFinite(err.status) ? err.status : undefined
+  return { code, http }
+}
+
+function throwStorageUploadFailed(
+  err: { message: string; name?: string; statusCode?: string; status?: number },
+  bucket: string,
+  supabaseUrl: string,
+  supabaseClientCreated: boolean,
+) {
+  const { code, http } = storageFailureFields(err)
+  const msg = err.message?.trim() || '(no message)'
+  console.error('[drops/upload] Supabase Storage upload failed', {
+    bucket,
+    supabaseUrl: supabaseUrl || '(missing)',
+    supabaseClientCreated,
+    storageMessage: msg,
+    storageCode: code,
+    storageHttpStatus: http,
+  })
+  const userFacing = `[${code}] ${msg}`
+  const status = http && http >= 400 && http < 600 ? http : 502
+  throw new UploadDropMediaError(userFacing, status, {
+    error: 'storage_upload_failed',
+    detail: msg,
+    storageCode: code,
+  })
+}
+
+function videoMimeOk(mime: string): boolean {
+  return /^video\/(mp4|webm|quicktime)$/i.test(mime || '')
+}
+
+function imageMimeOk(mime: string): boolean {
+  return /^image\/(jpeg|jpg|png|webp|gif)$/i.test(mime || '')
+}
+
 /**
- * Uploads reel media for the home Drops composer. Returns Cloudinary `secure_url`s
- * (or `/listing-uploads/...` when running locally without Cloudinary).
+ * Uploads Drops reel media from the browser straight to Supabase Storage (no API upload hop).
+ *
+ * Env: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`. Bucket defaults to `drops`; override with
+ * `VITE_SUPABASE_DROP_BUCKET`. Create the bucket and Storage policies so anon (or your auth role)
+ * can `insert` and the public URL can be read for playback.
  */
 export async function uploadDropMedia(params: {
   video?: File | null
   images?: File[]
 }): Promise<UploadDropMediaResult> {
-  const fd = new FormData()
-  if (params.video) fd.append('video', params.video)
-  for (const f of params.images ?? []) fd.append('images', f)
-
-  const res = await fetch(fetchApiAbsoluteUrl('/api/drops/upload-media'), {
-    method: 'POST',
-    body: fd,
+  const bucket = dropBucketName()
+  const { supabaseUrl, supabaseAnonKeyConfigured } = supabaseEnvForLogs()
+  console.log('[drops/upload] start', {
+    bucket,
+    supabaseUrl: supabaseUrl || '(missing)',
+    supabaseAnonKeyConfigured,
   })
 
-  const text = await res.text()
-  let json: {
-    error?: string
-    detail?: string
-    videoUrl?: string
-    imageUrls?: string[]
-  } = {}
-  try {
-    json = text ? (JSON.parse(text) as typeof json) : {}
-  } catch {
-    /* ignore */
+  const sb = getSupabaseBrowserClient()
+  const supabaseClientCreated = Boolean(sb)
+  console.log('[drops/upload] client', {
+    supabaseClientCreated,
+    bucket,
+    supabaseUrl: supabaseUrl || '(missing)',
+  })
+
+  if (!sb) {
+    throw new UploadDropMediaError(
+      'Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.',
+      503,
+      { error: 'supabase_not_configured' },
+    )
+  }
+  const hasVideo = Boolean(params.video)
+  const images = params.images ?? []
+
+  if (hasVideo && images.length) {
+    throw new UploadDropMediaError('Send either one video or images, not both.', 400, {
+      error: 'video_or_images_not_both',
+    })
+  }
+  if (!hasVideo && images.length === 0) {
+    throw new UploadDropMediaError('Add a video or at least one image.', 400, { error: 'no_media' })
+  }
+  if (images.length > DROP_MAX_IMAGE_COUNT) {
+    throw new UploadDropMediaError(`At most ${DROP_MAX_IMAGE_COUNT} images.`, 400, {
+      error: 'too_many_images',
+    })
   }
 
-  if (!res.ok) {
-    const msg = (json.detail || json.error || res.statusText || 'Upload failed').trim()
-    throw new UploadDropMediaError(msg, res.status, json)
+  if (params.video) {
+    const file = params.video
+    const mime = file.type || 'video/mp4'
+    if (!videoMimeOk(mime)) {
+      throw new UploadDropMediaError('Unsupported video type (use MP4, WebM, or QuickTime).', 400, {
+        error: 'invalid_video_type',
+        detail: mime,
+      })
+    }
+    if (file.size > DROP_VIDEO_MAX_BYTES) {
+      throw new UploadDropMediaError('Video is too large (max 100MB).', 413, { error: 'invalid_video_size' })
+    }
+    const filePath = buildDropFilePath(file)
+    const { data, error } = await sb.storage.from(bucket).upload(filePath, file, {
+      upsert: true,
+      cacheControl: '3600',
+      contentType: file.type || undefined,
+    })
+    console.log('UPLOAD RESULT', { data, error })
+    if (error) {
+      throwStorageUploadFailed(error, bucket, supabaseUrl, true)
+    }
+    const objectPath = resolveObjectPathInBucket(bucket, data, filePath)
+    const { data: pub } = sb.storage.from(bucket).getPublicUrl(objectPath)
+    return { videoUrl: pub.publicUrl }
   }
 
-  return {
-    videoUrl: json.videoUrl,
-    imageUrls: json.imageUrls,
+  const urls: string[] = []
+  for (const file of images) {
+    const mime = file.type || 'image/jpeg'
+    if (!imageMimeOk(mime)) {
+      throw new UploadDropMediaError('Unsupported image type.', 400, { error: 'invalid_image_type', detail: mime })
+    }
+    if (file.size > DROP_IMAGE_MAX_BYTES) {
+      throw new UploadDropMediaError('Each image must be 12MB or less.', 413, { error: 'invalid_image_size' })
+    }
+    const filePath = buildDropFilePath(file)
+    const { data, error } = await sb.storage.from(bucket).upload(filePath, file, {
+      upsert: true,
+      cacheControl: '3600',
+      contentType: file.type || undefined,
+    })
+    console.log('UPLOAD RESULT', { data, error })
+    if (error) {
+      throwStorageUploadFailed(error, bucket, supabaseUrl, true)
+    }
+    const objectPath = resolveObjectPathInBucket(bucket, data, filePath)
+    const { data: pub } = sb.storage.from(bucket).getPublicUrl(objectPath)
+    urls.push(pub.publicUrl)
   }
+  return { imageUrls: urls }
 }

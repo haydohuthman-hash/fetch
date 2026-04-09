@@ -4,8 +4,8 @@ import type { DropCreatorProfile } from './types'
 
 export type { DropCreatorProfile } from './types'
 
-const STORAGE_KEY = 'fetch.drops.profiles.v1'
-const MY_PROFILE_KEY = 'fetch.drops.myProfileId.v1'
+const STORAGE_KEY = 'fetch.drops.profiles.v2'
+const MY_PROFILE_KEY = 'fetch.drops.myProfileId.v2'
 const RESERVED_NORMALIZED = new Set(
   ['fetch', 'admin', 'support', 'official', 'teamfetch'].map((s) => s.toLowerCase()),
 )
@@ -190,7 +190,7 @@ export function saveDropProfile(
   const next: DropCreatorProfile = {
     ...profile,
     displayName: profile.displayName.trim().replace(/^@+/, ''),
-    avatar: profile.avatar.trim().slice(0, 120) || '🎯',
+    avatar: profile.avatar.trim().slice(0, 2048) || '🎯',
     updatedAt: Date.now(),
   }
   s.byId[next.id] = next

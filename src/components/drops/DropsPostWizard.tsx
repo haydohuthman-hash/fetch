@@ -1,6 +1,10 @@
 import { useCallback, useMemo, useState, type ChangeEvent } from 'react'
+import { marketplaceActorHeaders } from '../../lib/booking/marketplaceApiAuth'
 import { BOOST_TIER_COPY, setBoostTierForReel } from '../../lib/drops/boostStore'
 import { DROP_CATEGORY_LABELS, DROP_REGION_LABELS } from '../../lib/drops/constants'
+import { dropsPublishApiErrorMessage } from '../../lib/drops/dropsDeployErrors'
+import { UploadDropMediaError } from '../../lib/drops/uploadDropMedia'
+import { uploadDropsMediaForPublish } from '../../lib/drops/uploadDropsMediaForPublish'
 import { getFetchApiBaseUrl } from '../../lib/fetchApiBase'
 import type {
   DropCategoryId,
@@ -228,10 +232,23 @@ export function DropsPostWizard({
 
     setBusy(true)
     try {
-      const res = await fetch(`${getFetchApiBaseUrl()}/api/drops`, {
+      const media = await uploadDropsMediaForPublish({
+        video: videoFile,
+        images: [...imageFiles],
+      })
+      if (!media.videoUrl && !(media.imageUrls?.length ?? 0)) {
+        setErr('Upload failed — no media URL returned.')
+        setBusy(false)
+        return
+      }
+
+      const res = await fetch(`${getFetchApiBaseUrl()}/api/publish`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...marketplaceActorHeaders('customer'),
+        },
         body: JSON.stringify({
           authorId,
           sellerDisplay,
@@ -243,50 +260,18 @@ export function DropsPostWizard({
           commerce: commercePayload,
           commerceSaleMode,
           growthVelocityScore: 1.55,
+          ...(media.videoUrl ? { videoUrl: media.videoUrl } : { imageUrls: media.imageUrls ?? [] }),
         }),
       })
       const payload = (await res.json().catch(() => ({}))) as { id?: string; error?: string }
       if (!res.ok) {
-        setErr(
-          payload.error === 'auth_required'
-            ? 'Sign in (same session as Buy & Sell) to publish to the server feed.'
-            : typeof payload.error === 'string'
-              ? payload.error
-              : 'publish_failed',
-        )
+        setErr(dropsPublishApiErrorMessage(payload.error, res.status))
         setBusy(false)
         return
       }
       const id = typeof payload.id === 'string' ? payload.id : null
       if (!id) {
         setErr('Missing drop id')
-        setBusy(false)
-        return
-      }
-
-      const fd = new FormData()
-      if (videoFile) fd.append('files', videoFile)
-      else for (const im of imageFiles) fd.append('files', im)
-
-      const up = await fetch(`${getFetchApiBaseUrl()}/api/drops/${encodeURIComponent(id)}/media`, {
-        method: 'POST',
-        credentials: 'include',
-        body: fd,
-      })
-      const upPayload = (await up.json().catch(() => ({}))) as { error?: string }
-      if (!up.ok) {
-        setErr(typeof upPayload.error === 'string' ? upPayload.error : 'upload_failed')
-        setBusy(false)
-        return
-      }
-
-      const pub = await fetch(`${getFetchApiBaseUrl()}/api/drops/${encodeURIComponent(id)}/publish`, {
-        method: 'POST',
-        credentials: 'include',
-      })
-      if (!pub.ok) {
-        const p = (await pub.json().catch(() => ({}))) as { error?: string }
-        setErr(typeof p.error === 'string' ? p.error : 'publish_failed')
         setBusy(false)
         return
       }
@@ -298,8 +283,12 @@ export function DropsPostWizard({
       onClose()
       reset()
       onPublished(id)
-    } catch {
-      setErr('network_error')
+    } catch (e) {
+      if (e instanceof UploadDropMediaError) {
+        setErr(e.message)
+      } else {
+        setErr('network_error')
+      }
     } finally {
       setBusy(false)
     }
@@ -586,7 +575,7 @@ export function DropsPostWizard({
                 {commercePayload ? ` · ${commerceSaleMode}` : ''}
               </li>
               <li className="text-[12px] text-white/45">
-                Server publish requires DATABASE_URL + signed-in marketplace session.
+                Server publish uses your signed-in session. Media uploads go to Supabase Storage from the app, then the server saves the drop to Postgres.
               </li>
             </ul>
           ) : null}

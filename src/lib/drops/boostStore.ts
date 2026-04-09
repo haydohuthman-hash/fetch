@@ -1,6 +1,6 @@
 import type { DropBoostTier } from './types'
 
-const KEY = 'fetch.drops.boost.v1'
+const KEY = 'fetch.drops.boost.v2'
 
 type BoostMap = Record<string, DropBoostTier>
 

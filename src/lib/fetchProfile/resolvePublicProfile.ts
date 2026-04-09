@@ -14,12 +14,8 @@ import {
 } from './followGraphStore'
 import type { FetchProfileBadge, FetchPublicProfileKind, FetchPublicProfileVm } from './types'
 
-const STORE_AUTHORS = new Set([
-  'demo_fetch_supply',
-  'demo_brisbane_basics',
-  'demo_office_nosh',
-  FETCH_DROPS_OFFICIAL_AUTHOR_ID,
-])
+/** Authors treated as “store” tier for profile chrome (official promos only — no demo merchants). */
+const STORE_AUTHORS = new Set([FETCH_DROPS_OFFICIAL_AUTHOR_ID])
 
 function hashSeed(s: string): number {
   let h = 0

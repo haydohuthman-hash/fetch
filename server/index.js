@@ -66,8 +66,6 @@ import {
   visitorBucketsByDay,
 } from './lib/analytics-pg.js'
 import { runAdminStoreAiChat } from './lib/admin-store-ai.js'
-import { isCloudinaryConfigured, uploadProductImageBuffer } from './lib/cloudinary-product-upload.js'
-import { uploadDropImageBuffer, uploadDropVideoBuffer } from './lib/cloudinary-drops-upload.js'
 import { createPeerListingsStore } from './lib/peer-listings-store.js'
 import { createPeerMessagesStore } from './lib/peer-messages-store.js'
 import { postStoreOrderWebhook } from './lib/store-outbound-webhook.js'
@@ -111,6 +109,7 @@ import {
   addDropMediaInternal,
   publishDropInternal,
   listModerationPendingDrops,
+  insertMarketplacePost,
 } from './lib/drops-pg.js'
 import {
   muxCreateLiveStreamForDrop,
@@ -458,8 +457,18 @@ if (process.env.NODE_ENV === 'production') {
   const sec = (process.env.FETCH_SESSION_SECRET || '').trim()
   if (!sec || sec === 'fetch_dev_session_insecure') {
     console.warn('[fetch] WARNING: Set a strong FETCH_SESSION_SECRET in production.')
+  } else if (sec.length < 24) {
+    console.warn('[fetch] WARNING: FETCH_SESSION_SECRET should be at least 24 characters in production.')
   }
 }
+
+;(() => {
+  const pg = Boolean(sharedPgPool)
+  const vercel = process.env.VERCEL === '1'
+  console.log(
+    `[fetch] Drops deploy check: postgres=${pg}${vercel ? ', host=Vercel' : ''} — browser uploads to Supabase Storage bucket "drops" (VITE_SUPABASE_* + optional VITE_SUPABASE_DROP_BUCKET).`,
+  )
+})()
 
 const marketplaceStore = await createConfiguredMarketplaceStore()
 const HARDWARE_ORDERS_FILE = process.env.VERCEL
@@ -581,36 +590,11 @@ const listingImageUpload = multer({
 })
 
 const DROP_VIDEO_MAX_BYTES = 100 * 1024 * 1024
-const DROP_IMAGE_MAX_BYTES = 12 * 1024 * 1024
-const DROP_MAX_IMAGE_COUNT = 12
 
 const dropsMediaUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 80 * 1024 * 1024, files: 12 },
 })
-
-/** Home reels composer — multer cap matches max video; images re-checked at 12MB in handler. */
-const dropsFeedMediaUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: DROP_VIDEO_MAX_BYTES },
-})
-
-function extForDropVideoMime(mime) {
-  const m = String(mime || '').toLowerCase()
-  if (m === 'video/mp4') return '.mp4'
-  if (m === 'video/webm') return '.webm'
-  if (m === 'video/quicktime') return '.mov'
-  return '.mp4'
-}
-
-function extForDropImageMime(mime) {
-  const m = String(mime || '').toLowerCase()
-  if (m === 'image/jpeg' || m === 'image/jpg') return '.jpg'
-  if (m === 'image/png') return '.png'
-  if (m === 'image/webp') return '.webp'
-  if (m === 'image/gif') return '.gif'
-  return '.jpg'
-}
 
 function stripJsonFence(s) {
   const t = (s || '').trim()
@@ -2229,15 +2213,11 @@ app.post(
       return res.status(400).json({ error: 'invalid_image_type' })
     }
     try {
-      if (isCloudinaryConfigured()) {
-        const url = await uploadProductImageBuffer(buf, mime)
-        return res.json({ url })
-      }
       if (process.env.VERCEL === '1') {
         return res.status(503).json({
-          error: 'cloudinary_not_configured',
+          error: 'admin_upload_unavailable',
           detail:
-            'On Vercel, set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET for image uploads.',
+            'Admin multipart uploads are not available on Vercel (no durable local disk). Paste an image URL or run the API locally.',
         })
       }
       const ext = path.extname(req.file.originalname || '').toLowerCase()
@@ -2774,124 +2754,6 @@ app.get('/api/drops/feed', async (req, res) => {
   }
 })
 
-app.post(
-  '/api/drops/upload-media',
-  dropsWriteLimiter,
-  (req, res, next) => {
-    dropsFeedMediaUpload.fields([
-      { name: 'video', maxCount: 1 },
-      { name: 'images', maxCount: DROP_MAX_IMAGE_COUNT },
-    ])(req, res, (err) => {
-      if (err) {
-        const code = err.code
-        const msg = err.message || 'upload failed'
-        if (code === 'LIMIT_FILE_SIZE') {
-          return res.status(413).json({ error: 'file_too_large', detail: msg })
-        }
-        return res.status(400).json({ error: 'invalid_upload', detail: msg })
-      }
-      next()
-    })
-  },
-  async (req, res) => {
-    try {
-      const videoSlot = req.files?.video
-      const imageSlot = req.files?.images
-      const video = Array.isArray(videoSlot) ? videoSlot[0] : null
-      const images = Array.isArray(imageSlot) ? imageSlot : []
-
-      if (video && images.length) {
-        return res.status(400).json({
-          error: 'video_or_images_not_both',
-          detail: 'Send either one video or up to 12 images.',
-        })
-      }
-      if (!video && images.length === 0) {
-        return res.status(400).json({ error: 'no_media', detail: 'Upload a video or at least one image.' })
-      }
-
-      const videoMimeOk = (mime) => /^video\/(mp4|webm|quicktime)$/i.test(String(mime || ''))
-      const imageMimeOk = (mime) => /^image\/(jpeg|jpg|png|webp|gif)$/i.test(String(mime || ''))
-
-      if (video) {
-        const buf = video.buffer
-        const mime = video.mimetype || ''
-        if (!videoMimeOk(mime)) {
-          return res.status(400).json({ error: 'invalid_video_type', detail: mime })
-        }
-        if (!buf?.length || buf.length > DROP_VIDEO_MAX_BYTES) {
-          return res.status(400).json({ error: 'invalid_video_size' })
-        }
-      }
-
-      for (const img of images) {
-        const mime = img.mimetype || ''
-        if (!imageMimeOk(mime)) {
-          return res.status(400).json({ error: 'invalid_image_type', detail: mime })
-        }
-        const len = img.buffer?.length ?? 0
-        if (!len || len > DROP_IMAGE_MAX_BYTES) {
-          return res.status(400).json({
-            error: 'invalid_image_size',
-            detail: 'Each image must be 12MB or less.',
-          })
-        }
-      }
-
-      const useCloud = isCloudinaryConfigured()
-
-      if (useCloud) {
-        if (video) {
-          const videoUrl = await uploadDropVideoBuffer(video.buffer, video.mimetype)
-          return res.json({ videoUrl })
-        }
-        const imageUrls = []
-        for (const img of images) {
-          imageUrls.push(await uploadDropImageBuffer(img.buffer, img.mimetype))
-        }
-        return res.json({ imageUrls })
-      }
-
-      if (process.env.VERCEL === '1') {
-        return res.status(503).json({
-          error: 'cloudinary_not_configured',
-          detail:
-            'On Vercel, set CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET for Drops uploads.',
-        })
-      }
-
-      if (video) {
-        const ext = extForDropVideoMime(video.mimetype)
-        const sub = 'videos'
-        const dir = path.join(LISTING_UPLOAD_DIR, 'drops', sub)
-        await fs.promises.mkdir(dir, { recursive: true })
-        const name = `drop_${Date.now()}_${crypto.randomBytes(6).toString('hex')}${ext}`
-        await fs.promises.writeFile(path.join(dir, name), video.buffer)
-        return res.json({ videoUrl: `/listing-uploads/drops/${sub}/${name}` })
-      }
-
-      const imageUrls = []
-      const sub = 'images'
-      for (const img of images) {
-        const ext = extForDropImageMime(img.mimetype)
-        const dir = path.join(LISTING_UPLOAD_DIR, 'drops', sub)
-        await fs.promises.mkdir(dir, { recursive: true })
-        const name = `drop_${Date.now()}_${crypto.randomBytes(6).toString('hex')}${ext}`
-        await fs.promises.writeFile(path.join(dir, name), img.buffer)
-        imageUrls.push(`/listing-uploads/drops/${sub}/${name}`)
-      }
-      return res.json({ imageUrls })
-    } catch (e) {
-      console.error('[drops/upload-media]', e)
-      const detail = e instanceof Error ? e.message : String(e)
-      return res.status(502).json({
-        error: 'upload_failed',
-        detail: detail.slice(0, 240),
-      })
-    }
-  },
-)
-
 app.get('/api/drops/:id', async (req, res) => {
   if (!sharedPgPool) return res.status(503).json({ error: 'drops_db_not_configured' })
   try {
@@ -2964,6 +2826,99 @@ app.post('/api/drops/:id/publish', dropsWriteLimiter, async (req, res) => {
     if (msg === 'media_required') return res.status(400).json({ error: msg })
     console.error('[drops/publish]', e)
     return res.status(500).json({ error: 'drops_publish_failed' })
+  }
+})
+
+/**
+ * One-shot Drops publish: create draft, attach media URLs (already uploaded), publish, record marketplace_posts.
+ * DB access is server-only; the SPA must not read DATABASE_URL.
+ */
+function isAllowedDropMediaUrl(url) {
+  const u = String(url || '').trim()
+  if (u.length < 4 || u.length > 2048) return false
+  if (u.startsWith('/') && !u.startsWith('//')) return true
+  try {
+    const parsed = new URL(u)
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:'
+  } catch {
+    return false
+  }
+}
+
+app.post('/api/publish', dropsWriteLimiter, async (req, res) => {
+  if (!sharedPgPool) return res.status(503).json({ error: 'publish_unavailable' })
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.status(401).json({ error: 'auth_required' })
+  try {
+    const body = req.body ?? {}
+    const videoUrl = typeof body.videoUrl === 'string' ? body.videoUrl.trim() : ''
+    const imageUrls = Array.isArray(body.imageUrls)
+      ? body.imageUrls.map((x) => String(x || '').trim()).filter(Boolean)
+      : []
+    if (videoUrl && imageUrls.length) {
+      return res.status(400).json({ error: 'video_or_images_not_both' })
+    }
+    if (!videoUrl && !imageUrls.length) {
+      return res.status(400).json({ error: 'media_required' })
+    }
+    if (videoUrl && !isAllowedDropMediaUrl(videoUrl)) {
+      return res.status(400).json({ error: 'invalid_media_url' })
+    }
+    for (const u of imageUrls) {
+      if (!isAllowedDropMediaUrl(u)) return res.status(400).json({ error: 'invalid_media_url' })
+    }
+
+    const actor = resolveMarketplaceActor(req)
+    const authorId =
+      typeof body.authorId === 'string' && body.authorId.trim()
+        ? body.authorId.trim()
+        : actor.customerUserId || actor.customerEmail || 'user'
+    const sellerDisplay =
+      typeof body.sellerDisplay === 'string' && body.sellerDisplay.trim()
+        ? body.sellerDisplay.trim().slice(0, 120)
+        : '@seller'
+
+    const row = await createDropDraft(sharedPgPool, sk, {
+      authorId,
+      sellerDisplay,
+      title: typeof body.title === 'string' ? body.title : undefined,
+      priceLabel: typeof body.priceLabel === 'string' ? body.priceLabel : undefined,
+      blurb: typeof body.blurb === 'string' ? body.blurb : undefined,
+      categories: Array.isArray(body.categories) ? body.categories : undefined,
+      region: typeof body.region === 'string' ? body.region : undefined,
+      commerce: body.commerce,
+      commerceSaleMode: body.commerceSaleMode,
+      growthVelocityScore: body.growthVelocityScore,
+      watchTimeMsSeed: body.watchTimeMsSeed,
+    })
+    if (!row?.id) return res.status(500).json({ error: 'create_failed' })
+    const dropId = String(row.id)
+
+    if (videoUrl) {
+      await addDropMedia(sharedPgPool, dropId, { kind: 'video', url: videoUrl, sortOrder: 0 })
+    } else {
+      let sort = 0
+      for (const u of imageUrls) {
+        await addDropMedia(sharedPgPool, dropId, { kind: 'image', url: u, sortOrder: sort++ })
+      }
+    }
+
+    await publishDrop(sharedPgPool, dropId, sk)
+    const mediaKind = videoUrl ? 'video' : 'carousel'
+    await insertMarketplacePost(sharedPgPool, dropId, sk, mediaKind)
+
+    const full = await getDropWithMedia(sharedPgPool, dropId)
+    return res.json({ ok: true, id: dropId, drop: full?.public ?? null })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg === 'seller_key_required') return res.status(400).json({ error: msg })
+    if (msg === 'forbidden') return res.status(403).json({ error: msg })
+    if (msg === 'media_required') return res.status(400).json({ error: msg })
+    if (msg === 'invalid_media_kind' || msg === 'url_required') {
+      return res.status(400).json({ error: 'invalid_media' })
+    }
+    console.error('[publish]', e)
+    return res.status(500).json({ error: 'publish_failed' })
   }
 })
 

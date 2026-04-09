@@ -1,5 +1,9 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import {
+  setDropsCreatorReturnTarget,
+  needsDropsCreatorOnboarding,
+} from './lib/drops/fetchDropsCreatorOnboarding'
+import {
   consumeOnboardingReturnTarget,
   needsPlatformOnboarding,
   setOnboardingReturnTarget,
@@ -28,7 +32,10 @@ const DriverDashboardView = lazy(driverChunk)
 const onboardingChunk = () => import('./views/AccountOnboardingView')
 const AccountOnboardingView = lazy(onboardingChunk)
 
-type AppPhase = 'splash' | 'home' | 'auth' | 'onboarding' | 'account' | 'driver'
+const dropsCreatorSetupChunk = () => import('./views/DropsCreatorSetupView')
+const DropsCreatorSetupView = lazy(dropsCreatorSetupChunk)
+
+type AppPhase = 'splash' | 'home' | 'auth' | 'onboarding' | 'dropsSetup' | 'account' | 'driver'
 
 /**
  * Page-load–scoped handoff flags (not sessionStorage): they survive React 18 Strict Mode
@@ -73,6 +80,7 @@ function App() {
     void dropsProfileAccountChunk()
     void driverChunk()
     void onboardingChunk()
+    void dropsCreatorSetupChunk()
   }, [])
 
   useEffect(() => {
@@ -93,6 +101,11 @@ function App() {
     if (needsPlatformOnboarding()) {
       setOnboardingAllowDismiss(false)
       setPhase('onboarding')
+      return
+    }
+    if (needsDropsCreatorOnboarding()) {
+      setDropsCreatorReturnTarget('account')
+      setPhase('dropsSetup')
       return
     }
     setPhase('account')
@@ -117,11 +130,19 @@ function App() {
       const ret = consumeOnboardingReturnTarget()
       setOnboardingAllowDismiss(false)
       if (ret === 'account') {
-        setPhase('account')
+        if (picked === 'fetcher' && needsDropsCreatorOnboarding()) {
+          setDropsCreatorReturnTarget('account')
+          setPhase('dropsSetup')
+        } else {
+          setPhase('account')
+        }
         return
       }
       if (picked === 'partner') {
         openDriverDashboard()
+      } else if (needsDropsCreatorOnboarding()) {
+        setDropsCreatorReturnTarget('home')
+        setPhase('dropsSetup')
       } else {
         setPhase('home')
       }
@@ -199,7 +220,14 @@ function App() {
                 onBack={() => setPhase('home')}
                 onSuccess={() => {
                   setOnboardingAllowDismiss(false)
-                  setPhase(needsPlatformOnboarding() ? 'onboarding' : 'account')
+                  if (needsPlatformOnboarding()) {
+                    setPhase('onboarding')
+                  } else if (needsDropsCreatorOnboarding()) {
+                    setDropsCreatorReturnTarget('home')
+                    setPhase('dropsSetup')
+                  } else {
+                    setPhase('account')
+                  }
                 }}
               />
             </Suspense>
@@ -210,6 +238,12 @@ function App() {
                 onDonePartner={() => finishOnboarding('partner')}
                 allowDismissToAccount={onboardingAllowDismiss}
                 onDismissToAccount={dismissOnboardingToAccount}
+              />
+            </Suspense>
+          ) : phase === 'dropsSetup' ? (
+            <Suspense fallback={<PhaseFallback />}>
+              <DropsCreatorSetupView
+                onDone={(dest) => setPhase(dest === 'account' ? 'account' : 'home')}
               />
             </Suspense>
           ) : (

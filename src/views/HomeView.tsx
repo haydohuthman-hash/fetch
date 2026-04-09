@@ -597,6 +597,8 @@ export default function HomeView({
     null,
   )
   const [dropsListingHandoff, setDropsListingHandoff] = useState<BuySellDropsListingHandoff | null>(null)
+  /** Increment while already on Drops to reopen the menu (upload / go live). */
+  const [dropsNavRepeatTick, setDropsNavRepeatTick] = useState(0)
   const shellShopOrChat =
     homeShellTab === 'reels' ||
     homeShellTab === 'marketplace' ||
@@ -4736,11 +4738,15 @@ export default function HomeView({
           ]
             .filter(Boolean)
             .join(' ')}
-          aria-label="Drops"
+          aria-label={homeShellTab === 'reels' ? 'Drops — post video or photos' : 'Drops'}
           aria-current={homeShellTab === 'reels' ? 'page' : undefined}
           onClick={() => {
             bumpInteraction()
-            onHomeShellTabChange('reels')
+            if (homeShellTab === 'reels') {
+              setDropsNavRepeatTick((n) => n + 1)
+            } else {
+              onHomeShellTabChange('reels')
+            }
           }}
         >
           <ReelsNavIconFilled className="block" active={homeShellTab === 'reels'} />
@@ -4775,7 +4781,14 @@ export default function HomeView({
         </button>
       </nav>
     ),
-    [bumpInteraction, homeShellTab, messagesUnread.total, onAccountsClick, onHomeShellTabChange, onPeekHomeClick],
+    [
+      bumpInteraction,
+      homeShellTab,
+      messagesUnread.total,
+      onAccountsClick,
+      onHomeShellTabChange,
+      onPeekHomeClick,
+    ],
   )
 
   const onHomeOrbBottomPxChange = useCallback((px: number) => {
@@ -6994,6 +7007,7 @@ export default function HomeView({
           onCommerceAction={onDropsCommerceAction}
           onRequestHomeShellTab={onHomeShellTabChange}
           onOpenPeerListingFromProfile={onOpenPeerListingFromProfile}
+          dropsNavRepeatTick={dropsNavRepeatTick}
         />
       ) : null}
 

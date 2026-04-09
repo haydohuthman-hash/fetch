@@ -17,23 +17,28 @@ export function FetchProfileHero({
   profile,
   layout = 'inline',
   dense,
+  compact,
   onLiveClick,
 }: {
   profile: FetchPublicProfileVm
   /** `centered` — avatar in the middle (account + full profile sheet). */
   layout?: 'inline' | 'centered'
   dense?: boolean
+  /** Tighter header (e.g. account tab / Instagram-style profile). */
+  compact?: boolean
   onLiveClick?: () => void
 }) {
   const avatarBox = (
     <div
       className={[
-        'relative flex shrink-0 items-center justify-center overflow-hidden bg-zinc-100 ring-1 ring-zinc-200 shadow',
-        layout === 'centered'
-          ? 'h-[6.5rem] w-[6.5rem] rounded-full text-5xl sm:h-[7.25rem] sm:w-[7.25rem] sm:text-[3.25rem]'
-          : dense
-            ? 'h-[4.5rem] w-[4.5rem] rounded-2xl text-3xl'
-            : 'h-[5.5rem] w-[5.5rem] rounded-2xl text-4xl sm:h-24 sm:w-24 sm:text-5xl',
+        'relative flex shrink-0 items-center justify-center overflow-hidden bg-zinc-100',
+        layout === 'centered' && compact
+          ? 'h-[4.5rem] w-[4.5rem] rounded-full text-3xl ring-1 ring-zinc-200'
+          : layout === 'centered'
+            ? 'h-[6.5rem] w-[6.5rem] rounded-full text-5xl ring-1 ring-zinc-200 sm:h-[7.25rem] sm:w-[7.25rem] sm:text-[3.25rem]'
+            : dense
+              ? 'h-[4.5rem] w-[4.5rem] rounded-2xl text-3xl ring-1 ring-zinc-200'
+              : 'h-[5.5rem] w-[5.5rem] rounded-2xl text-4xl ring-1 ring-zinc-200 sm:h-24 sm:w-24 sm:text-5xl',
       ].join(' ')}
     >
       {profile.avatar.startsWith('http') ? (
@@ -55,7 +60,12 @@ export function FetchProfileHero({
   )
 
   const statsRow = (
-    <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-1 text-[13px] sm:gap-x-10">
+    <div
+      className={[
+        'flex flex-wrap items-center justify-center gap-y-1 text-[13px]',
+        compact ? 'gap-x-6' : 'gap-x-8 sm:gap-x-10',
+      ].join(' ')}
+    >
       <div className="text-center">
         <p className="font-bold tabular-nums text-zinc-900">{formatSocial(profile.followersCount)}</p>
         <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Followers</p>
@@ -103,13 +113,27 @@ export function FetchProfileHero({
     return (
       <div className="flex flex-col items-center text-center">
         {avatarBox}
-        <h2 className="mt-4 max-w-[18rem] truncate text-[20px] font-bold tracking-tight text-zinc-900 sm:text-[22px]">
+        <h2
+          className={[
+            'max-w-[16rem] truncate font-bold tracking-tight text-zinc-900',
+            compact ? 'mt-2 text-[17px]' : 'mt-4 text-[20px] sm:text-[22px]',
+          ].join(' ')}
+        >
           {profile.displayName}
         </h2>
-        <p className="mt-0.5 text-[13px] font-semibold text-zinc-500">{profile.handle}</p>
-        <p className="mt-1 text-[12px] text-zinc-600">{profile.locationLabel}</p>
-        <div className="mt-4 w-full max-w-xs">{statsRow}</div>
-        <div className="mt-4 flex w-full max-w-md flex-col items-center gap-2">
+        <p className={['font-semibold text-zinc-500', compact ? 'mt-0 text-[12px]' : 'mt-0.5 text-[13px]'].join(' ')}>
+          {profile.handle}
+        </p>
+        <p className={['text-zinc-600', compact ? 'mt-0.5 text-[11px]' : 'mt-1 text-[12px]'].join(' ')}>
+          {profile.locationLabel}
+        </p>
+        <div className={compact ? 'mt-2 w-full max-w-xs' : 'mt-4 w-full max-w-xs'}>{statsRow}</div>
+        <div
+          className={[
+            'flex w-full max-w-md flex-col items-center gap-1',
+            compact ? 'mt-2 text-[11px]' : 'mt-4 gap-2',
+          ].join(' ')}
+        >
           {trustRow}
           {badgesRow}
         </div>
@@ -148,46 +172,19 @@ export function FetchProfileSelfSurfaceActions({
   onChat: () => void
   onDrops: () => void
 }) {
+  const link = 'text-[13px] font-semibold text-zinc-900 py-1'
   return (
-    <div className="mt-5 grid grid-cols-2 gap-2">
-      <button
-        type="button"
-        onClick={onBuySell}
-        className="flex flex-col items-center justify-center gap-1 rounded-2xl bg-white py-3 text-[12px] font-bold leading-tight text-zinc-900 shadow-md ring-1 ring-black/5 transition-transform active:scale-[0.98] sm:text-[13px]"
-      >
-        <span className="text-lg leading-none" aria-hidden>
-          🏷️
-        </span>
+    <div className="mt-3 flex flex-wrap justify-center gap-x-5 gap-y-1 border-t border-zinc-200 pt-3">
+      <button type="button" onClick={onBuySell} className={link}>
         Buy &amp; sell
       </button>
-      <button
-        type="button"
-        onClick={onMarketplace}
-        className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-zinc-300 bg-white py-3 text-[12px] font-bold leading-tight text-zinc-700 transition-transform active:scale-[0.98] sm:text-[13px]"
-      >
-        <span className="text-lg leading-none" aria-hidden>
-          🛒
-        </span>
+      <button type="button" onClick={onMarketplace} className={link}>
         Supplies
       </button>
-      <button
-        type="button"
-        onClick={onChat}
-        className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-zinc-300 bg-white py-3 text-[12px] font-bold leading-tight text-zinc-700 transition-transform active:scale-[0.98] sm:text-[13px]"
-      >
-        <span className="text-lg leading-none" aria-hidden>
-          💬
-        </span>
-        Chat
+      <button type="button" onClick={onChat} className={link}>
+        Messages
       </button>
-      <button
-        type="button"
-        onClick={onDrops}
-        className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-zinc-300 bg-white py-3 text-[12px] font-bold leading-tight text-zinc-700 transition-transform active:scale-[0.98] sm:text-[13px]"
-      >
-        <span className="text-lg leading-none" aria-hidden>
-          🎬
-        </span>
+      <button type="button" onClick={onDrops} className={link}>
         Drops
       </button>
     </div>
@@ -214,59 +211,22 @@ export function FetchProfilePrimaryActions({
   isFollowing?: boolean
   showFollow?: boolean
 }) {
+  const btn = 'min-w-[4.5rem] flex-1 py-2 text-[13px] font-semibold text-zinc-900'
   return (
-    <div className="mt-5 grid grid-cols-3 gap-2">
-      <button
-        type="button"
-        onClick={onBookBuy}
-        className="flex flex-col items-center justify-center gap-1 rounded-2xl bg-white py-3 text-[13px] font-bold text-zinc-900 shadow-md ring-1 ring-black/5 transition-transform active:scale-[0.98]"
-      >
-        <span className="text-lg leading-none" aria-hidden>
-          ⚡
-        </span>
+    <div className="mt-3 flex flex-wrap justify-center gap-x-4 gap-y-1 border-t border-zinc-200 pt-3">
+      <button type="button" onClick={onBookBuy} className={btn}>
         {bookBuyLabel}
       </button>
-      <button
-        type="button"
-        onClick={onMessage}
-        className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-zinc-300 bg-white py-3 text-[13px] font-bold text-zinc-700 transition-transform active:scale-[0.98]"
-      >
-        <span className="text-lg leading-none" aria-hidden>
-          💬
-        </span>
+      <button type="button" onClick={onMessage} className={btn}>
         Message
       </button>
       {showFollow && onFollow ? (
-        <button
-          type="button"
-          onClick={onFollow}
-          className={[
-            'flex flex-col items-center justify-center gap-1 rounded-2xl border py-3 text-[13px] font-bold transition-transform active:scale-[0.98]',
-            isFollowing
-              ? 'border-violet-300 bg-violet-100 text-violet-700'
-              : 'border-zinc-300 bg-white text-zinc-700',
-          ].join(' ')}
-        >
-          <span className="text-lg leading-none" aria-hidden>
-            {isFollowing ? '✓' : '＋'}
-          </span>
+        <button type="button" onClick={onFollow} className={btn}>
           {isFollowing ? 'Following' : 'Follow'}
         </button>
       ) : (
-        <button
-          type="button"
-          onClick={onSave}
-          className={[
-            'flex flex-col items-center justify-center gap-1 rounded-2xl border py-3 text-[13px] font-bold transition-transform active:scale-[0.98]',
-            saved
-              ? 'border-rose-300 bg-rose-100 text-rose-700'
-              : 'border-zinc-300 bg-white text-zinc-700',
-          ].join(' ')}
-        >
-          <span className="text-lg leading-none" aria-hidden>
-            {saved ? '❤️' : '🤍'}
-          </span>
-          Save
+        <button type="button" onClick={onSave} className={btn}>
+          {saved ? 'Saved' : 'Save'}
         </button>
       )}
     </div>

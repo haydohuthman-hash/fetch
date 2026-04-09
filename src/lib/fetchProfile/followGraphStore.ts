@@ -1,4 +1,4 @@
-const KEY = 'fetch.followGraph.v1'
+const KEY = 'fetch.followGraph.v2'
 
 type Shape = {
   /** followerAuthorId -> ordered list of authorIds they follow */

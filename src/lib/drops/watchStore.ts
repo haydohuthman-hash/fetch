@@ -1,4 +1,4 @@
-const KEY = 'fetch.drops.watchMs.v1'
+const KEY = 'fetch.drops.watchMs.v2'
 
 type WatchMap = Record<string, number>
 

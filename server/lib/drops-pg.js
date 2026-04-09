@@ -65,6 +65,35 @@ export async function ensureDropsTables(pool) {
     );
   `)
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_drop_engagement_drop ON drop_engagement_events (drop_id, created_at DESC);`)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS marketplace_posts (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      drop_id uuid NOT NULL REFERENCES drops(id) ON DELETE CASCADE,
+      seller_key text NOT NULL,
+      media_kind text NOT NULL DEFAULT 'video',
+      created_at timestamptz NOT NULL DEFAULT now(),
+      CONSTRAINT marketplace_posts_drop_id_key UNIQUE (drop_id)
+    );
+  `)
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_marketplace_posts_created ON marketplace_posts (created_at DESC);`,
+  )
+}
+
+/**
+ * @param {PgPool} pool
+ * @param {string} dropId
+ * @param {string} sellerKey
+ * @param {'video'|'carousel'} mediaKind
+ */
+export async function insertMarketplacePost(pool, dropId, sellerKey, mediaKind) {
+  const sk = typeof sellerKey === 'string' ? sellerKey.trim() : ''
+  const mk = mediaKind === 'carousel' ? 'carousel' : 'video'
+  await pool.query(
+    `INSERT INTO marketplace_posts (drop_id, seller_key, media_kind) VALUES ($1::uuid,$2,$3)
+     ON CONFLICT (drop_id) DO UPDATE SET seller_key = EXCLUDED.seller_key, media_kind = EXCLUDED.media_kind`,
+    [dropId, sk, mk],
+  )
 }
 
 /**

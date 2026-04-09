@@ -5985,9 +5985,9 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   }
 }
 
-/* Home intent sheet — earth-horizon top curve (all snaps; edge shell flushes bottom to screen) */
+/* Home intent sheet — earth-horizon top curve; bottom edge square (flush to dock / safe area) */
 .fetch-home-vision .fetch-home-booking-sheet[data-surface='intent'] {
-  border-radius: 46% 46% 26px 26px / 17% 17% 26px 26px;
+  border-radius: 46% 46% 0 0 / 17% 17% 0 0;
   border: 1px solid rgba(255, 255, 255, 0.68);
   box-shadow:
     0 -18px 56px rgba(15, 23, 42, 0.06),
@@ -6650,22 +6650,23 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   background: transparent;
 }
 
-/* Drops tab only: filled hit + upload icon reads on dark reel footer */
-.fetch-home-reels-shell-footer
-  .fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active,
-.fetch-home-reels-shell-footer
-  .fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active:hover {
-  background: rgba(255, 255, 255, 0.16);
+/* Drops menu / live sheet open on Reels: bump upload icon further */
+.fetch-home-reels-shell-footer[data-fetch-drops-upload-flow='true']
+  .fetch-home-intent-bottom-nav--compact
+  .fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active
+  svg {
+  width: 4.35rem;
+  height: 4.35rem;
+}
+
+.fetch-home-reels-shell-footer[data-fetch-drops-upload-flow='true']
+  .fetch-home-intent-bottom-nav--compact {
+  min-height: calc(3.4rem + env(safe-area-inset-bottom, 0px));
 }
 
 /* Plus glyph on white tile (active icon) — dark on reel footer, white on light bar */
 .fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon--active .fetch-reels-nav-icon__plus {
   fill: #0a0a0a;
-}
-
-.fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active,
-.fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active:hover {
-  background: rgba(15, 23, 42, 0.09);
 }
 
 /* Full-width bottom bar — home / maps / marketplace (fixed row; safe-area on bottom). */
@@ -6730,6 +6731,18 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   height: 2.5rem;
 }
 
+/* Drops active: large upload tile in the tab bar */
+.fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active svg {
+  width: 4.25rem;
+  height: 4.25rem;
+}
+
+.fetch-home-intent-bottom-nav:has(
+    .fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active
+  ) {
+  min-height: calc(3.55rem + env(safe-area-inset-bottom, 0px));
+}
+
 .fetch-home-intent-bottom-nav__icon--active {
   color: #0a0a0a;
   background: transparent;
@@ -6766,6 +6779,19 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 .fetch-home-intent-bottom-nav--compact .fetch-home-intent-bottom-nav__icon--active svg {
   width: 2.05rem;
   height: 2.05rem;
+}
+
+.fetch-home-intent-bottom-nav--compact
+  .fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active
+  svg {
+  width: 3.85rem;
+  height: 3.85rem;
+}
+
+.fetch-home-intent-bottom-nav--compact:has(
+    .fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active
+  ) {
+  min-height: calc(3.15rem + env(safe-area-inset-bottom, 0px));
 }
 
 .fetch-home-booking-sheet[data-surface='intent'][data-snap='compact']

@@ -105,28 +105,29 @@ export default function AuthScreen({
     onSuccess()
   }
 
+  const inputClass =
+    'fetch-auth-input rounded-xl border border-white/12 bg-black/40 px-3 py-2.5 text-[14px] text-white placeholder:text-white/30 outline-none ring-0 focus:border-white/25'
+
   return (
-    <div className="fetch-auth-screen fetch-theme-chrome mx-auto flex min-h-dvh w-full max-w-[1024px] flex-col px-4 pb-10 pt-[max(1rem,env(safe-area-inset-top))]">
-      <div className="flex items-center gap-3">
+    <div className="fetch-auth-screen fetch-theme-chrome mx-auto flex min-h-dvh w-full max-w-md flex-col px-4 pb-8 pt-[max(0.65rem,env(safe-area-inset-top))]">
+      <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={onBack}
-          className="fetch-auth-back rounded-full px-3 py-2 text-[13px] font-semibold text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+          className="fetch-auth-back rounded-lg px-2.5 py-1.5 text-[12px] font-semibold text-white/65 hover:text-white"
         >
           Back
         </button>
       </div>
 
-      <h1 className="fetch-auth-heading mt-4 text-[26px] font-semibold tracking-[-0.03em] text-white">
-        Account
-      </h1>
-      <p className="fetch-auth-lede mt-1 max-w-md text-[13px] leading-snug text-white/55">
+      <h1 className="fetch-auth-heading mt-3 text-[21px] font-semibold tracking-[-0.03em] text-white">Account</h1>
+      <p className="fetch-auth-lede mt-1 max-w-md text-[12px] leading-snug text-white/50">
         {serverDbAuth
-          ? 'Sign in with email and password. Your session is verified by the server.'
-          : 'Sign in or create an account. Fetch remembers your saved addresses and greets you by name.'}
+          ? 'Email and password — verified by the server.'
+          : 'Sign in or create an account. Fetch saves your preferences and name.'}
       </p>
 
-      <div className="fetch-auth-tabs mt-6 flex gap-1 rounded-full border border-white/10 bg-black/30 p-1">
+      <div className="fetch-auth-tabs mt-4 flex gap-0.5 rounded-xl border border-white/10 bg-black/40 p-0.5">
         <button
           type="button"
           onClick={() => {
@@ -135,8 +136,8 @@ export default function AuthScreen({
           }}
           className={
             tab === 'signin'
-              ? 'fetch-auth-tab-active flex-1 rounded-full bg-white/12 py-2.5 text-[13px] font-semibold text-white'
-              : 'fetch-auth-tab-inactive flex-1 rounded-full py-2.5 text-[13px] font-medium text-white/45'
+              ? 'fetch-auth-tab-active flex-1 rounded-[0.6rem] bg-black py-2 text-[12px] font-semibold text-white ring-1 ring-white/15'
+              : 'fetch-auth-tab-inactive flex-1 rounded-[0.6rem] py-2 text-[12px] font-medium text-white/40'
           }
         >
           Log in
@@ -149,8 +150,8 @@ export default function AuthScreen({
           }}
           className={
             tab === 'signup'
-              ? 'fetch-auth-tab-active flex-1 rounded-full bg-white/12 py-2.5 text-[13px] font-semibold text-white'
-              : 'fetch-auth-tab-inactive flex-1 rounded-full py-2.5 text-[13px] font-medium text-white/45'
+              ? 'fetch-auth-tab-active flex-1 rounded-[0.6rem] bg-black py-2 text-[12px] font-semibold text-white ring-1 ring-white/15'
+              : 'fetch-auth-tab-inactive flex-1 rounded-[0.6rem] py-2 text-[12px] font-medium text-white/40'
           }
         >
           Sign up
@@ -158,8 +159,8 @@ export default function AuthScreen({
       </div>
 
       {tab === 'signin' ? (
-        <form onSubmit={onSignIn} className="mt-6 flex max-w-md flex-col gap-3">
-          <label className="fetch-auth-label text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40">
+        <form onSubmit={onSignIn} className="mt-4 flex max-w-md flex-col gap-2">
+          <label className="fetch-auth-label text-[10px] font-semibold uppercase tracking-[0.1em] text-white/38">
             Email
           </label>
           <input
@@ -168,11 +169,11 @@ export default function AuthScreen({
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@email.com"
-            className="fetch-auth-input rounded-2xl border border-white/12 bg-black/35 px-4 py-3 text-[15px] text-white placeholder:text-white/30 outline-none ring-0 focus:border-violet-400/45"
+            className={inputClass}
           />
           {serverDbAuth ? (
             <>
-              <label className="fetch-auth-label text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40">
+              <label className="fetch-auth-label text-[10px] font-semibold uppercase tracking-[0.1em] text-white/38">
                 Password
               </label>
               <input
@@ -181,22 +182,22 @@ export default function AuthScreen({
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="fetch-auth-input rounded-2xl border border-white/12 bg-black/35 px-4 py-3 text-[15px] text-white placeholder:text-white/30 outline-none ring-0 focus:border-violet-400/45"
+                className={inputClass}
               />
             </>
           ) : null}
-          {error ? <p className="text-[12px] text-red-300/90">{error}</p> : null}
+          {error ? <p className="text-[11px] text-red-300/90">{error}</p> : null}
           <button
             type="submit"
             disabled={busy}
-            className="mt-2 rounded-2xl bg-gradient-to-b from-violet-500 to-violet-700 py-3.5 text-[15px] font-semibold text-white shadow-lg shadow-violet-950/40 disabled:opacity-50"
+            className="mt-1 rounded-xl bg-black py-3 text-[14px] font-bold text-white ring-1 ring-white/20 hover:bg-zinc-950 disabled:opacity-45"
           >
             {busy ? 'Please wait…' : 'Continue'}
           </button>
         </form>
       ) : (
-        <form onSubmit={onSignUp} className="mt-6 flex max-w-md flex-col gap-3">
-          <label className="fetch-auth-label text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40">
+        <form onSubmit={onSignUp} className="mt-4 flex max-w-md flex-col gap-2">
+          <label className="fetch-auth-label text-[10px] font-semibold uppercase tracking-[0.1em] text-white/38">
             Name
           </label>
           <input
@@ -205,9 +206,9 @@ export default function AuthScreen({
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
             placeholder="Your name"
-            className="fetch-auth-input rounded-2xl border border-white/12 bg-black/35 px-4 py-3 text-[15px] text-white placeholder:text-white/30 outline-none focus:border-violet-400/45"
+            className={inputClass}
           />
-          <label className="fetch-auth-label text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40">
+          <label className="fetch-auth-label text-[10px] font-semibold uppercase tracking-[0.1em] text-white/38">
             Email
           </label>
           <input
@@ -216,9 +217,9 @@ export default function AuthScreen({
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="you@email.com"
-            className="fetch-auth-input rounded-2xl border border-white/12 bg-black/35 px-4 py-3 text-[15px] text-white placeholder:text-white/30 outline-none focus:border-violet-400/45"
+            className={inputClass}
           />
-          <label className="fetch-auth-label text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40">
+          <label className="fetch-auth-label text-[10px] font-semibold uppercase tracking-[0.1em] text-white/38">
             Phone <span className="fetch-auth-label-note font-normal text-white/35">(optional)</span>
           </label>
           <input
@@ -227,11 +228,11 @@ export default function AuthScreen({
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
             placeholder="+61 …"
-            className="fetch-auth-input rounded-2xl border border-white/12 bg-black/35 px-4 py-3 text-[15px] text-white placeholder:text-white/30 outline-none focus:border-violet-400/45"
+            className={inputClass}
           />
           {serverDbAuth ? (
             <>
-              <label className="fetch-auth-label text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40">
+              <label className="fetch-auth-label text-[10px] font-semibold uppercase tracking-[0.1em] text-white/38">
                 Password
               </label>
               <input
@@ -240,15 +241,15 @@ export default function AuthScreen({
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="At least 8 characters"
-                className="fetch-auth-input rounded-2xl border border-white/12 bg-black/35 px-4 py-3 text-[15px] text-white placeholder:text-white/30 outline-none focus:border-violet-400/45"
+                className={inputClass}
               />
             </>
           ) : null}
-          {error ? <p className="text-[12px] text-red-300/90">{error}</p> : null}
+          {error ? <p className="text-[11px] text-red-300/90">{error}</p> : null}
           <button
             type="submit"
             disabled={busy}
-            className="mt-2 rounded-2xl bg-gradient-to-b from-violet-500 to-violet-700 py-3.5 text-[15px] font-semibold text-white shadow-lg shadow-violet-950/40 disabled:opacity-50"
+            className="mt-1 rounded-xl bg-black py-3 text-[14px] font-bold text-white ring-1 ring-white/20 hover:bg-zinc-950 disabled:opacity-45"
           >
             {busy ? 'Please wait…' : 'Create account'}
           </button>

@@ -35,12 +35,13 @@ import type {
 } from '../lib/drops/types'
 import { addWatchMsForReel } from '../lib/drops/watchStore'
 import { mergeFeedReels } from '../lib/drops/mergeFeedReels'
+import { consumePendingDropsPostWizard } from '../lib/drops/fetchDropsCreatorOnboarding'
 import {
   REELS_TOP_TAB_ORDER,
   markReelsTabOnboardingSeen,
   reelsTabOnboardingSeen,
 } from '../lib/drops/reelsTabOnboardingStorage'
-import { uploadDropMedia } from '../lib/drops/uploadDropMedia'
+import { UploadDropMediaError, uploadDropMedia } from '../lib/drops/uploadDropMedia'
 import { useDropsApiFeed } from '../lib/drops/useDropsApiFeed'
 import { syncCustomerSessionCookie } from '../lib/fetchServerSession'
 import {
@@ -118,6 +119,8 @@ export type HomeShellReelsPageProps = {
   onRequestHomeShellTab?: (tab: HomeShellTabRequest) => void
   /** Profile sheet Items tab → open this listing on Buy & sell */
   onOpenPeerListingFromProfile?: (listingId: string) => void
+  /** Home shell: user tapped Drops again while on Drops — open menu for upload / go live. */
+  dropsNavRepeatTick?: number
 }
 
 function formatCount(n: number): string {
@@ -193,6 +196,7 @@ function HomeShellReelsPageInner({
   onCommerceAction,
   onRequestHomeShellTab,
   onOpenPeerListingFromProfile,
+  dropsNavRepeatTick = 0,
 }: HomeShellReelsPageProps) {
   const { reels: apiFeedReels, database: dropsDb, refresh: refreshApiDropsFeed } = useDropsApiFeed()
   const [userReels, setUserReels] = useState<DropReel[]>([])
@@ -212,6 +216,8 @@ function HomeShellReelsPageInner({
   const [commentsByReel, setCommentsByReel] = useState<Record<string, string[]>>({})
   const [commentDraft, setCommentDraft] = useState('')
   const [wizardOpen, setWizardOpen] = useState(false)
+  /** Remount wizard each open so step 1 shows immediately (no stale step flash). */
+  const [wizardMountKey, setWizardMountKey] = useState(0)
   const [reelsMenuOpen, setReelsMenuOpen] = useState(false)
   const [liveSheetOpen, setLiveSheetOpen] = useState(false)
   const [boostOpenForId, setBoostOpenForId] = useState<string | null>(null)
@@ -611,10 +617,18 @@ function HomeShellReelsPageInner({
       openMyProfileSheet()
       throw new Error('profile_required')
     }
-    const uploaded = await uploadDropMedia({
-      video: p.videoFile ?? undefined,
-      images: p.imageFiles.length ? p.imageFiles : undefined,
-    })
+    let uploaded
+    try {
+      uploaded = await uploadDropMedia({
+        video: p.videoFile ?? undefined,
+        images: p.imageFiles.length ? p.imageFiles : undefined,
+      })
+    } catch (e) {
+      if (e instanceof UploadDropMediaError) {
+        throw new Error(e.message)
+      }
+      throw e
+    }
     const carousel = p.imageFiles.length > 0
     if (carousel && (!uploaded.imageUrls?.length || uploaded.videoUrl)) {
       throw new Error('Upload did not return image URLs.')
@@ -666,8 +680,24 @@ function HomeShellReelsPageInner({
       return
     }
     setReelsMenuOpen(false)
+    setWizardMountKey((k) => k + 1)
     setWizardOpen(true)
   }, [openMyProfileSheet])
+
+  /** Bottom nav Drops tap while already on Drops: open post wizard on step 1 (pick media). */
+  useEffect(() => {
+    if (dropsNavRepeatTick <= 0) return
+    openPostWizard()
+  }, [dropsNavRepeatTick, openPostWizard])
+
+  /** After creator setup: open post wizard on first reels mount when flagged. */
+  useEffect(() => {
+    ensureDropProfileForSession()
+    if (!consumePendingDropsPostWizard()) return
+    queueMicrotask(() => {
+      if (getMyDropProfile()) openPostWizard()
+    })
+  }, [openPostWizard])
 
   const applyBoost = useCallback((reelId: string, tier: DropBoostTier) => {
     if (tier <= 0) return
@@ -682,36 +712,40 @@ function HomeShellReelsPageInner({
   return (
     <div className="fetch-home-reels-page pointer-events-auto absolute inset-0 z-[60] flex min-h-0 min-w-0 flex-col bg-black">
       <header className="pointer-events-auto absolute left-0 right-0 top-0 z-20 flex items-center gap-2 px-3 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-4">
-        <div className="flex min-w-0 flex-1 items-center gap-2">
-          <div
-            className="flex min-w-0 flex-1 rounded-2xl bg-white/10 p-1 ring-1 ring-white/18 backdrop-blur-md"
-            role="tablist"
-            aria-label="Drops feed"
-          >
-            {(
-              [
-                { id: 'drops' as const, label: 'Drops' },
-                { id: 'local' as const, label: 'Local' },
-                { id: 'live' as const, label: 'Live' },
-              ] as const
-            ).map(({ id, label }) => (
-              <button
-                key={id}
-                type="button"
-                role="tab"
-                aria-selected={topTab === id}
-                onClick={() => selectReelsTopTab(id)}
-                className={[
-                  'min-w-0 flex-1 rounded-[0.65rem] py-2 text-center text-[12px] font-bold tracking-tight transition-all sm:text-[13px]',
-                  topTab === id
-                    ? 'bg-white text-zinc-900 shadow-sm shadow-black/15'
-                    : 'text-white/78 hover:text-white',
-                ].join(' ')}
-              >
+        <div
+          className="flex min-w-0 flex-1 items-center justify-evenly gap-2 sm:justify-center sm:gap-10"
+          role="tablist"
+          aria-label="Drops feed"
+        >
+          {(
+            [
+              { id: 'drops' as const, label: 'Drops' },
+              { id: 'local' as const, label: 'Local' },
+              { id: 'live' as const, label: 'Live' },
+            ] as const
+          ).map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={topTab === id}
+              onClick={() => selectReelsTopTab(id)}
+              className={[
+                'shrink-0 border-0 bg-transparent py-1.5 text-[13px] font-semibold tracking-tight transition-colors sm:text-[14px]',
+                topTab === id ? 'text-white' : 'text-white/45 hover:text-white/75',
+              ].join(' ')}
+            >
+              <span className="inline-flex items-center gap-1.5">
                 {label}
-              </button>
-            ))}
-          </div>
+                {id === 'live' ? (
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full bg-red-500 shadow-[0_0_0_1px_rgba(0,0,0,0.35)]"
+                    aria-hidden
+                  />
+                ) : null}
+              </span>
+            </button>
+          ))}
         </div>
         <button
           type="button"
@@ -1040,7 +1074,10 @@ function HomeShellReelsPageInner({
       </div>
 
       {bottomNav ? (
-        <div className="fetch-home-reels-shell-footer shrink-0 border-t border-white/12 bg-zinc-950/90 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur-xl">
+        <div
+          className="fetch-home-reels-shell-footer shrink-0 border-t border-white/12 bg-zinc-950/90 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur-xl"
+          data-fetch-drops-upload-flow={reelsMenuOpen || liveSheetOpen ? 'true' : undefined}
+        >
           {bottomNav}
         </div>
       ) : null}
@@ -1596,6 +1633,7 @@ function HomeShellReelsPageInner({
 
       {myProfile ? (
         <DropsPostWizard
+          key={wizardMountKey}
           open={wizardOpen}
           onClose={() => setWizardOpen(false)}
           onPublished={() => {

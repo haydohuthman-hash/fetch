@@ -5,7 +5,7 @@ export type ReelsTopTabOnboard = 'drops' | 'local' | 'live'
 export const REELS_TOP_TAB_ORDER: readonly ReelsTopTabOnboard[] = ['drops', 'local', 'live']
 
 function storageKey(tab: ReelsTopTabOnboard): string {
-  return `fetch.reels.tabOnboard.${tab}.v1`
+  return `fetch.reels.tabOnboard.${tab}.v2`
 }
 
 export function reelsTabOnboardingSeen(tab: ReelsTopTabOnboard): boolean {

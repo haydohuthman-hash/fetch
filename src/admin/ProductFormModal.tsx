@@ -408,7 +408,7 @@ export function ProductFormModal({
               </div>
               <p className="mt-2 text-[11px] leading-snug text-zinc-500">
                 {databaseProducts
-                  ? 'Files go to Cloudinary in production, or /listing-uploads when running the API locally without Cloudinary.'
+                  ? 'File upload saves to /listing-uploads when the API runs locally; on Vercel use the image URL field or host images elsewhere.'
                   : 'Uses the same upload endpoint; saved as a public URL on the product.'}
               </p>
             </div>

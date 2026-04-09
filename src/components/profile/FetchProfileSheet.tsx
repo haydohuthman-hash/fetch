@@ -36,6 +36,11 @@ export type FetchProfileSheetProps = {
   onOpenPeerListing?: (listingId: string) => void
   /** Extra scroll bottom inset when a fixed bar sits under the sheet (standalone profile screen). */
   padBottomForFooter?: boolean
+  /**
+   * `overlay` — full-screen modal (e.g. profile from Drops feed).
+   * `page` — column inside parent flex shell; use with home-style bottom nav below (account tab).
+   */
+  surface?: 'overlay' | 'page'
 }
 
 type ProfileTile = {
@@ -110,12 +115,6 @@ function tilesForTab(
   return []
 }
 
-const DEMO_REVIEWS = [
-  { id: '1', name: 'Alex M.', stars: 5, text: 'Super responsive. Arrived on time — would book again.' },
-  { id: '2', name: 'Sam K.', stars: 5, text: 'Clear comms, fair pricing. Trusted seller.' },
-  { id: '3', name: 'Jordan P.', stars: 4, text: 'Great experience end-to-end on Fetch.' },
-]
-
 function defaultTabFor(profile: FetchPublicProfileVm): FetchProfileTabId {
   if (profile.kind === 'store') return 'items'
   if (profile.kind === 'partner') return 'services'
@@ -135,6 +134,7 @@ export function FetchProfileSheet({
   onOpenReel,
   onOpenPeerListing,
   padBottomForFooter = false,
+  surface = 'overlay',
 }: FetchProfileSheetProps) {
   const [tab, setTab] = useState<FetchProfileTabId>('drops')
   const [profilePeerListings, setProfilePeerListings] = useState<PeerListing[]>([])
@@ -258,28 +258,32 @@ export function FetchProfileSheet({
 
   if (!open) return null
 
-  const tabBtn = (id: FetchProfileTabId, icon: string, label: string) => (
+  const tabBtn = (id: FetchProfileTabId, label: string) => (
     <button
       key={id}
       type="button"
       onClick={() => setTab(id)}
       className={[
-        'flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl py-2 text-[11px] font-bold transition-colors',
-        tab === id ? 'bg-zinc-900 text-white' : 'text-zinc-500 hover:text-zinc-800',
+        'min-w-0 flex-1 py-3 text-[13px] font-semibold transition-colors',
+        tab === id ? 'border-b-2 border-zinc-900 text-zinc-900' : 'border-b-2 border-transparent text-zinc-500',
       ].join(' ')}
     >
-      <span className="text-base leading-none">{icon}</span>
-      <span className="truncate">{label}</span>
+      {label}
     </button>
   )
 
+  const rootClass =
+    surface === 'page'
+      ? 'flex min-h-0 flex-1 flex-col overflow-hidden bg-white'
+      : 'fixed inset-0 z-[92] flex flex-col bg-white'
+
   return (
-    <div className="fixed inset-0 z-[92] flex flex-col bg-zinc-50/98 backdrop-blur-md" role="dialog" aria-modal="true">
-      <div className="flex items-center justify-between gap-2 border-b border-zinc-200/90 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+    <div className={rootClass} role="dialog" aria-modal="true">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-zinc-200 px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
         <button
           type="button"
           onClick={onClose}
-          className="rounded-full px-3 py-1.5 text-[14px] font-semibold text-zinc-700 hover:bg-zinc-100"
+          className="px-2 py-1.5 text-[15px] font-semibold text-zinc-900"
         >
           ← Back
         </button>
@@ -287,7 +291,7 @@ export function FetchProfileSheet({
           <button
             type="button"
             onClick={() => setEditOpen((v) => !v)}
-            className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-[12px] font-bold text-zinc-700"
+            className="px-2 py-1.5 text-[14px] font-semibold text-sky-600"
           >
             {editOpen ? 'Done' : 'Edit'}
           </button>
@@ -296,16 +300,20 @@ export function FetchProfileSheet({
 
       <div
         className={[
-          'min-h-0 flex-1 overflow-y-auto overscroll-contain px-4',
+          'min-h-0 flex-1 overflow-y-auto overscroll-contain px-3',
+          surface === 'page' ? 'pb-2' : '',
           padBottomForFooter
             ? 'pb-[max(5.5rem,env(safe-area-inset-bottom))]'
-            : 'pb-[max(1.5rem,env(safe-area-inset-bottom))]',
+            : surface === 'overlay'
+              ? 'pb-[max(1rem,env(safe-area-inset-bottom))]'
+              : '',
         ].join(' ')}
       >
-        <div className="mx-auto w-full max-w-lg pt-4">
+        <div className="mx-auto w-full max-w-lg pt-2">
           <FetchProfileHero
             profile={profile}
             layout="centered"
+            compact={surface === 'page'}
             onLiveClick={profile.isLive ? onLive : undefined}
           />
           {isSelf ? (
@@ -347,22 +355,20 @@ export function FetchProfileSheet({
             <button
               type="button"
               onClick={onSave}
-              className="mt-3 w-full rounded-xl border border-zinc-300 bg-white py-2.5 text-[12px] font-semibold text-zinc-700 transition-colors hover:bg-zinc-100"
+              className="mt-2 w-full py-2 text-[13px] font-semibold text-zinc-900"
             >
               {saved ? 'Remove bookmark' : 'Bookmark profile'}
             </button>
           ) : null}
 
           {isSelf && editOpen ? (
-            <div className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-              <p className="text-[12px] font-semibold uppercase tracking-wide text-zinc-500">
-                Public @handle &amp; photo
-              </p>
+            <div className="mt-4 border-t border-zinc-200 pt-4">
+              <p className="text-[12px] font-semibold text-zinc-500">Public @handle &amp; photo</p>
               {formErr ? <p className="mt-2 text-[13px] text-amber-700">{formErr}</p> : null}
               <label className="mt-3 block text-[11px] font-semibold text-zinc-600">
                 Display name
                 <input
-                  className="mt-1 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-[15px] text-zinc-900"
+                  className="mt-1 w-full border-0 border-b border-zinc-200 bg-transparent px-0 py-2 text-[16px] text-zinc-900 outline-none focus:border-zinc-400"
                   value={draftName}
                   onChange={(e) => setDraftName(e.target.value)}
                   placeholder="YourShop"
@@ -372,7 +378,7 @@ export function FetchProfileSheet({
               <label className="mt-3 block text-[11px] font-semibold text-zinc-600">
                 Avatar (emoji or image URL)
                 <input
-                  className="mt-1 w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-[15px] text-zinc-900"
+                  className="mt-1 w-full border-0 border-b border-zinc-200 bg-transparent px-0 py-2 text-[16px] text-zinc-900 outline-none focus:border-zinc-400"
                   value={draftAvatar}
                   onChange={(e) => setDraftAvatar(e.target.value)}
                 />
@@ -380,63 +386,44 @@ export function FetchProfileSheet({
               <button
                 type="button"
                 onClick={saveDropIdentity}
-                className="mt-4 w-full rounded-2xl bg-zinc-900 py-3 text-[15px] font-bold text-white"
+                className="mt-4 w-full py-2.5 text-[14px] font-semibold text-sky-600"
               >
                 Save profile
               </button>
               <p className="mt-2 text-[11px] leading-snug text-zinc-500">
-                One profile for Drops, Buy &amp; sell listings, and chat. Your email and password stay under Fetch
-                account; this handle and photo are what shoppers see everywhere.
+                One profile for Drops, Buy &amp; sell, and chat. Your account email stays private.
               </p>
             </div>
           ) : null}
 
-          <div className="mt-6 flex gap-1 rounded-2xl border border-zinc-200 bg-zinc-100 p-1">
-            {tabBtn('drops', '🎥', 'Drops')}
-            {tabBtn('items', '🛒', 'Items')}
-            {tabBtn('services', '🚚', 'Services')}
-            {tabBtn('reviews', '⭐', 'Reviews')}
+          <div className="mt-4 flex border-b border-zinc-200">
+            {tabBtn('drops', 'Posts')}
+            {tabBtn('items', 'Items')}
+            {tabBtn('services', 'Services')}
+            {tabBtn('reviews', 'Reviews')}
           </div>
 
-          <div className="mt-4">
+          <div className="mt-0">
             {tab === 'items' && profileListingsErr ? (
-              <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
-                {profileListingsErr}
-              </p>
+              <p className="px-1 py-3 text-[12px] text-amber-800">{profileListingsErr}</p>
             ) : null}
             {tab === 'reviews' ? (
-              <ul className="space-y-3">
-                {DEMO_REVIEWS.map((rev) => (
-                  <li
-                    key={rev.id}
-                    className="rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-[13px] text-zinc-700"
-                  >
-                    <p className="font-bold text-zinc-900">
-                      {rev.name}{' '}
-                      <span className="text-amber-600">{Array.from({ length: rev.stars }, () => '⭐').join('')}</span>
-                    </p>
-                    <p className="mt-1 leading-snug text-zinc-600">{rev.text}</p>
-                  </li>
-                ))}
-                <p className="text-center text-[11px] text-zinc-500">Demo reviews — production ties to completed jobs.</p>
-              </ul>
+              <p className="py-12 text-center text-[14px] text-zinc-500">No reviews yet.</p>
             ) : tab === 'items' && profileListingsLoading && gridTiles.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-300 bg-white px-6 py-16 text-center">
-                <p className="text-[14px] font-semibold text-zinc-700">Loading marketplace listings…</p>
-              </div>
+              <p className="py-12 text-center text-[14px] text-zinc-500">Loading listings…</p>
             ) : gridTiles.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-300 bg-white px-6 py-16 text-center">
-                <p className="text-[15px] font-semibold text-zinc-800">Nothing here yet</p>
-                <p className="mt-2 max-w-xs text-[13px] leading-snug text-zinc-500">
+              <div className="py-12 text-center">
+                <p className="text-[14px] font-semibold text-zinc-800">No posts yet</p>
+                <p className="mt-1 max-w-xs px-4 text-[13px] leading-snug text-zinc-500 mx-auto">
                   {tab === 'items'
                     ? 'Published Buy &amp; sell items tied to this @handle show here.'
                     : tab === 'services'
-                      ? 'Services show when this partner enables offerings on Fetch.'
-                      : 'No Drops from this creator in your current feed.'}
+                      ? 'Services appear when this partner lists them on Fetch.'
+                      : 'No Drops from this creator in your feed.'}
                 </p>
               </div>
             ) : (
-              <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
+              <div className="grid grid-cols-3 gap-px bg-zinc-200">
                 {gridTiles.map((t) => (
                   <button
                     key={t.id}
@@ -456,7 +443,7 @@ export function FetchProfileSheet({
                         onBookBuy()
                       }
                     }}
-                    className="group relative aspect-[3/4] overflow-hidden rounded-xl bg-zinc-200 ring-1 ring-zinc-300 transition-transform active:scale-[0.97] sm:rounded-2xl"
+                    className="group relative aspect-square overflow-hidden bg-zinc-100 transition-opacity active:opacity-90"
                   >
                     {t.thumb ? (
                       <img

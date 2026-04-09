@@ -47,7 +47,7 @@ export type DropReel = {
   title: string
   /** @handle style, e.g. @FetchSupply */
   seller: string
-  /** Stable author key for profile resolution (e.g. fetch_official, demo_merchant_1) */
+  /** Stable author key for profile resolution (e.g. fetch_official, acct_*) */
   authorId: string
   priceLabel: string
   blurb: string

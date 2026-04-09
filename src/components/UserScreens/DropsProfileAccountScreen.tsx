@@ -6,6 +6,8 @@ import {
   formatDropHandle,
   getMyDropProfile,
 } from '../../lib/drops/profileStore'
+import { loadSession } from '../../lib/fetchUserSession'
+import { useMessagesUnreadPolling } from '../../lib/messagesApi'
 import { useDropsApiFeed } from '../../lib/drops/useDropsApiFeed'
 import {
   AccountNavIconFilled,
@@ -63,6 +65,9 @@ export function DropsProfileAccountScreen({ onBack }: DropsProfileAccountScreenP
     [apiFeedReels],
   )
   const [profileTick, setProfileTick] = useState(0)
+  const [messagesUnread, setMessagesUnread] = useState({ listing: 0, support: 0, total: 0 })
+
+  useMessagesUnreadPolling(Boolean(loadSession()?.email?.trim()), 12_000, setMessagesUnread)
 
   useEffect(() => {
     ensureDropProfileForSession()
@@ -108,66 +113,78 @@ export function DropsProfileAccountScreen({ onBack }: DropsProfileAccountScreenP
   )
 
   return (
-    <>
-      <FetchProfileSheet
-        open
-        onClose={onBack}
-        authorId={authorId}
-        sellerDisplay={sellerDisplay}
-        pool={pool}
-        isSelf
-        profileRevision={profileTick}
-        onProfileSaved={onProfileSaved}
-        onRequestTab={onRequestTab}
-        onOpenReel={onOpenReel}
-        onOpenPeerListing={onOpenPeerListing}
-        padBottomForFooter={false}
-      />
-      <nav
-        className="fetch-home-intent-bottom-nav fixed inset-x-0 bottom-0 z-[95] border-t border-zinc-200/80 bg-white/97"
-        aria-label="Home shell tabs"
-      >
-        <button
-          type="button"
-          className="fetch-home-intent-bottom-nav__icon"
-          aria-label="Home"
-          onClick={() => openHomeTab('services')}
-        >
-          <FetchEyesHomeIcon className="block" active={false} />
-        </button>
-        <button
-          type="button"
-          className="fetch-home-intent-bottom-nav__icon"
-          aria-label="Drops"
-          onClick={() => openHomeTab('reels')}
-        >
-          <ReelsNavIconFilled className="block" active={false} />
-        </button>
-        <button
-          type="button"
-          className="fetch-home-intent-bottom-nav__icon"
-          aria-label="Fetch shop"
-          onClick={() => openHomeTab('marketplace')}
-        >
-          <MarketplaceNavIconFilled className="block" active={false} />
-        </button>
-        <button
-          type="button"
-          className="fetch-home-intent-bottom-nav__icon"
-          aria-label="Messages"
-          onClick={() => openHomeTab('chat')}
-        >
-          <ChatNavIconFilled className="block" active={false} />
-        </button>
-        <button
-          type="button"
-          className="fetch-home-intent-bottom-nav__icon fetch-home-intent-bottom-nav__icon--active"
-          aria-label="Profile"
-          onClick={() => {}}
-        >
-          <AccountNavIconFilled className="block" active />
-        </button>
-      </nav>
-    </>
+    <div className="fetch-home-vision flex min-h-[100dvh] flex-col bg-white">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <FetchProfileSheet
+          open
+          surface="page"
+          onClose={onBack}
+          authorId={authorId}
+          sellerDisplay={sellerDisplay}
+          pool={pool}
+          isSelf
+          profileRevision={profileTick}
+          onProfileSaved={onProfileSaved}
+          onRequestTab={onRequestTab}
+          onOpenReel={onOpenReel}
+          onOpenPeerListing={onOpenPeerListing}
+          padBottomForFooter={false}
+        />
+      </div>
+
+      <div className="fetch-home-booking-sheet__shell-footer-stack pointer-events-auto relative z-[96] flex w-full shrink-0 flex-col">
+        <div className="fetch-home-booking-sheet__shell-footer">
+          <nav
+            className="fetch-home-intent-bottom-nav fetch-home-intent-bottom-nav--compact"
+            aria-label="Fetch shop, home, drops, messages, and account"
+          >
+            <button
+              type="button"
+              className="fetch-home-intent-bottom-nav__icon"
+              aria-label="Fetch shop — buy & sell and supplies"
+              onClick={() => openHomeTab('buySell')}
+            >
+              <MarketplaceNavIconFilled className="block" active={false} />
+            </button>
+            <button
+              type="button"
+              className="fetch-home-intent-bottom-nav__icon"
+              aria-label="Home"
+              onClick={() => openHomeTab('services')}
+            >
+              <FetchEyesHomeIcon className="block" active={false} />
+            </button>
+            <button
+              type="button"
+              className="fetch-home-intent-bottom-nav__icon fetch-home-intent-bottom-nav__icon--reels"
+              aria-label="Drops"
+              onClick={() => openHomeTab('reels')}
+            >
+              <ReelsNavIconFilled className="block" active={false} />
+            </button>
+            <button
+              type="button"
+              className="fetch-home-intent-bottom-nav__icon relative"
+              aria-label="Messages"
+              onClick={() => openHomeTab('chat')}
+            >
+              <ChatNavIconFilled className="block" active={false} />
+              {messagesUnread.total > 0 ? (
+                <span className="pointer-events-none absolute right-[18%] top-[10%] flex h-[11px] min-w-[11px] rounded-full bg-red-500 ring-2 ring-white" />
+              ) : null}
+            </button>
+            <button
+              type="button"
+              className="fetch-home-intent-bottom-nav__icon fetch-home-intent-bottom-nav__icon--active"
+              aria-label="Profile"
+              aria-current="page"
+              onClick={() => {}}
+            >
+              <AccountNavIconFilled className="block" active />
+            </button>
+          </nav>
+        </div>
+      </div>
+    </div>
   )
 }

@@ -51,6 +51,9 @@ export function estimateDropViewRange(input: {
   const base = DROPS_ESTIMATED_MAU * 0.018 * catW * regW * boostW * sponsorW
   const jitter = 1 + hashToJitter(input.reelId) * 0.22
   const mid = base * jitter
+  if (DROPS_ESTIMATED_MAU <= 0 || !Number.isFinite(mid) || mid < 1) {
+    return { low: 0, high: 0, label: '—' }
+  }
   const low = Math.max(120, Math.round(mid * 0.62))
   const high = Math.max(low + 50, Math.round(mid * 1.38))
   const fmt = (n: number) =>
