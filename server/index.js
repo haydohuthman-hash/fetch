@@ -118,6 +118,10 @@ import {
   muxPlaybackUrl,
 } from './lib/drops-live-mux.js'
 import { transformVideoBuffer, ffmpegAvailable } from './lib/drops-ffmpeg-process.js'
+import {
+  getSupabaseClientForUserAccessToken,
+  parseBearerAccessToken,
+} from './lib/supabase-user-client.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -3128,6 +3132,22 @@ app.post(
   upload.single('file'),
   async (req, res) => {
     try {
+      console.log('[drops/process-video] STEP 1 route entered')
+      // #region agent log
+      fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '217219' },
+        body: JSON.stringify({
+          sessionId: '217219',
+          location: 'server/index.js:process-video',
+          message: 'STEP 1 route entered',
+          data: {},
+          timestamp: Date.now(),
+          hypothesisId: 'H5',
+          runId: 'pre-fix',
+        }),
+      }).catch(() => {})
+      // #endregion
       const buf = req.file?.buffer
       if (!buf?.length) return res.status(400).json({ error: 'file_required' })
       if (buf.length > DROP_VIDEO_MAX_BYTES) {
@@ -3152,7 +3172,142 @@ app.post(
       await fs.promises.mkdir(DROPS_UPLOAD_DIR, { recursive: true })
       const name = `d_ff_${Date.now()}_${crypto.randomBytes(6).toString('hex')}.mp4`
       await fs.promises.writeFile(path.join(DROPS_UPLOAD_DIR, name), out.buffer)
-      return res.json({ videoUrl: `/drops-uploads/${name}` })
+      const relVideoUrl = `/drops-uploads/${name}`
+
+      const accessToken = parseBearerAccessToken(req)
+      const wantSupabaseDropRow =
+        req.body?.supabaseDropInsert === '1' ||
+        req.body?.supabaseDropInsert === 'true' ||
+        req.body?.supabaseDropInsert === true
+      const sbUser = accessToken ? getSupabaseClientForUserAccessToken(accessToken) : null
+      console.log('[drops/process-video] STEP 2 bearer present', {
+        bearerPresent: Boolean(accessToken),
+        wantSupabaseDropRow,
+        hasSbUserClient: Boolean(sbUser),
+      })
+      // #region agent log
+      fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '217219' },
+        body: JSON.stringify({
+          sessionId: '217219',
+          location: 'server/index.js:process-video',
+          message: 'STEP 2 bearer present',
+          data: {
+            bearerPresent: Boolean(accessToken),
+            wantSupabaseDropRow,
+            hasSbUserClient: Boolean(sbUser),
+          },
+          timestamp: Date.now(),
+          hypothesisId: 'H3',
+          runId: 'pre-fix',
+        }),
+      }).catch(() => {})
+      // #endregion
+      if (wantSupabaseDropRow && sbUser && accessToken) {
+        console.log('[drops/process-video] STEP 3 before auth.getUser')
+        const { data: userData, error: userErr } = await sbUser.auth.getUser(accessToken)
+        const userId = userData?.user?.id
+        console.log('[drops/process-video] STEP 4 auth.getUser result', {
+          ok: !userErr && Boolean(userId),
+          message: userErr?.message,
+        })
+        // #region agent log
+        fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '217219' },
+          body: JSON.stringify({
+            sessionId: '217219',
+            location: 'server/index.js:process-video',
+            message: 'STEP 4 auth.getUser result',
+            data: { ok: !userErr && Boolean(userId), authErrorName: userErr?.name },
+            timestamp: Date.now(),
+            hypothesisId: 'H2',
+            runId: 'pre-fix',
+          }),
+        }).catch(() => {})
+        // #endregion
+        if (userErr || !userId) {
+          console.error('[drops/process-video] supabase getUser failed', userErr)
+          return res.status(401).json({ error: 'supabase_auth_invalid', detail: userErr?.message })
+        }
+
+        console.log('[drops/process-video] STEP 5 before insert payload build')
+        const host = req.get('x-forwarded-host') || req.get('host') || ''
+        const proto = (req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0].trim()
+        const base = host ? `${proto}://${host}` : ''
+        const videoUrl = base ? `${base}${relVideoUrl}` : relVideoUrl
+
+        let imageUrls = []
+        const rawImages = req.body?.imageUrls ?? req.body?.image_urls
+        if (typeof rawImages === 'string' && rawImages.trim()) {
+          try {
+            const parsed = JSON.parse(rawImages)
+            if (Array.isArray(parsed)) imageUrls = parsed.map((x) => String(x || '').trim()).filter(Boolean)
+          } catch {
+            imageUrls = []
+          }
+        }
+
+        const title =
+          typeof req.body?.title === 'string' && req.body.title.trim()
+            ? req.body.title.trim().slice(0, 500)
+            : 'Drop'
+        const blurb =
+          typeof req.body?.blurb === 'string' && req.body.blurb.trim()
+            ? req.body.blurb.trim().slice(0, 4000)
+            : ''
+        const priceLabel = req.body?.priceLabel
+        const priceField = req.body?.price
+
+        const payload = {
+          user_id: userId,
+          title,
+          price: String(priceLabel ?? priceField ?? ''),
+          blurb,
+          video_url: String(videoUrl),
+          image_urls: Array.isArray(imageUrls) ? imageUrls : [],
+        }
+        console.log('INSERT DEBUG', { userId, payload })
+        console.log('RLS CHECK', {
+          authUserId: userId,
+          payloadUserId: payload.user_id,
+        })
+        console.log('[drops/process-video] STEP 6 before drops insert')
+        const { error: insertError } = await sbUser.from('drops').insert(payload)
+        console.log('[drops/process-video] STEP 7 drops insert result', {
+          ok: !insertError,
+          code: insertError?.code,
+          message: insertError?.message,
+          insertWithoutSelect: true,
+        })
+        // #region agent log
+        fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': '217219' },
+          body: JSON.stringify({
+            sessionId: '217219',
+            location: 'server/index.js:process-video',
+            message: 'STEP 7 drops insert result',
+            data: {
+              ok: !insertError,
+              code: insertError?.code,
+              insertWithoutSelect: true,
+            },
+            timestamp: Date.now(),
+            hypothesisId: 'H1',
+            runId: 'pre-fix',
+          }),
+        }).catch(() => {})
+        // #endregion
+        if (insertError) {
+          console.error('[drops/process-video] supabase drops insert', insertError)
+          return res.status(403).json({ step: 'drops_insert', error: insertError })
+        }
+        return res.status(200).json({ ok: true, step: 'drops_insert_succeeded' })
+      }
+
+      return res.json({ videoUrl: relVideoUrl })
     } catch (e) {
       console.error('[drops/process-video]', e)
       return res.status(500).json({ error: 'process_failed' })

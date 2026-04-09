@@ -6,6 +6,7 @@ import { dropsPublishApiErrorMessage } from '../../lib/drops/dropsDeployErrors'
 import { UploadDropMediaError } from '../../lib/drops/uploadDropMedia'
 import { uploadDropsMediaForPublish } from '../../lib/drops/uploadDropsMediaForPublish'
 import { getFetchApiBaseUrl } from '../../lib/fetchApiBase'
+import { getSupabaseBrowserClient } from '../../lib/supabase/client'
 import type {
   DropCategoryId,
   DropRegionCode,
@@ -157,9 +158,27 @@ export function DropsPostWizard({
       fd.append('mute', '0')
       fd.append('rotation', '0')
       fd.append('trimStartSec', '0')
+      const headers: Record<string, string> = {}
+      const sb = getSupabaseBrowserClient()
+      const { data: { session } = { session: null } } = sb
+        ? await sb.auth.getSession()
+        : { data: { session: null } }
+      console.log('PUBLISH DEBUG', {
+        hasSession: !!session,
+        hasToken: !!session?.access_token,
+      })
+      headers.Authorization = `Bearer ${session?.access_token ?? ''}`
+      if (session?.access_token) {
+        fd.append('supabaseDropInsert', '1')
+        fd.append('title', title.trim() || 'Drop')
+        fd.append('priceLabel', priceLabel.trim() || '0')
+        fd.append('blurb', caption.trim() || '')
+        fd.append('imageUrls', JSON.stringify([]))
+      }
       const res = await fetch(`${getFetchApiBaseUrl()}/api/drops/process-video`, {
         method: 'POST',
         credentials: 'include',
+        headers,
         body: fd,
       })
       const payload = (await res.json().catch(() => ({}))) as { error?: string; videoUrl?: string }

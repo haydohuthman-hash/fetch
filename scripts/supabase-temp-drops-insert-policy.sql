@@ -1,0 +1,8 @@
+-- Optional: if `/api/drops/process-video` cannot pass a valid user JWT yet, run in Supabase SQL editor
+-- to confirm RLS is the only blocker. Remove this policy before production.
+--
+-- create policy "Temp allow all inserts"
+-- on public.drops
+-- for insert
+-- to authenticated, anon
+-- with check (true);
