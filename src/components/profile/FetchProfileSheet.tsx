@@ -7,7 +7,7 @@ import {
 } from '../../lib/drops/profileStore'
 import { loadSession, updateUserProfile } from '../../lib/fetchUserSession'
 import { getSupabaseBrowserClient } from '../../lib/supabase/client'
-import { updateMySupabaseProfile, validateUsername } from '../../lib/supabase/profiles'
+import { updateMySupabaseProfile, uploadMySupabaseAvatar, validateUsername } from '../../lib/supabase/profiles'
 import { formatProfileDropViews } from '../../lib/drops/formatProfileDropViews'
 import { dropIsPhotoCarousel, dropIsVideo, type DropReel } from '../../lib/drops/types'
 import { isFollowingAuthor, toggleFollowAuthor } from '../../lib/fetchProfile/followGraphStore'
@@ -145,7 +145,9 @@ export function FetchProfileSheet({
   const [saved, setSaved] = useState(() => isAuthorSaved(authorId))
   const [editOpen, setEditOpen] = useState(false)
   const [draftName, setDraftName] = useState('')
-  const [draftAvatar, setDraftAvatar] = useState('🎯')
+  const [draftAvatar, setDraftAvatar] = useState('')
+  const [draftAvatarFile, setDraftAvatarFile] = useState<File | null>(null)
+  const [draftAvatarPreview, setDraftAvatarPreview] = useState('')
   const [formErr, setFormErr] = useState<string | null>(null)
   const [authMsg, setAuthMsg] = useState<string | null>(null)
   const [newEmail, setNewEmail] = useState('')
@@ -203,11 +205,15 @@ export function FetchProfileSheet({
       if (me && me.id === authorId) {
         setDraftName(me.displayName)
         setDraftAvatar(me.avatar)
+        setDraftAvatarFile(null)
+        setDraftAvatarPreview(me.avatar.startsWith('http') ? me.avatar : '')
         setNewEmail(loadSession()?.email ?? '')
         setNewPassword('')
       } else {
         setDraftName('')
-        setDraftAvatar('🎯')
+        setDraftAvatar('')
+        setDraftAvatarFile(null)
+        setDraftAvatarPreview('')
       }
       setFormErr(null)
       setEditOpen(false)
@@ -216,6 +222,13 @@ export function FetchProfileSheet({
       )
     })
   }, [open, authorId, profile, viewerAuthorId])
+
+  useEffect(() => {
+    if (!draftAvatarFile) return
+    const blob = URL.createObjectURL(draftAvatarFile)
+    setDraftAvatarPreview(blob)
+    return () => URL.revokeObjectURL(blob)
+  }, [draftAvatarFile])
 
   const gridTiles = useMemo(
     () => tilesForTab(tab, authorReels, profile, profilePeerListings),
@@ -253,10 +266,12 @@ export function FetchProfileSheet({
       return
     }
     void (async () => {
+      let finalAvatar = draftAvatar.startsWith('http') ? draftAvatar.trim() : ''
       try {
+        if (draftAvatarFile) finalAvatar = await uploadMySupabaseAvatar(draftAvatarFile)
         await updateMySupabaseProfile({
           username: draftName.trim(),
-          avatar_url: draftAvatar.startsWith('http') ? draftAvatar.trim() : null,
+          avatar_url: finalAvatar || null,
         })
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Could not save username.'
@@ -264,7 +279,7 @@ export function FetchProfileSheet({
         return
       }
       const me = getMyDropProfile()
-      const r = me ? updateMyDropProfile(draftName, draftAvatar) : createLocalDropProfile(draftName, draftAvatar)
+      const r = me ? updateMyDropProfile(draftName, finalAvatar || draftAvatar) : createLocalDropProfile(draftName, finalAvatar || draftAvatar)
       if ('error' in r) {
         setFormErr(r.error)
         return
@@ -424,12 +439,22 @@ export function FetchProfileSheet({
                 />
               </label>
               <label className="mt-3 block text-[11px] font-semibold text-zinc-600">
-                Avatar (emoji or image URL)
-                <input
-                  className="mt-1 w-full border-0 border-b border-zinc-200 bg-transparent px-0 py-2 text-[16px] text-zinc-900 outline-none focus:border-zinc-400"
-                  value={draftAvatar}
-                  onChange={(e) => setDraftAvatar(e.target.value)}
-                />
+                Profile photo
+                <div className="mt-1 flex items-center gap-3">
+                  <div className="h-11 w-11 overflow-hidden rounded-full bg-zinc-100 ring-1 ring-zinc-200">
+                    {draftAvatarPreview ? (
+                      <img src={draftAvatarPreview} alt="Profile preview" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-[10px] text-zinc-500">No photo</div>
+                    )}
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => setDraftAvatarFile(e.target.files?.[0] ?? null)}
+                    className="w-full rounded-lg border border-zinc-200 bg-white px-2 py-1.5 text-[12px] text-zinc-700 file:mr-2 file:rounded-md file:border-0 file:bg-zinc-900 file:px-2 file:py-1 file:text-[11px] file:font-semibold file:text-white"
+                  />
+                </div>
               </label>
               <button
                 type="button"

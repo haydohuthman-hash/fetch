@@ -47,6 +47,10 @@ interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL?: string
   /** Supabase anon / public key (browser only — not service_role). */
   readonly VITE_SUPABASE_ANON_KEY?: string
+  /** Optional bucket for uploaded profile photos (falls back to drop bucket / `drops`). */
+  readonly VITE_SUPABASE_PROFILE_BUCKET?: string
+  /** Optional Drops media bucket name used by upload flows. */
+  readonly VITE_SUPABASE_DROP_BUCKET?: string
   /** OAuth redirect base (Google / Apple). Overrides dev/prod detection when set. */
   readonly VITE_SITE_URL?: string
 }

@@ -10,9 +10,14 @@ import {
   getMyDropProfile,
   updateMyDropProfile,
 } from '../lib/drops/profileStore'
-import { getMySupabaseProfile, updateMySupabaseProfile, validateUsername } from '../lib/supabase/profiles'
-
-const AVATAR_PRESETS = ['🎯', '🛍️', '📦', '⭐', '🔥', '💼', '🌿', '🏪', '🎬', '✨', '🚀', '💜']
+import { loadSession } from '../lib/fetchUserSession'
+import {
+  getMySupabaseProfile,
+  suggestUniqueUsernameFromEmail,
+  updateMySupabaseProfile,
+  uploadMySupabaseAvatar,
+  validateUsername,
+} from '../lib/supabase/profiles'
 
 export type DropsCreatorSetupViewProps = {
   onDone: (dest: 'home' | 'account') => void
@@ -21,8 +26,9 @@ export type DropsCreatorSetupViewProps = {
 export default function DropsCreatorSetupView({ onDone }: DropsCreatorSetupViewProps) {
   const [step, setStep] = useState<1 | 2>(1)
   const [displayName, setDisplayName] = useState('')
-  const [avatar, setAvatar] = useState('🎯')
   const [avatarUrl, setAvatarUrl] = useState('')
+  const [avatarFile, setAvatarFile] = useState<File | null>(null)
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState('')
   const [err, setErr] = useState<string | null>(null)
 
   useEffect(() => {
@@ -31,14 +37,29 @@ export default function DropsCreatorSetupView({ onDone }: DropsCreatorSetupViewP
       const me = getMyDropProfile()
       const sp = await getMySupabaseProfile().catch(() => null)
       if (me) {
-        setDisplayName(sp?.username?.trim() || me.displayName)
-        setAvatar(me.avatar && !me.avatar.startsWith('http') ? me.avatar : '🎯')
-        if (me.avatar?.startsWith('http')) setAvatarUrl(me.avatar)
+        const session = loadSession()
+        const suggested =
+          session && (!sp?.username || sp.username.startsWith('user_'))
+            ? await suggestUniqueUsernameFromEmail(session.email, session.displayName).catch(() => '')
+            : ''
+        setDisplayName(sp?.username?.trim() || suggested || me.displayName)
+        if (sp?.avatar_url?.trim()) setAvatarUrl(sp.avatar_url.trim())
+        else if (me.avatar?.startsWith('http')) setAvatarUrl(me.avatar)
       } else if (sp?.username) {
         setDisplayName(sp.username)
       }
     })()
   }, [])
+
+  useEffect(() => {
+    if (!avatarFile) {
+      setAvatarPreviewUrl('')
+      return
+    }
+    const blob = URL.createObjectURL(avatarFile)
+    setAvatarPreviewUrl(blob)
+    return () => URL.revokeObjectURL(blob)
+  }, [avatarFile])
 
   const finish = useCallback(
     (opts?: { openWizard?: boolean }) => {
@@ -64,26 +85,33 @@ export default function DropsCreatorSetupView({ onDone }: DropsCreatorSetupViewP
       setErr(usernameErr)
       return
     }
-    const pic = avatarUrl.trim().startsWith('https://') ? avatarUrl.trim().slice(0, 2048) : avatar.trim() || '🎯'
     void (async () => {
+      let finalAvatarUrl = avatarUrl.trim()
       try {
+        const uploadedAvatarUrl = avatarFile ? await uploadMySupabaseAvatar(avatarFile) : ''
+        finalAvatarUrl = uploadedAvatarUrl || finalAvatarUrl
+        if (!finalAvatarUrl) {
+          setErr('Upload a real profile photo to continue.')
+          return
+        }
         await updateMySupabaseProfile({
           username: displayName.trim(),
-          avatar_url: pic.startsWith('http') ? pic : null,
+          avatar_url: finalAvatarUrl,
         })
+        setAvatarUrl(finalAvatarUrl)
       } catch (e) {
         const msg = e instanceof Error ? e.message : 'Could not save profile.'
         setErr(msg.toLowerCase().includes('duplicate') ? 'That username is already taken.' : msg)
         return
       }
-      const r = updateMyDropProfile(displayName.trim(), pic)
+      const r = updateMyDropProfile(displayName.trim(), finalAvatarUrl)
       if ('error' in r) {
         setErr(r.error)
         return
       }
       setStep(2)
     })()
-  }, [avatar, avatarUrl, displayName])
+  }, [avatarFile, avatarUrl, displayName])
 
   const goUploadFirst = useCallback(() => {
     finish({ openWizard: true })
@@ -123,38 +151,26 @@ export default function DropsCreatorSetupView({ onDone }: DropsCreatorSetupViewP
 
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-white/45">Profile photo</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {AVATAR_PRESETS.map((e) => (
-                <button
-                  key={e}
-                  type="button"
-                  onClick={() => {
-                    setAvatar(e)
-                    setAvatarUrl('')
-                  }}
-                  className={[
-                    'flex h-11 w-11 items-center justify-center rounded-xl border text-xl transition-colors',
-                    avatar === e && !avatarUrl.trim()
-                      ? 'border-white bg-white/15'
-                      : 'border-white/15 bg-black/30 hover:bg-white/10',
-                  ].join(' ')}
-                  aria-label={`Avatar ${e}`}
-                >
-                  {e}
-                </button>
-              ))}
+            <div className="mt-2 flex items-center gap-3">
+              <div className="h-14 w-14 overflow-hidden rounded-full border border-white/25 bg-white/10">
+                {avatarPreviewUrl ? (
+                  <img src={avatarPreviewUrl} alt="Profile preview" className="h-full w-full object-cover" />
+                ) : avatarUrl ? (
+                  <img src={avatarUrl} alt="Profile preview" className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-[11px] text-white/55">No photo</div>
+                )}
+              </div>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  setAvatarFile(e.target.files?.[0] ?? null)
+                }}
+                className="w-full rounded-xl border border-white/15 bg-black/40 px-2 py-2 text-[12px] text-white/80 file:mr-2 file:rounded-lg file:border-0 file:bg-white file:px-2 file:py-1.5 file:text-[12px] file:font-semibold file:text-black"
+              />
             </div>
           </div>
-
-          <label className="block text-[11px] font-semibold uppercase tracking-wide text-white/45">
-            Or image URL (https)
-            <input
-              value={avatarUrl}
-              onChange={(e) => setAvatarUrl(e.target.value)}
-              placeholder="https://…"
-              className="mt-1.5 w-full rounded-xl border border-white/15 bg-black/40 px-3 py-2.5 text-[14px] text-white outline-none placeholder:text-white/35 focus:border-white/30"
-            />
-          </label>
 
           <button
             type="button"

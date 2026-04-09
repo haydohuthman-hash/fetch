@@ -103,7 +103,7 @@ export function ensureDropProfileForSession(): DropCreatorProfile | null {
     const err = saveDropProfile({
       id,
       displayName: nick,
-      avatar: '🎯',
+      avatar: '',
       linkedEmail: session.email,
     })
     if (!err) {
@@ -190,7 +190,7 @@ export function saveDropProfile(
   const next: DropCreatorProfile = {
     ...profile,
     displayName: profile.displayName.trim().replace(/^@+/, ''),
-    avatar: profile.avatar.trim().slice(0, 2048) || '🎯',
+    avatar: profile.avatar.trim().slice(0, 2048),
     updatedAt: Date.now(),
   }
   s.byId[next.id] = next

@@ -13,6 +13,11 @@ function formatSocial(n: number): string {
   return String(n)
 }
 
+function avatarInitial(displayName: string): string {
+  const token = displayName.trim().split(/\s+/)[0] || 'F'
+  return token.slice(0, 1).toUpperCase()
+}
+
 export function FetchProfileHero({
   profile,
   layout = 'inline',
@@ -44,7 +49,9 @@ export function FetchProfileHero({
       {profile.avatar.startsWith('http') ? (
         <img src={profile.avatar} alt="" className="h-full w-full object-cover" loading="lazy" />
       ) : (
-        <span aria-hidden>{profile.avatar}</span>
+        <span aria-hidden className="text-zinc-600">
+          {avatarInitial(profile.displayName)}
+        </span>
       )}
       {profile.isLive ? (
         <button
