@@ -3175,6 +3175,10 @@ app.post(
       const relVideoUrl = `/drops-uploads/${name}`
 
       const accessToken = parseBearerAccessToken(req)
+      console.log('SERVER TOKEN DEBUG', {
+        hasBearer: !!accessToken,
+        tokenPrefix: accessToken ? accessToken.slice(0, 12) : null,
+      })
       const wantSupabaseDropRow =
         req.body?.supabaseDropInsert === '1' ||
         req.body?.supabaseDropInsert === 'true' ||
@@ -3208,6 +3212,17 @@ app.post(
         console.log('[drops/process-video] STEP 3 before auth.getUser')
         const { data: userData, error: userErr } = await sbUser.auth.getUser(accessToken)
         const userId = userData?.user?.id
+        console.log('SERVER USER DEBUG', {
+          hasUser: !!userData?.user,
+          userId: userData?.user?.id ?? null,
+          userError: userErr
+            ? {
+                message: userErr.message,
+                status: userErr.status,
+                name: userErr.name,
+              }
+            : null,
+        })
         console.log('[drops/process-video] STEP 4 auth.getUser result', {
           ok: !userErr && Boolean(userId),
           message: userErr?.message,
@@ -3302,7 +3317,15 @@ app.post(
         // #endregion
         if (insertError) {
           console.error('[drops/process-video] supabase drops insert', insertError)
-          return res.status(403).json({ step: 'drops_insert', error: insertError })
+          return res.status(403).json({
+            step: 'drops_insert',
+            code: insertError?.code,
+            message: insertError?.message,
+            authUserId: userId,
+            payloadUserId: payload.user_id,
+            hasBearer: !!accessToken,
+            tokenPrefix: accessToken ? accessToken.slice(0, 12) : null,
+          })
         }
         return res.status(200).json({ ok: true, step: 'drops_insert_succeeded' })
       }

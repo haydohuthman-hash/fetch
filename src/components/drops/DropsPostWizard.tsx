@@ -166,6 +166,7 @@ export function DropsPostWizard({
       console.log('PUBLISH DEBUG', {
         hasSession: !!session,
         hasToken: !!session?.access_token,
+        tokenPrefix: session?.access_token ? session.access_token.slice(0, 12) : null,
       })
       headers.Authorization = `Bearer ${session?.access_token ?? ''}`
       if (session?.access_token) {
