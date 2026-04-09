@@ -90,7 +90,7 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
       id: me.id,
       email: me.email,
       displayName: me.displayName,
-      username: profile.username,
+      username: profile.username ?? undefined,
     })
     onSuccess()
   }, [onSuccess])
