@@ -119,7 +119,7 @@ async function refreshSessionFromSupabaseBody(): Promise<FetchUserRecord | null>
   }
 
   const { data: sessionData, error: sessionError } = await sb.auth.getSession()
-  console.log('INITIAL SESSION:', sessionData, sessionError)
+  console.log('[AUTH] initial session:', sessionData, sessionError)
   const sess = sessionData.session
   const oauthRedir = isBrowserOAuthRedirect()
   const cacheBefore = Boolean(readSessionCache()?.email)

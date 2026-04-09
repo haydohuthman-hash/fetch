@@ -21,6 +21,7 @@ import {
 import { loadSession, refreshSessionFromSupabase } from './lib/fetchUserSession'
 import { getSupabaseBrowserClient } from './lib/supabase/client'
 import { cleanupSupabaseOAuthUrl } from './lib/supabase/oauthSession'
+import { setAuthState } from './lib/authState'
 import { FetchVoiceProvider } from './voice/FetchVoiceContext'
 import { FetchBootstrappingProvider } from './boot/FetchBootstrappingContext'
 import { FetchBootstrapOverlay } from './components/FetchBootstrapOverlay'
@@ -102,6 +103,9 @@ function applyPostAuthRouteIfNeeded(
 
 function App() {
   const [phase, setPhase] = useState<AppPhase>(initialAppPhase)
+  const [authLoading, setAuthLoading] = useState(true)
+  const [authSessionUserId, setAuthSessionUserId] = useState<string | null>(null)
+  const [profileSyncPending, setProfileSyncPending] = useState(false)
   const [homeBootstrapOpen, setHomeBootstrapOpen] = useState(initialHomeBootstrapOpen)
   const [homeMapBootReady, setHomeMapBootReady] = useState(false)
   const [onboardingAllowDismiss, setOnboardingAllowDismiss] = useState(false)
@@ -121,7 +125,25 @@ function App() {
   }, [])
 
   useEffect(() => {
-    void refreshSessionFromSupabase()
+    const sb = getSupabaseBrowserClient()
+    if (!sb) {
+      setAuthLoading(false)
+      setAuthState({ loading: false, sessionUserId: null })
+      return
+    }
+    void (async () => {
+      const { data, error } = await sb.auth.getSession()
+      console.log('[AUTH] initial session:', data, error)
+      setAuthSessionUserId(data.session?.user?.id ?? null)
+      setAuthState({ sessionUserId: data.session?.user?.id ?? null, loading: true })
+      try {
+        await refreshSessionFromSupabase()
+        setProfileSyncPending(Boolean(data.session?.user?.id) && !Boolean(loadSession()?.username?.trim()))
+      } finally {
+        setAuthLoading(false)
+        setAuthState({ loading: false })
+      }
+    })()
   }, [])
 
   useEffect(() => {
@@ -130,30 +152,82 @@ function App() {
     const {
       data: { subscription },
     } = sb.auth.onAuthStateChange(async (event, session) => {
-      console.log('AUTH CHANGE:', event, session?.user?.id)
+      console.log('[AUTH] auth state changed:', event, session?.user?.id)
       // #region agent log
       fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'App.tsx:onAuthStateChange',message:'auth event',data:{event,hasUser:Boolean(session?.user),unlocked:postAuthRouteUnlockedRef.current,hypothesisId:'H3'},timestamp:Date.now(),hypothesisId:'H3'})}).catch(()=>{});
       // #endregion
+      setAuthSessionUserId(session?.user?.id ?? null)
+      setAuthState({ sessionUserId: session?.user?.id ?? null })
       if (session?.user) {
         await refreshSessionFromSupabase()
+        setProfileSyncPending(!Boolean(loadSession()?.username?.trim()))
         cleanupSupabaseOAuthUrl()
+        setAuthLoading(false)
+        setAuthState({ loading: false })
       } else if (event === 'SIGNED_OUT') {
         await refreshSessionFromSupabase()
+        setProfileSyncPending(false)
         cleanupSupabaseOAuthUrl()
+        setAuthLoading(false)
+        setAuthState({ loading: false, sessionUserId: null })
         setPhase((cur) => (cur === 'auth' || cur === 'splash' ? cur : 'home'))
       }
 
       if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
-        if (session?.user && postAuthRouteUnlockedRef.current) {
+        if (authLoading) {
+          console.log('[AUTH] protected route waiting for hydration')
+        } else if (session?.user && postAuthRouteUnlockedRef.current) {
+          console.log('[AUTH] redirect allowed: post-auth route', event, session.user.id)
           applyPostAuthRouteIfNeeded(() => setDropsCreatorReturnTarget('home'), setPhase)
+        } else {
+          console.log('[AUTH] redirect blocked:', {
+            hasUser: Boolean(session?.user),
+            unlocked: postAuthRouteUnlockedRef.current,
+          })
         }
       }
     })
     return () => subscription.unsubscribe()
-  }, [])
+  }, [authLoading])
+
+  useEffect(() => {
+    if (!authSessionUserId || !profileSyncPending) return
+    console.log('[AUTH] profile fallback render')
+    let cancelled = false
+    let attempt = 0
+    const tick = () => {
+      if (cancelled) return
+      attempt += 1
+      console.log('[AUTH] profile fetch start')
+      void refreshSessionFromSupabase()
+        .then(() => {
+          const hasProfile = Boolean(loadSession()?.username?.trim())
+          if (hasProfile) {
+            console.log('[AUTH] profile fetch success')
+            setProfileSyncPending(false)
+            return
+          }
+          console.log('[AUTH] profile fetch missing')
+          if (attempt < 5) window.setTimeout(tick, 1200)
+        })
+        .catch(() => {
+          console.log('[AUTH] profile fetch missing')
+          if (attempt < 5) window.setTimeout(tick, 1200)
+        })
+    }
+    tick()
+    return () => {
+      cancelled = true
+    }
+  }, [authSessionUserId, profileSyncPending])
 
   const goAccountFromHome = useCallback(() => {
+    if (authLoading) {
+      console.log('[AUTH] protected route waiting for hydration')
+      return
+    }
     if (!loadSession()) {
+      console.log('[AUTH] redirect blocked: no cached session, opening auth')
       setPhase('auth')
       return
     }
@@ -168,7 +242,7 @@ function App() {
       return
     }
     setPhase('account')
-  }, [])
+  }, [authLoading])
 
   const leaveDriverDashboard = useCallback(() => {
     const url = new URL(window.location.href)
@@ -238,23 +312,32 @@ function App() {
         /* session refresh must not trap the app on splash */
       }
       postAuthRouteUnlockedRef.current = true
+      if (authLoading) {
+        console.log('[AUTH] protected route waiting for hydration')
+      }
       const postAuth = computePostAuthAppPhase()
       // #region agent log
       fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'App.tsx:splashComplete',message:'splash handoff postAuth',data:{postAuth,fallbackHome:!postAuth,hypothesisId:'H4'},timestamp:Date.now(),hypothesisId:'H4'})}).catch(()=>{});
       // #endregion
-      if (postAuth === 'dropsSetup') setDropsCreatorReturnTarget('home')
-      setPhase((p) => (p === 'splash' ? (postAuth ?? 'home') : p))
+      if (!authLoading) {
+        if (postAuth === 'dropsSetup') setDropsCreatorReturnTarget('home')
+        setPhase((p) => (p === 'splash' ? (postAuth ?? 'home') : p))
+      } else {
+        console.log('[AUTH] redirect blocked: splash complete before auth hydration')
+      }
 
       const reconcile = () => {
         void refreshSessionFromSupabase().then(() => {
           applyPostAuthRouteIfNeeded(() => setDropsCreatorReturnTarget('home'), setPhase)
         })
       }
-      reconcile()
-      window.setTimeout(reconcile, 700)
-      window.setTimeout(reconcile, 2200)
+      if (!authLoading) {
+        reconcile()
+        window.setTimeout(reconcile, 700)
+        window.setTimeout(reconcile, 2200)
+      }
     })()
-  }, [])
+  }, [authLoading])
 
   useEffect(() => {
     if (phase !== 'home') {
@@ -276,8 +359,17 @@ function App() {
     <FetchVoiceProvider>
       <div className="fetch-app-shell-bg relative flex min-h-dvh min-h-[100dvh] w-full justify-center">
         <div className="fetch-app-shell-inner relative z-[1] mx-auto min-h-dvh min-h-[100dvh] w-full max-w-[1024px] overflow-x-clip overflow-y-visible">
+          {profileSyncPending && !authLoading ? (
+            <div className="pointer-events-none absolute left-1/2 top-2 z-[120] -translate-x-1/2 rounded-full bg-black/70 px-3 py-1 text-[11px] font-medium text-white/90 ring-1 ring-white/15">
+              Syncing your profile...
+            </div>
+          ) : null}
           {phase === 'splash' ? (
             <SplashScreen onComplete={handleSplashComplete} />
+          ) : authLoading ? (
+            <div className="flex min-h-dvh items-center justify-center">
+              <p className="text-[13px] font-medium text-white/65">Initializing account…</p>
+            </div>
           ) : phase === 'driver' ? (
             <Suspense fallback={<PhaseFallback />}>
               <DriverDashboardView onBack={leaveDriverDashboard} />
@@ -302,13 +394,21 @@ function App() {
                 initialTab="signup"
                 onBack={() => setPhase('home')}
                 onSuccess={() => {
+                  console.log('[AUTH] final navigate call from AuthScreen onSuccess')
+                  if (!authSessionUserId) {
+                    console.log('[AUTH] redirect blocked: onSuccess without authenticated user')
+                    return
+                  }
                   setOnboardingAllowDismiss(false)
                   if (needsPlatformOnboarding()) {
+                    console.log('[AUTH] redirect allowed: onboarding')
                     setPhase('onboarding')
                   } else if (needsDropsCreatorOnboarding()) {
+                    console.log('[AUTH] redirect allowed: drops setup')
                     setDropsCreatorReturnTarget('home')
                     setPhase('dropsSetup')
                   } else {
+                    console.log('[AUTH] redirect allowed: account')
                     setPhase('account')
                   }
                 }}

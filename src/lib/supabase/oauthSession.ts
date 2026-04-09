@@ -59,7 +59,7 @@ export function getOAuthRedirectTo(): string {
     redirectTo = LIVE_SITE.replace(/\/$/, '')
   }
 
-  console.log('OAuth redirectTo:', redirectTo)
+  console.log('[AUTH] oauth redirectTo:', redirectTo)
   return redirectTo
 }
 

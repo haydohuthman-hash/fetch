@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { applyServerUserProfile, refreshSessionFromSupabase } from '../lib/fetchUserSession'
 import { getSupabaseBrowserClient } from '../lib/supabase/client'
 import {
+  ensureProfile,
   getMySupabaseProfile,
   isAutomaticDefaultUsername,
   suggestUniqueUsernameFromEmail,
@@ -59,7 +60,7 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
     const sb = getSupabaseBrowserClient()
     if (!sb) throw new Error('Supabase is not configured in this app.')
     const { data, error: sessionError } = await sb.auth.getSession()
-    console.log('AUTH SESSION CHECK:', data, sessionError)
+    console.log('[AUTH] auth guard session result:', data, sessionError)
     if (sessionError) throw sessionError
     const user = data.session?.user ?? null
     if (!user) throw new Error('Authentication incomplete. Please sign in again.')
@@ -67,16 +68,38 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
   }, [])
 
   const afterSupabaseAuth = useCallback(async () => {
-    console.log('AUTH FLOW: afterSupabaseAuth start')
+    console.log('[AUTH] post-auth processing start')
     const sessionUser = await requireAuthenticatedSessionUser()
-    console.log('AUTH FLOW: session confirmed', sessionUser.id)
+    console.log('[AUTH] session confirmed:', sessionUser.id)
     const me = await refreshSessionFromSupabase()
     if (!me) throw new Error('Could not load your session.')
     // #region agent log
     fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'AuthScreen:afterSupabaseAuth',message:'session loaded',data:{hasProfileStep:true,uidLen:me.id?.length??0,hypothesisId:'P1'},timestamp:Date.now(),hypothesisId:'P1'})}).catch(()=>{});
     // #endregion
-    const profile = await getMySupabaseProfile()
-    if (!profile) throw new Error('Could not create or load your profile. Run the profiles SQL in Supabase.')
+    console.log('[AUTH] profile fetch start')
+    let profile = await getMySupabaseProfile()
+    console.log('[AUTH] profile fetch result:', profile ? `exists:${profile.id}` : 'missing')
+    if (!profile) {
+      await ensureProfile(sessionUser)
+      profile = await getMySupabaseProfile()
+      console.log('[AUTH] profile refetch result:', profile ? `exists:${profile.id}` : 'missing')
+    }
+    if (!profile) {
+      console.log('[AUTH] profile fetch missing')
+      console.log('[AUTH] authenticated without profile redirect blocked')
+      applyServerUserProfile({
+        id: me.id,
+        email: me.email,
+        displayName: me.displayName,
+        username: undefined,
+      })
+      console.log('[AUTH] redirect allowed: authenticated session with profile pending')
+      console.log('[AUTH] onSuccess execution')
+      onSuccess()
+      return
+    } else {
+      console.log('[AUTH] profile fetch success')
+    }
     console.log('USERNAME', profile?.username ?? null)
     const needHandle = !profile?.username || isAutomaticDefaultUsername(profile.username, me.id)
     const currentAvatarUrl = profile.avatar_url?.trim() || null
@@ -107,7 +130,8 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
       displayName: me.displayName,
       username: profile.username ?? undefined,
     })
-    console.log('AUTH FLOW: full auth + profile complete; redirecting')
+    console.log('[AUTH] redirect allowed: authenticated user + profile ready')
+    console.log('[AUTH] onSuccess execution')
     onSuccess()
   }, [onSuccess, requireAuthenticatedSessionUser])
 
@@ -133,6 +157,7 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
     e.preventDefault()
     setError(null)
     setMessage(null)
+    console.log('[AUTH] login start')
     if (serverDbAuth) {
       if (password.length < 8) {
         setError('Enter your password (at least 8 characters).')
@@ -149,16 +174,16 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
           email: email.trim(),
           password,
         })
-        console.log('LOGIN RESULT:', data, authError)
+        console.log('[AUTH] login result:', data, authError)
         if (authError) throw authError
         const session = data?.session || null
         const user = data?.user || null
         if (!session || !user) throw new Error('Login failed: no session')
-        console.log('LOGIN SUCCESS:', user.id)
+        console.log('[AUTH] login success:', user.id)
         await afterSupabaseAuth()
       } catch (e) {
         const msg = e instanceof Error ? e.message : mapServerAuthError('invalid_credentials')
-        console.error('LOGIN ERROR:', e)
+        console.error('[AUTH] login error:', e)
         setError(msg)
       } finally {
         setBusy(false)
@@ -171,6 +196,7 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
     e.preventDefault()
     setError(null)
     setMessage(null)
+    console.log('[AUTH] signup start')
     if (serverDbAuth) {
       if (password.length < 8) {
         setError('Choose a password at least 8 characters long.')
@@ -190,20 +216,20 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
             data: { full_name: displayName.trim() || '' },
           },
         })
-        console.log('SIGNUP RESULT:', data, authError)
+        console.log('[AUTH] signup result:', data, authError)
         if (authError) {
-          console.error('SIGNUP ERROR:', authError)
+          console.error('[AUTH] signup error:', authError)
           throw authError
         }
         const session = data?.session || null
         const user = data?.user || null
         if (!user) throw new Error('Signup succeeded but no user returned')
         if (!session) {
-          console.log('NO SESSION — EMAIL CONFIRMATION REQUIRED')
+          console.log('[AUTH] redirect blocked: no session (email confirmation required)')
           setMessage('Account created. Check your email to confirm your account.')
           return
         }
-        console.log('SIGNUP SUCCESS SESSION:', session.user.id)
+        console.log('[AUTH] signup success session:', session.user.id)
         await afterSupabaseAuth()
       } catch (e) {
         const msg = e instanceof Error ? e.message : mapServerAuthError('invalid_credentials')
@@ -257,7 +283,8 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
       }
       setNeedsProfileSetup(false)
       const user = await requireAuthenticatedSessionUser()
-      console.log('PROFILE SETUP SUCCESS:', user.id)
+      console.log('[AUTH] profile setup success:', user.id)
+      console.log('[AUTH] onSuccess execution')
       onSuccess()
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Could not save profile.'
@@ -278,12 +305,12 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
         return
       }
       const redirectTo = getOAuthRedirectTo()
-      console.log('OAuth redirectTo:', redirectTo)
+      console.log('[AUTH] oauth redirectTo:', redirectTo)
       const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo },
       })
-      console.log('GOOGLE OAUTH RESULT:', data, oauthError)
+      console.log('[AUTH] oauth google result:', data, oauthError)
       if (oauthError) setError(oauthError.message || 'Google sign-in failed.')
     } finally {
       setBusy(false)
@@ -301,12 +328,12 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
         return
       }
       const redirectTo = getOAuthRedirectTo()
-      console.log('OAuth redirectTo:', redirectTo)
+      console.log('[AUTH] oauth redirectTo:', redirectTo)
       const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: 'apple',
         options: { redirectTo },
       })
-      console.log('APPLE OAUTH RESULT:', data, oauthError)
+      console.log('[AUTH] oauth apple result:', data, oauthError)
       if (oauthError) setError(oauthError.message || 'Apple sign-in failed.')
     } finally {
       setBusy(false)

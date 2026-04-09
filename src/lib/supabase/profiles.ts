@@ -119,7 +119,7 @@ export async function ensureProfile(user: User | null | undefined): Promise<void
   if (!user?.id) return
   const sb = getSupabaseBrowserClient()
   if (!sb) {
-    console.warn('PROFILE UPSERT SKIP: supabase client missing')
+    console.warn('[AUTH] ensureProfile failure: supabase client missing')
     return
   }
   const fullName =
@@ -138,16 +138,16 @@ export async function ensureProfile(user: User | null | undefined): Promise<void
   }
   const { error: richError } = await sb.from('profiles').upsert(profileRich as never, { onConflict: 'id' })
   if (!richError) {
-    console.log('PROFILE UPSERT SUCCESS:', user.id)
+    console.log('[AUTH] ensureProfile success:', user.id)
     return
   }
-  console.error('PROFILE UPSERT ERROR (rich payload):', richError)
+  console.error('[AUTH] ensureProfile failure (rich payload):', richError)
   const fallback = profileInsertPayload(user)
   const { error: fallbackError } = await sb.from('profiles').upsert(fallback as never, { onConflict: 'id' })
   if (fallbackError) {
-    console.error('PROFILE UPSERT ERROR (fallback payload):', fallbackError)
+    console.error('[AUTH] ensureProfile failure (fallback payload):', fallbackError)
   } else {
-    console.log('PROFILE UPSERT SUCCESS (fallback):', user.id)
+    console.log('[AUTH] ensureProfile success (fallback):', user.id)
   }
 }
 
