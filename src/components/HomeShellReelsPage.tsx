@@ -26,6 +26,7 @@ import {
   getDropProfilesStore,
   getMyDropProfile,
   isFetchOfficialAuthor,
+  seedDemoDropProfilesOnce,
 } from '../lib/drops/profileStore'
 import type {
   DropBoostTier,
@@ -58,6 +59,7 @@ import {
   type DropsLocalPublishPayload,
   type DropsPublishActivityEvent,
 } from './drops/DropsPostWizard'
+import { DropsVideoRecorder } from './drops/DropsVideoRecorder'
 export type { DropsCommerceActionMeta, DropsCommerceTarget } from '../lib/drops/types'
 
 type ReelsTopTab = 'drops' | 'local' | 'live'
@@ -189,11 +191,14 @@ function ReelActionButton({
 
 function HomeShellReelsPageInner({
   bottomNav,
-  onMenuAccount,
+  onMenuAccount: _onMenuAccount,
   onCommerceAction,
   dropsNavRepeatTick = 0,
 }: HomeShellReelsPageProps) {
   const { reels: apiFeedReels, database: dropsDb, refresh: refreshApiDropsFeed } = useDropsApiFeed()
+  useEffect(() => {
+    seedDemoDropProfilesOnce()
+  }, [])
   /** Newly published drop until ranked feed includes it (avoids “missing” right after publish). */
   const [publishedOverlayReels, setPublishedOverlayReels] = useState<DropReel[]>([])
   const [userReels, setUserReels] = useState<DropReel[]>([])
@@ -212,6 +217,8 @@ function HomeShellReelsPageInner({
   const [commentsByReel, setCommentsByReel] = useState<Record<string, string[]>>({})
   const [commentDraft, setCommentDraft] = useState('')
   const [wizardOpen, setWizardOpen] = useState(false)
+  const [videoRecorderOpen, setVideoRecorderOpen] = useState(false)
+  const [wizardInitialVideo, setWizardInitialVideo] = useState<File | null>(null)
   /** Remount wizard each open so step 1 shows immediately (no stale step flash). */
   const [wizardMountKey, setWizardMountKey] = useState(0)
   const [publishBanner, setPublishBanner] = useState<ReelsPublishBanner | null>(null)
@@ -476,14 +483,6 @@ function HomeShellReelsPageInner({
     return () => window.clearInterval(t)
   }, [dropsDb, activeId])
 
-  const onShuffleFeed = useCallback(() => {
-    setFeedShuffleNonce((n) => n + 1)
-  }, [])
-
-  const onRankedFeed = useCallback(() => {
-    setFeedShuffleNonce(0)
-  }, [])
-
   const toggleLike = useCallback((id: string) => {
     setLiked((p) => {
       const next = !p[id]
@@ -604,15 +603,34 @@ function HomeShellReelsPageInner({
       return
     }
     setReelsMenuOpen(false)
+    setWizardInitialVideo(null)
     setWizardMountKey((k) => k + 1)
     setWizardOpen(true)
   }, [])
 
-  /** Bottom nav Drops tap while already on Drops: open post wizard on step 1 (pick media). */
+  const openPostVideoRecorder = useCallback(() => {
+    const me = getMyDropProfile()
+    if (!me) {
+      setPostErr('Set up your Fetch profile first — use Account on the home bar, then try again.')
+      return
+    }
+    setPostErr(null)
+    setReelsMenuOpen(false)
+    setVideoRecorderOpen(true)
+  }, [])
+
+  const onRecordedVideo = useCallback((file: File) => {
+    setVideoRecorderOpen(false)
+    setWizardInitialVideo(file)
+    setWizardMountKey((k) => k + 1)
+    setWizardOpen(true)
+  }, [])
+
+  /** Bottom nav Drops tap while already on Drops: show create sheet (Go live / Post a video). */
   useEffect(() => {
     if (dropsNavRepeatTick <= 0) return
-    openPostWizard()
-  }, [dropsNavRepeatTick, openPostWizard])
+    openReelsMenu()
+  }, [dropsNavRepeatTick, openReelsMenu])
 
   /** After creator setup: open post wizard on first reels mount when flagged. */
   useEffect(() => {
@@ -691,7 +709,7 @@ function HomeShellReelsPageInner({
         <button
           type="button"
           onClick={openReelsMenu}
-          className="shrink-0 rounded-xl bg-white/88 px-3 py-2 text-[13px] font-semibold text-zinc-900 shadow-sm backdrop-blur-md transition-colors active:bg-white/75"
+          className="shrink-0 rounded-xl border border-white/25 bg-white px-3 py-2 text-[13px] font-semibold text-zinc-900 shadow-[0_1px_3px_rgba(0,0,0,0.12)] transition-colors active:bg-zinc-50"
         >
           Menu
         </button>
@@ -1055,7 +1073,7 @@ function HomeShellReelsPageInner({
 
       {bottomNav ? (
         <div
-          className="fetch-home-reels-shell-footer shrink-0 border-t border-white/20 bg-white/22 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur-xl"
+          className="fetch-home-reels-shell-footer shrink-0 border-t border-zinc-200/90 bg-white pb-[env(safe-area-inset-bottom,0px)] shadow-[0_-4px_24px_rgba(15,23,42,0.06)]"
           data-fetch-drops-upload-flow={reelsMenuOpen || liveSheetOpen ? 'true' : undefined}
         >
           {bottomNav}
@@ -1259,78 +1277,51 @@ function HomeShellReelsPageInner({
           <button
             type="button"
             className="absolute inset-0 bg-black/55 backdrop-blur-[2px]"
-            aria-label="Close menu"
+            aria-label="Close"
             onClick={() => setReelsMenuOpen(false)}
           />
           <div
-            className="relative z-[1] max-h-[min(88dvh,32rem)] space-y-1 overflow-y-auto rounded-t-2xl border border-white/10 bg-zinc-900 p-4 pb-[max(1rem,env(safe-area-inset-bottom))] text-white shadow-2xl"
+            className="relative z-[1] mx-auto w-full max-w-lg rounded-t-[1.25rem] border border-zinc-200/90 bg-white px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-12px_48px_rgba(15,23,42,0.14)]"
             role="dialog"
             aria-modal="true"
-            aria-label="Drops menu"
+            aria-labelledby="fetch-drops-earn-sheet-title"
           >
-            <p className="text-[15px] font-bold">Menu</p>
-            {postErr ? <p className="text-[12px] text-amber-300">{postErr}</p> : null}
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-white/40">Create</p>
-            <button
-              type="button"
-              className="w-full rounded-xl bg-white py-3.5 text-left text-[15px] font-bold text-zinc-900 px-4"
-              onClick={openPostWizard}
+            <div className="mx-auto mb-3 h-1 w-10 shrink-0 rounded-full bg-zinc-200" aria-hidden />
+            <h2
+              id="fetch-drops-earn-sheet-title"
+              className="text-center text-[1.35rem] font-bold leading-tight tracking-tight text-zinc-900"
             >
-              Post video / photos
-            </button>
-            <button
-              type="button"
-              className="w-full rounded-xl border border-violet-400/60 bg-violet-500/20 py-3.5 text-left text-[15px] font-bold text-violet-100 px-4"
-              onClick={() => {
-                setReelsMenuOpen(false)
-                setLiveInfo(null)
-                setLiveTitle('')
-                setLivePickProducts({})
-                setLivePickListings({})
-                setLiveSheetOpen(true)
-              }}
-            >
-              Go live
-            </button>
-            {onMenuAccount ? (
-              <>
-                <p className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-white/40">Account</p>
-                <button
-                  type="button"
-                  className="w-full rounded-xl border border-white/15 bg-white/8 py-3 text-left text-[15px] font-semibold text-white px-4"
-                  onClick={() => {
-                    setReelsMenuOpen(false)
-                    onMenuAccount()
-                  }}
-                >
-                  Account
-                </button>
-              </>
+              Ready to earn?
+            </h2>
+            {postErr ? (
+              <p className="mt-3 text-center text-[12px] font-medium leading-snug text-amber-800">{postErr}</p>
             ) : null}
-            <p className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-white/40">Feed order</p>
+            <div className="mt-5 flex flex-col gap-3">
+              <button
+                type="button"
+                className="w-full min-h-[3.15rem] rounded-full border-2 border-zinc-300 bg-white py-3.5 text-center text-[15px] font-bold uppercase tracking-[0.08em] text-zinc-900 shadow-sm transition-transform hover:bg-zinc-50 active:scale-[0.99]"
+                onClick={() => {
+                  setReelsMenuOpen(false)
+                  setLiveInfo(null)
+                  setLiveTitle('')
+                  setLivePickProducts({})
+                  setLivePickListings({})
+                  setLiveSheetOpen(true)
+                }}
+              >
+                Go live
+              </button>
+              <button
+                type="button"
+                className="w-full min-h-[3.15rem] rounded-full bg-emerald-800 py-3.5 text-center text-[15px] font-bold uppercase tracking-[0.08em] text-white shadow-[0_1px_0_#065f46,0_4px_14px_rgba(6,95,70,0.35)] transition-transform hover:bg-emerald-700 active:scale-[0.99]"
+                onClick={openPostVideoRecorder}
+              >
+                Post a video
+              </button>
+            </div>
             <button
               type="button"
-              className="w-full rounded-xl border border-white/15 bg-white/8 py-3 text-left text-[15px] font-semibold text-white px-4"
-              onClick={() => {
-                onShuffleFeed()
-                setReelsMenuOpen(false)
-              }}
-            >
-              Shuffle feed
-            </button>
-            <button
-              type="button"
-              className="w-full rounded-xl border border-white/15 bg-white/8 py-3 text-left text-[15px] font-semibold text-white px-4"
-              onClick={() => {
-                onRankedFeed()
-                setReelsMenuOpen(false)
-              }}
-            >
-              Ranked order
-            </button>
-            <button
-              type="button"
-              className="mt-2 w-full py-2 text-[13px] font-semibold text-white/55"
+              className="mt-4 w-full py-2 text-[13px] font-semibold text-zinc-500 transition-colors hover:text-zinc-800 active:text-zinc-900"
               onClick={() => setReelsMenuOpen(false)}
             >
               Cancel
@@ -1587,11 +1578,25 @@ function HomeShellReelsPageInner({
         </div>
       ) : null}
 
+      {videoRecorderOpen ? (
+        <DropsVideoRecorder
+          open={videoRecorderOpen}
+          onClose={() => setVideoRecorderOpen(false)}
+          onComplete={onRecordedVideo}
+          onPickFromLibrary={openPostWizard}
+        />
+      ) : null}
+
       {myProfile ? (
         <DropsPostWizard
           key={wizardMountKey}
           open={wizardOpen}
-          onClose={() => setWizardOpen(false)}
+          initialVideoFile={wizardInitialVideo}
+          onInitialVideoConsumed={() => setWizardInitialVideo(null)}
+          onClose={() => {
+            setWizardOpen(false)
+            setWizardInitialVideo(null)
+          }}
           onPublished={(serverId, publicDrop) => {
             if (serverId && publicDrop && typeof publicDrop === 'object') {
               const reel = mapApiDropToReel(publicDrop as Record<string, unknown>)

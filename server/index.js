@@ -66,7 +66,13 @@ import {
   visitorBucketsByDay,
 } from './lib/analytics-pg.js'
 import { runAdminStoreAiChat } from './lib/admin-store-ai.js'
-import { createPeerListingsStore } from './lib/peer-listings-store.js'
+import { createPeerListingsStore, normalizeListingRow } from './lib/peer-listings-store.js'
+import {
+  buildPublicDemoListings,
+  filterPublicDemoListings,
+  getPublicDemoListingById,
+  isPublicDemoListingId,
+} from './lib/demo-marketplace-seed.js'
 import { createPeerMessagesStore } from './lib/peer-messages-store.js'
 import { postStoreOrderWebhook } from './lib/store-outbound-webhook.js'
 import { createMarketplaceStore } from './lib/marketplace-store.js'
@@ -3460,20 +3466,39 @@ app.get('/api/listings', async (req, res) => {
   const statusRaw = typeof req.query.status === 'string' ? req.query.status.trim() : 'published'
   const profileAuthorId =
     typeof req.query.profileAuthorId === 'string' ? req.query.profileAuthorId.trim() : undefined
-  const r = await peerListingsStore.listListings({
+  const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined
+  const limit =
+    typeof req.query.limit === 'string' && Number.isFinite(Number(req.query.limit))
+      ? Math.min(48, Math.max(1, Math.floor(Number(req.query.limit))))
+      : 24
+  const baseParams = {
     status: statusRaw || 'published',
     q: typeof req.query.q === 'string' ? req.query.q : undefined,
     category: typeof req.query.category === 'string' ? req.query.category : undefined,
     minPrice: req.query.minPrice,
     maxPrice: req.query.maxPrice,
     profileAuthorId: profileAuthorId || undefined,
-    cursor: typeof req.query.cursor === 'string' ? req.query.cursor : undefined,
-    limit:
-      typeof req.query.limit === 'string' && Number.isFinite(Number(req.query.limit))
-        ? Math.min(48, Math.max(1, Math.floor(Number(req.query.limit))))
-        : 24,
+    cursor,
+    limit,
+  }
+  if (cursor) {
+    const r = await peerListingsStore.listListings(baseParams)
+    return res.json({ ...r, currency: 'AUD' })
+  }
+  const demosFiltered = filterPublicDemoListings(buildPublicDemoListings(), {
+    status: baseParams.status,
+    q: baseParams.q,
+    category: baseParams.category,
+    profileAuthorId: baseParams.profileAuthorId,
+    minPrice: baseParams.minPrice,
+    maxPrice: baseParams.maxPrice,
   })
-  return res.json({ ...r, currency: 'AUD' })
+  const demosNorm = demosFiltered.map((l) => normalizeListingRow(l))
+  const demoIds = new Set(demosNorm.map((l) => l.id))
+  const storeLimit = Math.max(0, limit - demosNorm.length)
+  const r = await peerListingsStore.listListings({ ...baseParams, limit: storeLimit })
+  const storeListings = r.listings.filter((l) => !demoIds.has(l.id))
+  return res.json({ listings: [...demosNorm, ...storeListings], nextCursor: r.nextCursor, currency: 'AUD' })
 })
 
 app.get('/api/listings/mine', async (req, res) => {
@@ -3637,6 +3662,11 @@ Return exactly this shape:
 })
 
 app.get('/api/listings/:listingId', async (req, res) => {
+  const pubId = req.params.listingId
+  if (isPublicDemoListingId(pubId)) {
+    const raw = getPublicDemoListingById(pubId)
+    if (raw) return res.json({ listing: normalizeListingRow(raw) })
+  }
   const sk = peerListingSellerKey(req)
   const actor = resolveMarketplaceActor(req)
   if (isDevDemoListingId(req.params.listingId) && isDevDemoMarketplaceActor(actor)) {
@@ -3687,6 +3717,7 @@ app.post('/api/listings', async (req, res) => {
     sku: body.sku,
     acceptsOffers: body.acceptsOffers,
     fetchDelivery: body.fetchDelivery,
+    sameDayDelivery: body.sameDayDelivery,
     saleMode: body.saleMode,
     auctionEndsAt: body.auctionEndsAt,
     reserveCents: body.reserveCents,
@@ -3759,6 +3790,12 @@ app.post(
 )
 
 app.post('/api/listings/:listingId/checkout', paymentIntentCreateLimiter, async (req, res) => {
+  if (isPublicDemoListingId(req.params.listingId)) {
+    return res.status(409).json({
+      error: 'demo_listing_no_checkout',
+      detail: 'Showcase listings cannot be purchased. Use a real published listing to test checkout.',
+    })
+  }
   const listing = await peerListingsStore.getListing(req.params.listingId)
   if (!listing || listing.status !== 'published') {
     return res.status(404).json({ error: 'listing_not_available' })

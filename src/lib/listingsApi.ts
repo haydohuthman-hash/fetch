@@ -2,6 +2,31 @@ import type { BookingPaymentIntent } from './assistant/types'
 import { getFetchApiBaseUrl } from './fetchApiBase'
 import { marketplaceActorHeaders } from './booking/marketplaceApiAuth'
 
+/** Server-backed public demo furniture listings (`demo-marketplace-seed.js`). */
+export const PUBLIC_DEMO_LISTING_ID_PREFIX = 'demo_pub_lst_'
+
+export function isPublicDemoListingId(listingId: string): boolean {
+  return typeof listingId === 'string' && listingId.startsWith(PUBLIC_DEMO_LISTING_ID_PREFIX)
+}
+
+export const DEMO_LISTING_CHECKOUT_DISABLED_MESSAGE =
+  'This is a showcase listing — checkout is disabled. List your own item and connect Stripe to test buying and selling.'
+
+/** Map common marketplace checkout API errors to buyer-friendly copy. */
+export function formatListingCheckoutError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err)
+  if (raw.includes('demo_listing_no_checkout')) {
+    return DEMO_LISTING_CHECKOUT_DISABLED_MESSAGE
+  }
+  if (raw.includes('seller_not_connect_ready')) {
+    return 'This seller has not connected payouts yet. Try messaging them or another listing.'
+  }
+  if (raw.includes('seller_onboarding_incomplete')) {
+    return 'The seller still needs to finish payment setup. Message them or try again later.'
+  }
+  return raw
+}
+
 export type PeerListing = {
   id: string
   createdAt: number
@@ -29,6 +54,8 @@ export type PeerListing = {
   sku?: string | null
   acceptsOffers?: boolean
   fetchDelivery?: boolean
+  /** Promo / logistics flag — shown as a badge when true */
+  sameDayDelivery?: boolean
 }
 
 export type ListingOrder = {
@@ -158,6 +185,7 @@ export async function createListing(body: {
   sku?: string
   acceptsOffers?: boolean
   fetchDelivery?: boolean
+  sameDayDelivery?: boolean
   /** Higher than priceAud — shown as strikethrough “was” price */
   compareAtPriceAud?: number
   /** Required — seller’s Fetch / Drops public profile */
@@ -193,6 +221,7 @@ export async function patchListing(
     sku?: string | null
     acceptsOffers?: boolean
     fetchDelivery?: boolean
+    sameDayDelivery?: boolean
     compareAtPriceAud?: number
     compareAtCents?: number
     profileAuthorId?: string | null

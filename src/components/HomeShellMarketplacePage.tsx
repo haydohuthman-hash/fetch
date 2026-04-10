@@ -22,8 +22,11 @@ import { syncCustomerSessionCookie } from '../lib/fetchServerSession'
 import { loadSession } from '../lib/fetchUserSession'
 import {
   checkoutListing,
+  DEMO_LISTING_CHECKOUT_DISABLED_MESSAGE,
   fetchListing,
   fetchPublishedListings,
+  formatListingCheckoutError,
+  isPublicDemoListingId,
   listingImageAbsoluteUrl,
   type PeerListing,
 } from '../lib/listingsApi'
@@ -547,6 +550,10 @@ function HomeShellMarketplacePageInner({
     async (listing: PeerListing) => {
       setPeerBuyErr(null)
       setPeerStripeBuy(null)
+      if (isPublicDemoListingId(listing.id)) {
+        setPeerBuyErr(DEMO_LISTING_CHECKOUT_DISABLED_MESSAGE)
+        return
+      }
       setPeerCheckoutBusy(true)
       try {
         await syncCustomerSessionCookie()
@@ -567,7 +574,7 @@ function HomeShellMarketplacePageInner({
         closePeerListingSheet()
         void loadPeerListings()
       } catch (e) {
-        setPeerBuyErr(e instanceof Error ? e.message : 'Checkout failed')
+        setPeerBuyErr(formatListingCheckoutError(e))
       } finally {
         setPeerCheckoutBusy(false)
       }
@@ -993,9 +1000,16 @@ function HomeShellMarketplacePageInner({
                                       No photo
                                     </div>
                                   )}
-                                  <span className="absolute left-1.5 top-1.5 z-[1] rounded-md bg-violet-600 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-white shadow-sm">
-                                    Community
-                                  </span>
+                                  <div className="absolute left-1.5 top-1.5 z-[1] flex flex-col items-start gap-1">
+                                    <span className="rounded-md bg-violet-600 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-white shadow-sm">
+                                      Community
+                                    </span>
+                                    {row.listing.sameDayDelivery ? (
+                                      <span className="rounded-md bg-emerald-600 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-white shadow-sm">
+                                        Same-day promo
+                                      </span>
+                                    ) : null}
+                                  </div>
                                 </div>
                                 <div className="flex min-h-0 flex-1 flex-col px-2.5 pb-2.5 pt-2">
                                   <h3 className="line-clamp-2 text-[14px] font-bold leading-snug tracking-tight text-zinc-900">
@@ -1475,6 +1489,7 @@ function HomeShellMarketplacePageInner({
               const sellerEm = selected.sellerEmail?.trim().toLowerCase() ?? ''
               const viewerEm = sessionEmail.trim().toLowerCase()
               const isViewerSeller = Boolean(sellerEm && viewerEm && sellerEm === viewerEm)
+              const isDemoListing = isPublicDemoListingId(selected.id)
               return (
                 <div className="fixed inset-0 z-[200] flex flex-col justify-end" role="presentation">
                   <button
@@ -1563,6 +1578,11 @@ function HomeShellMarketplacePageInner({
                             Fetch delivery
                           </span>
                         ) : null}
+                        {selected.sameDayDelivery ? (
+                          <span className="rounded-full bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white">
+                            Same-day delivery promo
+                          </span>
+                        ) : null}
                       </div>
                       {selected.profileAuthorId?.trim() ? (
                         <div className="mt-3 flex items-center gap-3 rounded-xl border border-zinc-200/90 bg-zinc-50/90 px-3 py-2.5">
@@ -1611,6 +1631,11 @@ function HomeShellMarketplacePageInner({
                       ) : null}
                     </div>
                     <div className="shrink-0 border-t border-zinc-100 bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+                      {isDemoListing && !peerBuyErr ? (
+                        <p className="mb-2 text-[12px] font-medium text-amber-900/90">
+                          Showcase listing — checkout is disabled. Use your own listing to test payments.
+                        </p>
+                      ) : null}
                       {peerBuyErr ? (
                         <p className="mb-2 text-[12px] font-medium text-red-600">{peerBuyErr}</p>
                       ) : null}
@@ -1620,7 +1645,7 @@ function HomeShellMarketplacePageInner({
                             publishableKey={import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY.trim()}
                             clientSecret={peerStripeBuy.clientSecret}
                             submitLabel={peerCheckoutBusy ? '…' : 'Pay'}
-                            disabled={peerCheckoutBusy}
+                            disabled={peerCheckoutBusy || isDemoListing}
                             errorText={peerBuyErr}
                             onError={(m) => setPeerBuyErr(m)}
                             onSuccess={() => {
@@ -1645,11 +1670,11 @@ function HomeShellMarketplacePageInner({
                       ) : (
                         <button
                           type="button"
-                          disabled={peerCheckoutBusy || isViewerSeller}
+                          disabled={peerCheckoutBusy || isViewerSeller || isDemoListing}
                           className="w-full rounded-xl bg-zinc-900 py-3.5 text-[15px] font-semibold text-white disabled:opacity-50"
                           onClick={() => void startPeerBuy(selected)}
                         >
-                          {peerCheckoutBusy ? '…' : 'Buy now'}
+                          {peerCheckoutBusy ? '…' : isDemoListing ? 'Checkout unavailable' : 'Buy now'}
                         </button>
                       )}
                       <button

@@ -4,6 +4,8 @@ import { refreshSessionFromSupabase } from '../lib/fetchUserSession'
 import { getSupabaseBrowserClient } from '../lib/supabase/client'
 import { getOAuthRedirectTo } from '../lib/supabase/oauthSession'
 import { OAuthBrandedButtons } from '../components/auth/OAuthBrandedButtons'
+import { FetchEyesHomeIcon } from '../components/icons/HomeShellNavIcons'
+import { getFetchDevDemoPasswordPrefill } from '../lib/fetchDevDemo'
 
 function mapServerAuthError(code: string): string {
   switch (code) {
@@ -36,7 +38,7 @@ export default function AuthScreen({ onSignedIn, onBack, initialTab = 'signin' }
   const [tab, setTab] = useState<'signin' | 'signup'>(initialTab)
   const [showEmailForm, setShowEmailForm] = useState(false)
   const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
+  const [password, setPassword] = useState(getFetchDevDemoPasswordPrefill)
   const [displayName, setDisplayName] = useState('')
   const [phone, setPhone] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -192,203 +194,215 @@ export default function AuthScreen({ onSignedIn, onBack, initialTab = 'signin' }
   }
 
   const inputClass =
-    'fetch-auth-input rounded-xl border border-white/12 bg-black/40 px-3 py-2.5 text-[14px] text-white placeholder:text-white/30 outline-none ring-0 focus:border-white/25'
+    'rounded-xl border border-zinc-300/80 bg-white px-3 py-2.5 text-[14px] text-zinc-900 placeholder:text-zinc-400 outline-none ring-0 focus:border-[#134632]/50 focus:ring-2 focus:ring-[#134632]/15'
 
   const emailInsteadLabel = tab === 'signup' ? 'Sign up with email instead' : 'Log in with email instead'
 
+  const tabBtnActive =
+    'flex-1 rounded-[0.6rem] bg-[#134632] py-2.5 text-[12px] font-semibold text-white shadow-sm'
+  const tabBtnInactive = 'flex-1 rounded-[0.6rem] py-2.5 text-[12px] font-medium text-zinc-500'
+
   return (
-    <div className="fetch-auth-screen mx-auto flex min-h-dvh min-h-[100dvh] w-full flex-col">
-      <div className="flex min-h-0 flex-1 flex-col justify-center overflow-y-auto overscroll-contain">
-        <div className="mx-auto w-full max-w-md px-4 py-[max(1.25rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-      <div className="flex items-center gap-2">
+    <div className="mx-auto flex min-h-dvh min-h-[100dvh] w-full max-w-lg flex-col bg-[#e8dfc9]">
+      {/* Hero — dark green brand strip */}
+      <header className="relative flex min-h-[min(44vh,340px)] shrink-0 flex-col bg-gradient-to-b from-[#1a5c45] to-[#134632] px-5 pt-[max(0.65rem,env(safe-area-inset-top))] pb-10">
         <button
           type="button"
           onClick={onBack}
-          className="fetch-auth-back rounded-lg px-2.5 py-1.5 text-[12px] font-semibold text-white/65 hover:text-white"
+          className="self-start rounded-lg px-2 py-1.5 text-[12px] font-semibold text-[#f4ece0]/80 hover:text-[#f4ece0]"
         >
           Back
         </button>
-      </div>
-
-      <h1 className="fetch-auth-heading mt-3 text-[21px] font-semibold tracking-[-0.03em] text-white">Account</h1>
-      <p className="fetch-auth-lede mt-1 max-w-md text-[12px] leading-snug text-white/50">
-        Continue with Apple or Google, or use email.
-      </p>
-
-      <div className="fetch-auth-tabs mt-4 flex gap-0.5 rounded-xl border border-white/10 bg-black/40 p-0.5">
-        <button
-          type="button"
-          onClick={() => {
-            setTab('signin')
-            setError(null)
-            setShowEmailForm(false)
-          }}
-          className={
-            tab === 'signin'
-              ? 'fetch-auth-tab-active flex-1 rounded-[0.6rem] bg-black py-2 text-[12px] font-semibold text-white ring-1 ring-white/15'
-              : 'fetch-auth-tab-inactive flex-1 rounded-[0.6rem] py-2 text-[12px] font-medium text-white/40'
-          }
-        >
-          Log in
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setTab('signup')
-            setError(null)
-            setShowEmailForm(false)
-          }}
-          className={
-            tab === 'signup'
-              ? 'fetch-auth-tab-active flex-1 rounded-[0.6rem] bg-black py-2 text-[12px] font-semibold text-white ring-1 ring-white/15'
-              : 'fetch-auth-tab-inactive flex-1 rounded-[0.6rem] py-2 text-[12px] font-medium text-white/40'
-          }
-        >
-          Sign up
-        </button>
-      </div>
-
-      {!showEmailForm ? (
-        <div className="mt-4 flex flex-col gap-2">
-          <OAuthBrandedButtons
-            disabled={busy}
-            onApple={() => void signInWithAppleOAuth()}
-            onGoogle={() => void signInWithGoogleOAuth()}
-          />
-          <button
-            type="button"
-            onClick={() => {
-              setError(null)
-              setShowEmailForm(true)
-            }}
-            className="mt-1 w-full py-2.5 text-[13px] font-semibold text-white/70 underline decoration-white/30 underline-offset-2 hover:text-white"
-          >
-            {emailInsteadLabel}
-          </button>
-          {message ? <p className="mt-1 text-[11px] text-emerald-300/90">{message}</p> : null}
-          {error ? <p className="mt-1 text-[11px] text-red-300/90">{error}</p> : null}
+        <div className="flex flex-1 flex-col items-center justify-center px-2 pb-2 text-center">
+          <div className="flex items-center justify-center gap-4 sm:gap-5">
+            <FetchEyesHomeIcon className="h-[4.25rem] w-[4.25rem] shrink-0 text-[#f4ece0] sm:h-[5.25rem] sm:w-[5.25rem]" />
+            <span className="fetch-home-map-brand-logo text-[clamp(2.5rem,10vw,3.5rem)] font-bold leading-none tracking-[-0.04em] text-[#f4ece0]">
+              Fetch
+            </span>
+          </div>
+          <p className="mt-5 max-w-[18rem] text-[15px] font-medium leading-snug tracking-[-0.01em] text-[#f4ece0]/88">
+            Anything, on demand, nearby.
+          </p>
         </div>
-      ) : tab === 'signin' ? (
-        <form onSubmit={onSignIn} className="mt-4 flex max-w-md flex-col gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              setShowEmailForm(false)
-              setError(null)
-            }}
-            className="mb-1 self-start text-[12px] font-semibold text-white/55 hover:text-white"
-          >
-            ← Apple / Google
-          </button>
-          <label className="fetch-auth-label text-[10px] font-semibold uppercase tracking-[0.1em] text-white/38">
-            Email
-          </label>
-          <input
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@email.com"
-            className={inputClass}
-          />
-          {serverDbAuth ? (
-            <>
-              <label className="fetch-auth-label text-[10px] font-semibold uppercase tracking-[0.1em] text-white/38">
-                Password
+      </header>
+
+      {/* Sand panel — forms & OAuth sit lower with clear separation */}
+      <main className="relative -mt-5 flex min-h-0 flex-1 flex-col rounded-t-[26px] bg-[#e8dfc9] px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-8 shadow-[0_-10px_40px_-14px_rgba(0,0,0,0.18)]">
+        <div className="mx-auto w-full max-w-md flex-1 overflow-y-auto overscroll-contain">
+          <h1 className="text-[21px] font-semibold tracking-[-0.03em] text-zinc-900">
+            Account
+          </h1>
+          <p className="mt-1 text-[13px] leading-snug text-zinc-600">
+            Continue with Apple or Google, or use email.
+          </p>
+
+          <div className="mt-5 flex gap-1 rounded-2xl border border-zinc-300/70 bg-white/50 p-1">
+            <button
+              type="button"
+              onClick={() => {
+                setTab('signin')
+                setError(null)
+                setShowEmailForm(false)
+              }}
+              className={tab === 'signin' ? tabBtnActive : tabBtnInactive}
+            >
+              Log in
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setTab('signup')
+                setError(null)
+                setShowEmailForm(false)
+              }}
+              className={tab === 'signup' ? tabBtnActive : tabBtnInactive}
+            >
+              Sign up
+            </button>
+          </div>
+
+          {!showEmailForm ? (
+            <div className="mt-10 flex flex-col gap-3">
+              <OAuthBrandedButtons
+                disabled={busy}
+                onApple={() => void signInWithAppleOAuth()}
+                onGoogle={() => void signInWithGoogleOAuth()}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setError(null)
+                  setShowEmailForm(true)
+                }}
+                className="mt-2 w-full py-2.5 text-[13px] font-semibold text-[#134632] underline decoration-[#134632]/35 underline-offset-4 hover:text-[#0f3628]"
+              >
+                {emailInsteadLabel}
+              </button>
+              {message ? <p className="text-[12px] text-emerald-800">{message}</p> : null}
+              {error ? <p className="text-[12px] text-red-700">{error}</p> : null}
+            </div>
+          ) : tab === 'signin' ? (
+            <form onSubmit={onSignIn} className="mt-8 flex max-w-md flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowEmailForm(false)
+                  setError(null)
+                }}
+                className="mb-1 self-start text-[12px] font-semibold text-zinc-600 hover:text-zinc-900"
+              >
+                ← Apple / Google
+              </button>
+              <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-500">
+                Email
               </label>
               <input
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@email.com"
                 className={inputClass}
               />
-            </>
-          ) : null}
-          {message ? <p className="text-[11px] text-emerald-300/90">{message}</p> : null}
-          {error ? <p className="text-[11px] text-red-300/90">{error}</p> : null}
-          <button
-            type="submit"
-            disabled={busy}
-            className="mt-1 rounded-xl bg-black py-3 text-[14px] font-bold text-white ring-1 ring-white/20 hover:bg-zinc-950 disabled:opacity-45"
-          >
-            {busy ? 'Please wait…' : 'Continue'}
-          </button>
-        </form>
-      ) : (
-        <form onSubmit={onSignUp} className="mt-4 flex max-w-md flex-col gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              setShowEmailForm(false)
-              setError(null)
-            }}
-            className="mb-1 self-start text-[12px] font-semibold text-white/55 hover:text-white"
-          >
-            ← Apple / Google
-          </button>
-          <label className="fetch-auth-label text-[10px] font-semibold uppercase tracking-[0.1em] text-white/38">
-            Name
-          </label>
-          <input
-            type="text"
-            autoComplete="name"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            placeholder="Your name"
-            className={inputClass}
-          />
-          <label className="fetch-auth-label text-[10px] font-semibold uppercase tracking-[0.1em] text-white/38">
-            Email
-          </label>
-          <input
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@email.com"
-            className={inputClass}
-          />
-          <label className="fetch-auth-label text-[10px] font-semibold uppercase tracking-[0.1em] text-white/38">
-            Phone <span className="fetch-auth-label-note font-normal text-white/35">(optional)</span>
-          </label>
-          <input
-            type="tel"
-            autoComplete="tel"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="+61 …"
-            className={inputClass}
-          />
-          {serverDbAuth ? (
-            <>
-              <label className="fetch-auth-label text-[10px] font-semibold uppercase tracking-[0.1em] text-white/38">
-                Password
+              {serverDbAuth ? (
+                <>
+                  <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-500">
+                    Password
+                  </label>
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className={inputClass}
+                  />
+                </>
+              ) : null}
+              {message ? <p className="text-[12px] text-emerald-800">{message}</p> : null}
+              {error ? <p className="text-[12px] text-red-700">{error}</p> : null}
+              <button
+                type="submit"
+                disabled={busy}
+                className="mt-2 rounded-xl bg-[#134632] py-3 text-[14px] font-bold text-white shadow-sm transition-colors hover:bg-[#0f3628] disabled:opacity-45"
+              >
+                {busy ? 'Please wait…' : 'Continue'}
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={onSignUp} className="mt-8 flex max-w-md flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowEmailForm(false)
+                  setError(null)
+                }}
+                className="mb-1 self-start text-[12px] font-semibold text-zinc-600 hover:text-zinc-900"
+              >
+                ← Apple / Google
+              </button>
+              <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-500">
+                Name
               </label>
               <input
-                type="password"
-                autoComplete="new-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="At least 8 characters"
+                type="text"
+                autoComplete="name"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="Your name"
                 className={inputClass}
               />
-            </>
-          ) : null}
-          {message ? <p className="text-[11px] text-emerald-300/90">{message}</p> : null}
-          {error ? <p className="text-[11px] text-red-300/90">{error}</p> : null}
-          <button
-            type="submit"
-            disabled={busy}
-            className="mt-1 rounded-xl bg-black py-3 text-[14px] font-bold text-white ring-1 ring-white/20 hover:bg-zinc-950 disabled:opacity-45"
-          >
-            {busy ? 'Please wait…' : 'Create account'}
-          </button>
-        </form>
-      )}
+              <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-500">
+                Email
+              </label>
+              <input
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@email.com"
+                className={inputClass}
+              />
+              <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-500">
+                Phone{' '}
+                <span className="font-normal text-zinc-400">(optional)</span>
+              </label>
+              <input
+                type="tel"
+                autoComplete="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+61 …"
+                className={inputClass}
+              />
+              {serverDbAuth ? (
+                <>
+                  <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-500">
+                    Password
+                  </label>
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="At least 8 characters"
+                    className={inputClass}
+                  />
+                </>
+              ) : null}
+              {message ? <p className="text-[12px] text-emerald-800">{message}</p> : null}
+              {error ? <p className="text-[12px] text-red-700">{error}</p> : null}
+              <button
+                type="submit"
+                disabled={busy}
+                className="mt-2 rounded-xl bg-[#134632] py-3 text-[14px] font-bold text-white shadow-sm transition-colors hover:bg-[#0f3628] disabled:opacity-45"
+              >
+                {busy ? 'Please wait…' : 'Create account'}
+              </button>
+            </form>
+          )}
         </div>
-      </div>
+      </main>
     </div>
   )
 }

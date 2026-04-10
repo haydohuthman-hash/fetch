@@ -48,6 +48,7 @@ export default function FetchMarketplaceListingCreateView({ onDone }: FetchMarke
   const [tags, setTags] = useState('')
   const [quantity, setQuantity] = useState('')
   const [fetchDelivery, setFetchDelivery] = useState(false)
+  const [sameDayDelivery, setSameDayDelivery] = useState(false)
   const [files, setFiles] = useState<File[]>([])
   const [listingId, setListingId] = useState<string | null>(editId || null)
 
@@ -75,6 +76,7 @@ export default function FetchMarketplaceListingCreateView({ onDone }: FetchMarke
         setLocationLabel(l.locationLabel || '')
         setTags((l.keywords || '').replace(/\s+/g, ' ').trim())
         setFetchDelivery(Boolean(l.fetchDelivery))
+        setSameDayDelivery(Boolean(l.sameDayDelivery))
       } catch (e) {
         setErr(e instanceof Error ? e.message : 'Could not load listing.')
       } finally {
@@ -136,6 +138,7 @@ export default function FetchMarketplaceListingCreateView({ onDone }: FetchMarke
             keywords,
             locationLabel: locationLabel.trim(),
             fetchDelivery,
+            sameDayDelivery,
             profileAuthorId: me.id,
             profileDisplayName: me.displayName,
             profileAvatar: me.avatar?.trim() || undefined,
@@ -152,6 +155,7 @@ export default function FetchMarketplaceListingCreateView({ onDone }: FetchMarke
             keywords,
             locationLabel: locationLabel.trim(),
             fetchDelivery,
+            sameDayDelivery,
             profileAuthorId: me.id,
             profileDisplayName: me.displayName,
             profileAvatar: me.avatar?.trim() || null,
@@ -178,6 +182,7 @@ export default function FetchMarketplaceListingCreateView({ onDone }: FetchMarke
       condition,
       description,
       fetchDelivery,
+      sameDayDelivery,
       files,
       listingId,
       locationLabel,
@@ -336,6 +341,16 @@ export default function FetchMarketplaceListingCreateView({ onDone }: FetchMarke
             className="h-4 w-4 accent-emerald-500"
           />
           <span className="text-[13px] font-medium text-emerald-50/90">Fetch delivery available</span>
+        </label>
+
+        <label className="flex items-center gap-3 rounded-xl border border-white/10 bg-black/25 px-3 py-3">
+          <input
+            type="checkbox"
+            checked={sameDayDelivery}
+            onChange={(e) => setSameDayDelivery(e.target.checked)}
+            className="h-4 w-4 accent-emerald-500"
+          />
+          <span className="text-[13px] font-medium text-emerald-50/90">Same-day delivery promo badge</span>
         </label>
 
         <label className="block text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-200/55">

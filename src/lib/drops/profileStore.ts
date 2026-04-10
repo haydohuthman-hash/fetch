@@ -254,3 +254,31 @@ export function formatDropHandle(displayName: string): string {
 export function isFetchOfficialAuthor(authorId: string): boolean {
   return authorId === FETCH_DROPS_OFFICIAL_AUTHOR_ID
 }
+
+const DEMO_DROP_PROFILES_SEEDED_KEY = 'fetch.drops.demoProfilesSeeded.v1'
+
+/** One-time local seed so curated demo drops resolve @handles / avatars for five demo sellers. */
+export function seedDemoDropProfilesOnce(): void {
+  try {
+    if (localStorage.getItem(DEMO_DROP_PROFILES_SEEDED_KEY) === '1') return
+  } catch {
+    return
+  }
+  const demos: { id: string; displayName: string; avatar: string }[] = [
+    { id: 'demo_prof_arbour_homes', displayName: 'ArbourHomes', avatar: '🪑' },
+    { id: 'demo_prof_hedge_studio', displayName: 'HedgeStudio', avatar: '🛋️' },
+    { id: 'demo_prof_loft_lane', displayName: 'LoftLane', avatar: '🏠' },
+    { id: 'demo_prof_coast_line', displayName: 'CoastlineCo', avatar: '🌿' },
+    { id: 'demo_prof_studio_north', displayName: 'StudioNorth', avatar: '✨' },
+  ]
+  for (const p of demos) {
+    const s = loadRaw()
+    if (s.byId[p.id]) continue
+    void saveDropProfile({ id: p.id, displayName: p.displayName, avatar: p.avatar })
+  }
+  try {
+    localStorage.setItem(DEMO_DROP_PROFILES_SEEDED_KEY, '1')
+  } catch {
+    /* ignore */
+  }
+}

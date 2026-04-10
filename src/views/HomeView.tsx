@@ -3008,18 +3008,15 @@ export default function HomeView({
       } else if (commerce.kind === 'buy_sell_listing') {
         if (action === 'fetch_it') {
           bumpInteraction()
-          setHomeShellTab('services')
-          if (!chatNavRoute) setHomeMapExploreMode(false)
-          setSheetSnap('half')
-          setReelFetchItDelivery({ listingId: commerce.listingId, phase: 'loading' })
-          commitJobTypeSelection('junkRemoval')
+          setDropsListingHandoff({ listingId: commerce.listingId, mode: 'sheet' })
+          onHomeShellTabChange('marketplace')
           return
         }
         setDropsListingHandoff({ listingId: commerce.listingId, mode })
         onHomeShellTabChange('marketplace')
       }
     },
-    [appendHomeAlert, bumpInteraction, chatNavRoute, commitJobTypeSelection, onHomeShellTabChange],
+    [appendHomeAlert, bumpInteraction, onHomeShellTabChange],
   )
 
   const clearDropsProductHandoff = useCallback(() => setDropsProductHandoff(null), [])

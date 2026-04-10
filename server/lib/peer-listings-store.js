@@ -8,7 +8,7 @@ function makeId(prefix) {
 /**
  * @param {unknown} l
  */
-function normalizeListingRow(l) {
+export function normalizeListingRow(l) {
   if (!l || typeof l !== 'object') return /** @type {any} */ (l)
   const o = /** @type {Record<string, unknown>} */ (l)
   const saleMode = o.saleMode === 'auction' ? 'auction' : 'fixed'
@@ -39,6 +39,7 @@ function normalizeListingRow(l) {
     auctionHighBidderKey: o.auctionHighBidderKey ? String(o.auctionHighBidderKey) : null,
     auctionClosed: Boolean(o.auctionClosed),
     bids: Array.isArray(o.bids) ? o.bids : [],
+    sameDayDelivery: Boolean(o.sameDayDelivery),
   }
 }
 
@@ -169,6 +170,7 @@ export function createPeerListingsStore(filePath) {
       sku,
       acceptsOffers,
       fetchDelivery,
+      sameDayDelivery,
       saleMode,
       auctionEndsAt,
       reserveCents: reserveIn,
@@ -216,6 +218,7 @@ export function createPeerListingsStore(filePath) {
         sku: skuTrim || null,
         acceptsOffers: Boolean(acceptsOffers),
         fetchDelivery: Boolean(fetchDelivery),
+        sameDayDelivery: Boolean(sameDayDelivery),
         status: 'draft',
         images: [],
         saleMode: mode,
@@ -272,6 +275,7 @@ export function createPeerListingsStore(filePath) {
       }
       if (patch.acceptsOffers != null) next.acceptsOffers = Boolean(patch.acceptsOffers)
       if (patch.fetchDelivery != null) next.fetchDelivery = Boolean(patch.fetchDelivery)
+      if (patch.sameDayDelivery != null) next.sameDayDelivery = Boolean(patch.sameDayDelivery)
       if (patch.saleMode === 'auction' || patch.saleMode === 'fixed') next.saleMode = patch.saleMode
       if (patch.auctionEndsAt !== undefined) {
         const t = Number(patch.auctionEndsAt)

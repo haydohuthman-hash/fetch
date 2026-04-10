@@ -5,9 +5,12 @@ import {
   analyzeListingPhotosForSell,
   checkoutListing,
   createListing,
+  DEMO_LISTING_CHECKOUT_DISABLED_MESSAGE,
   fetchMyListings,
   fetchPublishedListings,
   fetchSellerEarnings,
+  formatListingCheckoutError,
+  isPublicDemoListingId,
   listingImageAbsoluteUrl,
   patchListing,
   publishListing,
@@ -307,6 +310,7 @@ function HomeShellBuySellPageInner({
   const [measurementsSummary, setMeasurementsSummary] = useState('')
   const [acceptsOffers, setAcceptsOffers] = useState(false)
   const [fetchDelivery, setFetchDelivery] = useState(true)
+  const [sameDayDelivery, setSameDayDelivery] = useState(false)
   const [createErr, setCreateErr] = useState<string | null>(null)
   const [aiFillBusy, setAiFillBusy] = useState(false)
   const [aiFillErr, setAiFillErr] = useState<string | null>(null)
@@ -498,6 +502,7 @@ function HomeShellBuySellPageInner({
     setMeasurementsSummary('')
     setAcceptsOffers(Boolean(l.acceptsOffers))
     setFetchDelivery(l.fetchDelivery !== false)
+    setSameDayDelivery(Boolean(l.sameDayDelivery))
     setPhotos([])
     setCreateErr(null)
     setAiFillErr(null)
@@ -597,6 +602,7 @@ function HomeShellBuySellPageInner({
         sku: sku.trim() || undefined,
         acceptsOffers,
         fetchDelivery,
+        sameDayDelivery,
         profileAuthorId: me.id,
         profileDisplayName: me.displayName,
         profileAvatar: me.avatar,
@@ -621,6 +627,7 @@ function HomeShellBuySellPageInner({
       setAiFillErr(null)
       setAcceptsOffers(false)
       setFetchDelivery(true)
+      setSameDayDelivery(false)
       setPanel('feed')
       void loadBrowse()
     } catch (e) {
@@ -695,6 +702,7 @@ function HomeShellBuySellPageInner({
         sku: sku.trim() || undefined,
         acceptsOffers,
         fetchDelivery,
+        sameDayDelivery,
         profileAuthorId: me.id,
         profileDisplayName: me.displayName,
         profileAvatar: me.avatar,
@@ -718,6 +726,10 @@ function HomeShellBuySellPageInner({
   const startBuy = async (listing: PeerListing) => {
     setBuyErr(null)
     setStripeBuy(null)
+    if (isPublicDemoListingId(listing.id)) {
+      setBuyErr(DEMO_LISTING_CHECKOUT_DISABLED_MESSAGE)
+      return
+    }
     setBusy(true)
     try {
       await syncCustomerSessionCookie()
@@ -738,7 +750,7 @@ function HomeShellBuySellPageInner({
       setSelected(null)
       void loadBrowse()
     } catch (e) {
-      setBuyErr(e instanceof Error ? e.message : 'Checkout failed')
+      setBuyErr(formatListingCheckoutError(e))
     } finally {
       setBusy(false)
     }
@@ -1071,6 +1083,11 @@ function HomeShellBuySellPageInner({
               No photo
             </div>
           )}
+          {l.sameDayDelivery ? (
+            <span className="absolute left-1.5 top-1.5 z-[1] rounded-md bg-emerald-600 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-white shadow-sm">
+              Same-day promo
+            </span>
+          ) : null}
         </div>
         <div className="flex min-w-0 flex-col gap-0.5 border-t border-zinc-100 px-2 py-1.5">
           <div className="flex min-w-0 items-center gap-2">
@@ -1872,6 +1889,18 @@ function HomeShellBuySellPageInner({
                     className="h-5 w-5 accent-violet-600"
                   />
                 </label>
+                <label className="mt-2 flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-zinc-100 bg-zinc-50/60 px-3 py-3">
+                  <div>
+                    <p className="text-[14px] font-semibold text-zinc-900">Same-day delivery promo</p>
+                    <p className="text-[11px] text-zinc-500">Show the same-day promo badge (you arrange delivery).</p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={sameDayDelivery}
+                    onChange={(e) => setSameDayDelivery(e.target.checked)}
+                    className="h-5 w-5 accent-violet-600"
+                  />
+                </label>
               </section>
 
               {createErr ? <p className="text-[13px] font-medium text-red-600">{createErr}</p> : null}
@@ -2141,6 +2170,11 @@ function HomeShellBuySellPageInner({
               {selected.fetchDelivery ? (
                 <span className="rounded-full bg-violet-600 px-2.5 py-1 text-[11px] font-bold text-white">Fetch delivery</span>
               ) : null}
+              {selected.sameDayDelivery ? (
+                <span className="rounded-full bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white">
+                  Same-day delivery promo
+                </span>
+              ) : null}
             </div>
             {selected.profileAuthorId?.trim() ? (
               <div className="mt-3 flex items-center gap-3 rounded-xl border border-zinc-200/90 bg-zinc-50/90 px-3 py-2.5">
@@ -2192,6 +2226,11 @@ function HomeShellBuySellPageInner({
                 </button>
               ) : null
             })()}
+            {selected && isPublicDemoListingId(selected.id) && !buyErr ? (
+              <p className="mt-2 text-[12px] font-medium text-amber-900/90">
+                Showcase listing — checkout is disabled. List your own item to test payments.
+              </p>
+            ) : null}
             {buyErr ? <p className="mt-2 text-[12px] text-red-600">{buyErr}</p> : null}
             {stripeBuy && import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY?.trim() ? (
               <div className="mt-4 rounded-xl border border-zinc-900 bg-zinc-950 p-3">
@@ -2199,7 +2238,7 @@ function HomeShellBuySellPageInner({
                   publishableKey={import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY.trim()}
                   clientSecret={stripeBuy.clientSecret}
                   submitLabel={busy ? '…' : 'Pay'}
-                  disabled={busy}
+                  disabled={busy || (selected ? isPublicDemoListingId(selected.id) : false)}
                   errorText={buyErr}
                   onError={(m) => setBuyErr(m)}
                   onSuccess={() => {
@@ -2222,11 +2261,11 @@ function HomeShellBuySellPageInner({
             ) : (
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || (selected ? isPublicDemoListingId(selected.id) : false)}
                 className="mt-4 w-full rounded-xl bg-zinc-900 py-3.5 text-[15px] font-semibold text-white disabled:opacity-50"
                 onClick={() => void startBuy(selected)}
               >
-                {busy ? '…' : 'Buy now'}
+                {busy ? '…' : selected && isPublicDemoListingId(selected.id) ? 'Checkout unavailable' : 'Buy now'}
               </button>
             )}
           </div>
