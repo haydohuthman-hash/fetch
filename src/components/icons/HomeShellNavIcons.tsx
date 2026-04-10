@@ -150,35 +150,73 @@ export function BuySellNavIconFilled({ className, active = true }: IconProps) {
   )
 }
 
-/** Shop / supplies — storefront (awning + facade + door). */
+/** Marketplace — dollar mark. */
 export function MarketplaceNavIconFilled({ className, active = true }: IconProps) {
+  const textProps = active
+    ? { fill: 'currentColor' as const, fillOpacity: 1 }
+    : { fill: 'currentColor' as const, fillOpacity: 0.42 }
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <text
+        x="12"
+        y="12"
+        dominantBaseline="central"
+        textAnchor="middle"
+        fontSize="17"
+        fontWeight="800"
+        fontFamily="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+        {...textProps}
+      >
+        $
+      </text>
+    </svg>
+  )
+}
+
+/** Drops tab — circle (inactive ring + light fill; active solid). */
+export function ReelsNavIconFilled({ className, active = true }: IconProps) {
+  if (!active) {
+    return (
+      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
+        <circle
+          cx="12"
+          cy="12"
+          r="7.85"
+          fill="currentColor"
+          fillOpacity="0.1"
+          stroke="currentColor"
+          strokeWidth={navStroke}
+        />
+      </svg>
+    )
+  }
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle cx="12" cy="12" r="8.35" fill="currentColor" />
+    </svg>
+  )
+}
+
+/** Notifications — bell (aligned with top bubble bar bell geometry). */
+export function NotificationsNavIconFilled({ className, active = true }: IconProps) {
   if (!active) {
     return (
       <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
         <path
-          d="M4.75 8.85L5.85 6.35h12.3l1.1 2.5H4.75z"
-          stroke="currentColor"
-          strokeWidth={navStroke}
-          strokeLinejoin="round"
-        />
-        <path
-          d="M4.25 8.85h15.5v1.35H4.25V8.85z"
+          d="M12 3a5 5 0 00-5 5v3.5L5 18h14l-2-6.5V8a5 5 0 00-5-5z"
+          fill="currentColor"
+          fillOpacity="0.1"
           stroke="currentColor"
           strokeWidth={navStroke}
           strokeLinecap="round"
           strokeLinejoin="round"
         />
         <path
-          d="M5.5 10.2h13v9.65a1.6 1.6 0 01-1.6 1.6H7.1a1.6 1.6 0 01-1.6-1.6V10.2z"
+          d="M10 18a2 2 0 004 0"
+          fill="none"
           stroke="currentColor"
           strokeWidth={navStroke}
-          strokeLinejoin="round"
-        />
-        <path
-          d="M9.5 14.1h5v5.35H9.5V14.1z"
-          stroke="currentColor"
-          strokeWidth={1.55}
-          strokeLinejoin="round"
+          strokeLinecap="round"
         />
       </svg>
     )
@@ -187,66 +225,7 @@ export function MarketplaceNavIconFilled({ className, active = true }: IconProps
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
       <path
         fill="currentColor"
-        d="M5.25 10.2h13.5v9.55a1.65 1.65 0 01-1.65 1.65H6.9a1.65 1.65 0 01-1.65-1.65V10.2z"
-      />
-      <path fill="currentColor" fillOpacity="0.55" d="M4.75 8.85L5.9 6.2h12.2l1.15 2.65H4.75z" />
-      <path fill="currentColor" fillOpacity="0.34" d="M4 8.85h16v1.35H4V8.85z" />
-      <path fill="currentColor" fillOpacity="0.5" d="M9.35 13.95h5.3v5.5H9.35v-5.5z" />
-    </svg>
-  )
-}
-
-/** Drops tab — play when inactive; filled tile + plus when active (bottom nav upload affordance). */
-export function ReelsNavIconFilled({ className, active = true }: IconProps) {
-  const play = 'M7.7 6.2c0-1.08 1.2-1.73 2.18-1.19l6.5 3.66c1.02.57 1.02 2.05 0 2.62l-6.5 3.66c-.98.55-2.18-.1-2.18-1.19V6.2z'
-  if (!active) {
-    return (
-      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
-        <path d={play} fill="currentColor" fillOpacity={0.55} />
-      </svg>
-    )
-  }
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <rect
-        className="fetch-reels-nav-icon__tile"
-        x="3.25"
-        y="3.25"
-        width="17.5"
-        height="17.5"
-        rx="5.25"
-        fill="currentColor"
-      />
-      <path
-        className="fetch-reels-nav-icon__plus"
-        fill="#fff"
-        d="M11.15 7.85h1.7v3.3h3.35v1.65h-3.35v3.35h-1.7v-3.35H7.8v-1.65h3.35v-3.3z"
-      />
-    </svg>
-  )
-}
-
-/** Messages — simple single bubble. */
-export function ChatNavIconFilled({ className, active = true }: IconProps) {
-  if (!active) {
-    return (
-      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
-        <path
-          d="M6.5 5.6h11a2.35 2.35 0 012.35 2.35v6.2a2.35 2.35 0 01-2.35 2.35H12l-3.95 3v-3H6.5a2.35 2.35 0 01-2.35-2.35v-6.2A2.35 2.35 0 016.5 5.6z"
-          fill="currentColor"
-          fillOpacity="0.1"
-          stroke="currentColor"
-          strokeWidth={navStroke}
-          strokeLinejoin="round"
-        />
-      </svg>
-    )
-  }
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        fill="currentColor"
-        d="M6.5 5.6h11a2.35 2.35 0 012.35 2.35v6.2a2.35 2.35 0 01-2.35 2.35H12l-3.95 3v-3H6.5a2.35 2.35 0 01-2.35-2.35v-6.2A2.35 2.35 0 016.5 5.6z"
+        d="M12 3a5 5 0 00-5 5v3.5L5 18h14l-2-6.5V8a5 5 0 00-5-5z"
       />
     </svg>
   )

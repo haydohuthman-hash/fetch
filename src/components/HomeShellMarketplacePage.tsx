@@ -11,36 +11,27 @@ import {
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import type { HardwareProduct } from '../lib/hardwareCatalog'
-import {
-  MARKETPLACE_SUPPLY_CATEGORY_IDS,
-  SUPPLY_PRODUCTS,
-  bundleRetailTotalAud,
-  getMarketplaceBundleForCategory,
-  resolveBundleProducts,
-  type MarketplaceBundleDef,
-  type SupplyCategoryId,
-  type SupplyProduct,
-} from '../lib/suppliesCatalog'
-import {
-  fetchPublicStoreCategories,
-  getStaticFallbackStoreCategories,
-  type StorePublicCategory,
-  type StorePublicSubcategory,
-} from '../lib/storeCategoriesPublic'
+import { SUPPLY_PRODUCTS, type SupplyProduct } from '../lib/suppliesCatalog'
 import { waitForPaymentIntentServerConfirmed } from '../lib/booking/api'
 import { confirmDemoPaymentIntent, isStripePublishableConfigured } from '../lib/paymentCheckout'
 import { fetchStoreCatalog, storeCheckout, syncCheckoutCustomerSession, type StoreCatalogProduct } from '../lib/storeApi'
 import { publicProductToSupplyProduct } from '../lib/publicProduct'
 import { useFetchProducts } from '../lib/useFetchProducts'
-import { FetchShopModeSegment } from './FetchShopModeSegment'
-import { AccountNavIconFilled, FetchEyesMarketplaceIntroIcon } from './icons/HomeShellNavIcons'
-import type { HomeShellTabRequest } from './profile/FetchProfileSheet'
-import { FetchStripePaymentElement } from './FetchStripePaymentElement'
+import { formatDropHandle } from '../lib/drops/profileStore'
+import { syncCustomerSessionCookie } from '../lib/fetchServerSession'
+import { loadSession } from '../lib/fetchUserSession'
 import {
-  DrinksFreezerSplash,
-  DRINKS_FREEZER_SPLASH_MS,
-  playDrinksFreezerStormSound,
-} from './DrinksFreezerSplash'
+  checkoutListing,
+  fetchListing,
+  fetchPublishedListings,
+  listingImageAbsoluteUrl,
+  type PeerListing,
+} from '../lib/listingsApi'
+import { AccountNavIconFilled } from './icons/HomeShellNavIcons'
+import type { BuySellDropsListingHandoff } from './HomeShellBuySellPage'
+import { HomeShellBuySellPage } from './HomeShellBuySellPage'
+import type { HomeShellTab } from './FetchHomeBookingSheet'
+import { FetchStripePaymentElement } from './FetchStripePaymentElement'
 
 export type MarketplaceDropsProductHandoff = {
   productId: string
@@ -52,11 +43,13 @@ export type HomeShellMarketplacePageProps = {
   bottomNav: React.ReactNode
   hardwareProducts: readonly HardwareProduct[]
   onMenuAccount?: () => void
-  /** Switch to peer listings (Buy & sell) from the shop header segment. */
-  onRequestHomeShellTab?: (tab: HomeShellTabRequest) => void
-  /** From Drops: open a store product or jump to cart. */
+  onRequestHomeShellTab?: (tab: HomeShellTab) => void
   dropsProductHandoff?: MarketplaceDropsProductHandoff | null
   onDropsProductHandoffConsumed?: () => void
+  onOpenListingChat?: (listingId: string) => void | Promise<void>
+  onBookDriver?: () => void
+  dropsListingHandoff?: BuySellDropsListingHandoff | null
+  onDropsListingHandoffConsumed?: () => void
 }
 
 function formatAud(n: number): string {
@@ -67,164 +60,105 @@ function formatAud(n: number): string {
   }).format(n)
 }
 
-const CATEGORY_HEADLINE: Record<SupplyCategoryId, string> = {
-  drinks: 'Drinks',
-  cleaning: 'Cleaning supplies',
-  packing: 'Moving supplies',
-  kitchen: 'Kitchen',
-  bedroom: 'Bedroom',
-  bathroom: 'Bathroom',
-  livingRoom: 'Living room',
-  laundry: 'Laundry',
-  storage: 'Storage',
-}
-
-/** Title + what’s in the category (under each wide promo card). Delivery line is shared below. */
-const CATEGORY_BANNER_LINES: Record<SupplyCategoryId, readonly [string, string]> = {
-  drinks: [
-    CATEGORY_HEADLINE.drinks,
-    'Soft drinks, sparkling water, sports hydration, and chilled teas.',
-  ],
-  cleaning: [
-    CATEGORY_HEADLINE.cleaning,
-    'Bundles, sprays, mops, and cloths for a full-home reset.',
-  ],
-  packing: [
-    CATEGORY_HEADLINE.packing,
-    'Cartons, tape, wrap, and pads sized for local moves.',
-  ],
-  kitchen: [
-    CATEGORY_HEADLINE.kitchen,
-    'Kettles, utensils, dinnerware, and dish racks for day one.',
-  ],
-  bedroom: [
-    CATEGORY_HEADLINE.bedroom,
-    'Sheets, pillows, and blackout options for the first night.',
-  ],
-  bathroom: [
-    CATEGORY_HEADLINE.bathroom,
-    'Towels, shower curtains, mats, and dispensers in one pass.',
-  ],
-  livingRoom: [
-    CATEGORY_HEADLINE.livingRoom,
-    'Lighting, throws, and small touches that make it feel home.',
-  ],
-  laundry: [
-    CATEGORY_HEADLINE.laundry,
-    'Hampers, detergent, hangers, and airers for real loads.',
-  ],
-  storage: [
-    CATEGORY_HEADLINE.storage,
-    'Bins, vacuum bags, and cubes for closets and under-bed.',
-  ],
-}
-
-const MARKETPLACE_DELIVERY_PROMO = 'Tomorrow or next day delivery available.'
-
-const SUBCATEGORY_GENERAL_SLUG = 'general'
-
-function pickQuickMarketplaceSubcategories(subs: StorePublicSubcategory[]): StorePublicSubcategory[] {
-  const sorted = [...subs].sort((a, b) => a.sort_order - b.sort_order || a.label.localeCompare(b.label))
-  const nonGeneral = sorted.filter((s) => s.slug !== SUBCATEGORY_GENERAL_SLUG)
-  if (nonGeneral.length >= 2) return nonGeneral.slice(0, 2)
-  if (nonGeneral.length === 1) return nonGeneral
-  return sorted.slice(0, 2)
-}
-
-function marketplaceSubcategoryThumbUrls(
-  catalog: SupplyProduct[] | null,
-  categoryId: string,
-  subcategoryId: string,
-): string[] {
-  const list = (catalog ?? SUPPLY_PRODUCTS).filter(
-    (p) =>
-      p.categoryId === categoryId &&
-      p.subcategoryId === subcategoryId &&
-      (p.coverImageUrl ?? '').trim().length > 0,
-  )
-  return list.slice(0, 3).map((p) => p.coverImageUrl.trim())
-}
-
-function MarketplaceQuickSubRow({
-  label,
-  thumbs,
-  onNavigate,
-}: {
-  label: string
-  thumbs: string[]
-  onNavigate: () => void
-}) {
-  const slots = [0, 1, 2] as const
-  return (
-    <button
-      type="button"
-      onClick={onNavigate}
-      className="w-full rounded-xl border border-zinc-200/90 bg-white px-2.5 py-2 text-left shadow-[0_1px_0_rgba(15,23,42,0.04)] transition-[opacity,transform] active:scale-[0.99] active:opacity-90"
-    >
-      <div className="flex min-h-[1.25rem] min-w-0 max-w-full items-center gap-1">
-        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold leading-tight tracking-tight text-zinc-900">
-          {label}
-        </span>
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          className="shrink-0 text-zinc-500"
-          aria-hidden
-        >
-          <path
-            d="M9 6l6 6-6 6"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </div>
-      <div className="mt-2 grid grid-cols-3 gap-1.5">
-        {slots.map((i) => {
-          const src = thumbs[i]
-          return (
-            <div
-              key={i}
-              className="aspect-square overflow-hidden rounded-md bg-zinc-50 ring-1 ring-zinc-200/70"
-            >
-              {src ? (
-                <img src={src} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
-              ) : null}
-            </div>
-          )
-        })}
-      </div>
-    </button>
-  )
-}
-
-function isSupplyCategoryId(id: string): id is SupplyCategoryId {
-  return (MARKETPLACE_SUPPLY_CATEGORY_IDS as readonly string[]).includes(id)
-}
-
 function hashStringHue(s: string): number {
   let h = 0
   for (let i = 0; i < s.length; i += 1) h = (Math.imul(31, h) + s.charCodeAt(i)) | 0
   return Math.abs(h) % 360
 }
 
-function CategoryGenericBannerGradient({ id, label }: { id: string; label: string }) {
-  const hue = hashStringHue(id)
-  const h2 = (hue + 48) % 360
-  const h3 = (hue + 96) % 360
+/** Placeholder distance for flat-lay listing cards (real geo not wired yet). */
+function listingDistanceMi(productId: string): string {
+  const tenths = (hashStringHue(productId) % 14) + 3
+  return `${(tenths / 10).toFixed(1)} mi`
+}
+
+function formatAudFromCents(cents: number): string {
+  return new Intl.NumberFormat('en-AU', {
+    style: 'currency',
+    currency: 'AUD',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(cents / 100)
+}
+
+function peerListingCompareAtCents(l: PeerListing): number {
+  const c = l.compareAtCents
+  return typeof c === 'number' && Number.isFinite(c) && c > 0 ? c : 0
+}
+
+function peerListingSavingsPercent(l: PeerListing): number | null {
+  const now = l.priceCents ?? 0
+  const was = peerListingCompareAtCents(l)
+  if (was <= 0 || now <= 0 || was <= now) return null
+  return Math.min(99, Math.round(((was - now) / was) * 100))
+}
+
+function peerListingPublicSellerLine(l: PeerListing): string | null {
+  const raw = l.profileDisplayName?.trim()
+  if (!raw) return null
+  return formatDropHandle(raw)
+}
+
+function PeerListingSheetMapPin({ className }: { className?: string }) {
   return (
-    <div
-      className="flex h-full w-full items-center justify-center bg-gradient-to-br"
-      style={{
-        background: `linear-gradient(to bottom right, hsl(${hue} 52% 88%), hsl(${h2} 42% 92%), hsl(${h3} 38% 95%))`,
-      }}
-      aria-hidden
-    >
-      <span className="px-6 text-center text-[15px] font-bold tracking-tight text-zinc-800/75">{label}</span>
-    </div>
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <path
+        d="M12 21.25s-5.75-5.1-5.75-10.5A5.75 5.75 0 1117.75 10.75c0 5.4-5.75 10.5-5.75 10.5z"
+        fill="currentColor"
+        fillOpacity="0.2"
+        stroke="currentColor"
+        strokeWidth="1.75"
+      />
+      <circle cx="12" cy="10.25" r="2.2" fill="currentColor" />
+    </svg>
+  )
+}
+
+function MarketplaceMapPinIcon({ className }: { className?: string }) {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <path
+        d="M12 11.5a2.5 2.5 0 100-5 2.5 2.5 0 000 5z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 21s7-4.35 7-10a7 7 0 10-14 0c0 5.65 7 10 7 10z"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function MarketplaceChevronDownIcon({ className }: { className?: string }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <path
+        d="M6 9l6 6 6-6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function MarketplaceFilterLinesIcon({ className }: { className?: string }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <path
+        d="M4 7h16M6.5 12h11M9 17h6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
   )
 }
 
@@ -287,49 +221,6 @@ function isExternalAffiliateProduct(p: SupplyProduct): boolean {
 function formatListingPriceAud(p: SupplyProduct): string {
   if (isExternalAffiliateProduct(p) && p.priceAud <= 0) return 'See on Amazon'
   return formatAud(p.priceAud)
-}
-
-function categoryBannerImageSrc(id: SupplyCategoryId | string): string | null {
-  if (id === 'drinks') return '/marketplace/drinks-bundle-banner.png'
-  if (id === 'cleaning') return '/marketplace/clean-bundle-banner.png'
-  if (id === 'packing') return '/marketplace/moving-bundle-banner.png'
-  if (id === 'kitchen') return '/marketplace/kitchen-bundle-banner.png'
-  if (id === 'bedroom') return '/marketplace/bedroom-bundle-banner.png'
-  if (id === 'bathroom') return '/marketplace/bathroom-bundle-banner.png'
-  if (id === 'laundry') return '/marketplace/laundry-bundle-banner.png'
-  if (id === 'storage') return '/marketplace/storage-bundle-banner.png'
-  if (id === 'livingRoom') return '/marketplace/living-room-bundle-banner.png'
-  return null
-}
-
-function CategoryBannerGradient({ id, label }: { id: string; label: string }) {
-  if (!isSupplyCategoryId(id)) {
-    return <CategoryGenericBannerGradient id={id} label={label} />
-  }
-  const tone: Record<SupplyCategoryId, string> = {
-    drinks: 'from-rose-100/85 via-orange-50/75 to-amber-50/85',
-    cleaning: 'from-emerald-100/90 via-teal-50/80 to-cyan-50/90',
-    packing: 'from-violet-100/90 via-indigo-50/80 to-sky-50/90',
-    kitchen: 'from-amber-100/85 via-orange-50/75 to-rose-50/80',
-    bedroom: 'from-fuchsia-100/80 via-purple-50/75 to-violet-50/85',
-    bathroom: 'from-sky-100/85 via-blue-50/75 to-indigo-50/80',
-    livingRoom: 'from-amber-50/90 via-stone-100/80 to-zinc-50/90',
-    laundry: 'from-cyan-100/80 via-slate-50/75 to-blue-50/85',
-    storage: 'from-slate-200/85 via-zinc-100/80 to-neutral-50/90',
-  }
-  return (
-    <div
-      className={[
-        'flex h-full w-full items-center justify-center bg-gradient-to-br',
-        tone[id],
-      ].join(' ')}
-      aria-hidden
-    >
-      <span className="px-6 text-center text-[15px] font-bold tracking-tight text-zinc-800/75">
-        {CATEGORY_HEADLINE[id]}
-      </span>
-    </div>
-  )
 }
 
 function CartIcon({ className = '' }: { className?: string }) {
@@ -477,35 +368,40 @@ function MarketplaceViewCartButton({
 function MarketplaceBrowseBootSkeleton() {
   return (
     <div
-      className="fetch-home-marketplace-body pointer-events-none flex min-h-0 flex-1 flex-col bg-white select-none"
+      className="fetch-home-marketplace-body pointer-events-none flex min-h-0 flex-1 flex-col bg-[#064e3b] select-none"
       aria-hidden
     >
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <header className="shrink-0 border-b border-zinc-200/80 bg-white px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top,0px))]">
-          <div className="flex items-center gap-2.5">
-            <div className="h-9 w-9 shrink-0 rounded-2xl bg-zinc-200/75" />
-            <div className="h-7 w-[5.5rem] rounded-lg bg-zinc-200/80" />
-          </div>
-        </header>
-
-        <div className="shrink-0 border-b border-zinc-200/70 bg-white px-4 pb-2 pt-1">
-          <div className="mx-auto flex h-[2.65rem] max-w-[min(100%,22rem)] gap-1">
-            <div className="min-h-0 flex-1 rounded-[0.85rem] bg-zinc-200/45" />
-            <div className="min-h-0 flex-1 rounded-[0.85rem] bg-zinc-200/30" />
-          </div>
+      <div className="mx-auto flex w-full max-w-[min(100%,430px)] min-h-0 flex-1 flex-col px-3 pt-[max(0.5rem,env(safe-area-inset-top,0px))]">
+        <div className="flex h-12 shrink-0 items-center gap-2 rounded-full bg-white/90 px-3 shadow-md ring-1 ring-black/[0.06]">
+          <div className="h-5 w-5 shrink-0 rounded-full bg-zinc-200/80" />
+          <div className="h-4 min-w-0 flex-1 rounded-md bg-zinc-200/70" />
+          <div className="h-6 w-6 shrink-0 rounded-full bg-zinc-200/60" />
+          <div className="h-8 w-8 shrink-0 rounded-full bg-zinc-200/55" />
         </div>
-
-        <div className="fetch-home-marketplace-grid-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-white [-webkit-overflow-scrolling:touch] px-4 py-4">
-          {Array.from({ length: 3 }, (_, i) => (
-            <div key={i} className="fetch-marketplace-boot-skel mb-8 last:mb-0">
-              <div className="aspect-video w-full rounded-2xl bg-zinc-200/55" />
-              <div className="mt-3 space-y-2">
-                <div className="h-5 max-w-[14rem] rounded-md bg-zinc-200/80" />
-                <div className="h-3.5 max-w-full rounded-md bg-zinc-200/60" />
-                <div className="h-3.5 max-w-[92%] rounded-md bg-zinc-200/50" />
+        <div className="fetch-home-marketplace-flat-sheet mt-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-t-[1.75rem] bg-[#f2efe8] shadow-lg ring-1 ring-black/[0.05]">
+          <div className="flex shrink-0 items-center justify-between px-4 pb-2 pt-3.5">
+            <div className="h-5 w-24 rounded-md bg-zinc-300/50" />
+            <div className="flex gap-1">
+              <div className="h-10 w-10 rounded-full bg-zinc-300/40" />
+              <div className="h-10 w-10 rounded-full bg-zinc-300/40" />
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-hidden px-3 pb-3">
+            <div className="rounded-2xl bg-white/60 p-2.5 ring-1 ring-black/[0.06]">
+              <div className="grid grid-cols-2 gap-3">
+                {Array.from({ length: 6 }, (_, i) => (
+                  <div key={i} className="overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/[0.05]">
+                    <div className="aspect-square bg-zinc-200/45" />
+                    <div className="space-y-2 p-2.5">
+                      <div className="h-3.5 rounded bg-zinc-200/70" />
+                      <div className="h-3 w-2/3 rounded bg-zinc-200/60" />
+                      <div className="h-2.5 w-1/2 rounded bg-zinc-200/50" />
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
-          ))}
+          </div>
         </div>
       </div>
     </div>
@@ -538,7 +434,6 @@ const SupplyProductThumb = memo(function SupplyProductThumb({
 })
 
 type MarketplaceSubView = 'browse' | 'cart' | 'checkout' | 'orderComplete'
-type MarketplaceBrowseShelf = 'categories' | 'products'
 
 function HomeShellMarketplacePageInner({
   bottomNav,
@@ -546,24 +441,18 @@ function HomeShellMarketplacePageInner({
   onRequestHomeShellTab,
   dropsProductHandoff = null,
   onDropsProductHandoffConsumed,
+  onOpenListingChat,
+  onBookDriver,
+  dropsListingHandoff = null,
+  onDropsListingHandoffConsumed,
 }: HomeShellMarketplacePageProps) {
   const navigate = useNavigate()
-  const {
-    loading: productsApiLoading,
-    error: productsApiError,
-    products: apiProductList,
-    retry: retryApiProducts,
-  } = useFetchProducts()
+  const { loading: productsApiLoading, products: apiProductList } = useFetchProducts()
 
-  const [category, setCategory] = useState<string>('drinks')
-  const [shopCategories, setShopCategories] = useState<StorePublicCategory[]>(() => getStaticFallbackStoreCategories())
-  const [productTagFilter, setProductTagFilter] = useState('')
-  const [browseShelf, setBrowseShelf] = useState<MarketplaceBrowseShelf>('categories')
-  const [drinksFreezerSplashOpen, setDrinksFreezerSplashOpen] = useState(false)
+  const [locationQuery, setLocationQuery] = useState('Los Angeles, CA')
   const [cartQtyById, setCartQtyById] = useState<Record<string, number>>({})
   const [subView, setSubView] = useState<MarketplaceSubView>('browse')
   const [productSheet, setProductSheet] = useState<SupplyProduct | null>(null)
-  const [bundleSheet, setBundleSheet] = useState<MarketplaceBundleDef | null>(null)
   const [checkoutName, setCheckoutName] = useState('')
   const [checkoutEmail, setCheckoutEmail] = useState('')
   const [checkoutAddress, setCheckoutAddress] = useState('')
@@ -579,7 +468,38 @@ function HomeShellMarketplacePageInner({
   const [cartOpenSeq, setCartOpenSeq] = useState(0)
   const [marketplaceBootLoading, setMarketplaceBootLoading] = useState(true)
   const [catalogProducts, setCatalogProducts] = useState<SupplyProduct[] | null>(null)
-  const [pendingScrollSubcategoryId, setPendingScrollSubcategoryId] = useState<string | null>(null)
+  const [peerListings, setPeerListings] = useState<PeerListing[]>([])
+  const [peerListErr, setPeerListErr] = useState<string | null>(null)
+  const [peerListLoading, setPeerListLoading] = useState(false)
+  const [peerListingSheet, setPeerListingSheet] = useState<PeerListing | null>(null)
+  const [peerStripeBuy, setPeerStripeBuy] = useState<{
+    clientSecret: string
+    paymentIntentId: string
+  } | null>(null)
+  const [peerBuyErr, setPeerBuyErr] = useState<string | null>(null)
+  const [peerCheckoutBusy, setPeerCheckoutBusy] = useState(false)
+  const [sellerToolsOpen, setSellerToolsOpen] = useState(false)
+  const dropsListingHandoffDoneRef = useRef<string | null>(null)
+
+  const sessionEmail = loadSession()?.email?.trim() ?? ''
+
+  const loadPeerListings = useCallback(async () => {
+    setPeerListErr(null)
+    setPeerListLoading(true)
+    try {
+      const r = await fetchPublishedListings({ limit: 64 })
+      setPeerListings(r.listings)
+    } catch (e) {
+      setPeerListings([])
+      setPeerListErr(e instanceof Error ? e.message : 'Could not load community listings')
+    } finally {
+      setPeerListLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void loadPeerListings()
+  }, [loadPeerListings])
 
   const applyFallbackCatalog = useCallback(async () => {
     try {
@@ -602,73 +522,58 @@ function HomeShellMarketplacePageInner({
     })()
   }, [productsApiLoading, apiProductList, applyFallbackCatalog])
 
-  useEffect(() => {
-    void fetchPublicStoreCategories().then((r) => setShopCategories(r.categories))
-  }, [])
-
-  const categoryListSorted = useMemo(
-    () => [...shopCategories].sort((a, b) => a.sort_order - b.sort_order || a.id.localeCompare(b.id)),
-    [shopCategories],
-  )
-
-  const currentCategoryRow = useMemo(
-    () => shopCategories.find((c) => c.id === category),
-    [shopCategories, category],
-  )
-
-  const categoryTitle = useMemo(() => {
-    if (currentCategoryRow?.label) return currentCategoryRow.label
-    if (isSupplyCategoryId(category)) return CATEGORY_HEADLINE[category]
-    return category
-  }, [currentCategoryRow, category])
-
   const productById = useMemo(() => {
     const list = catalogProducts ?? [...SUPPLY_PRODUCTS]
     return new Map(list.map((p) => [p.id, p] as const))
   }, [catalogProducts])
 
-  const products = useMemo(() => {
-    const list = catalogProducts ?? [...SUPPLY_PRODUCTS]
-    let rows = list.filter((p) => p.categoryId === category)
-    const q = productTagFilter.trim().toLowerCase()
-    if (q) {
-      rows = rows.filter((p) => (p.tags ?? []).some((t) => t.toLowerCase().includes(q)))
-    }
-    return rows
-  }, [catalogProducts, category, productTagFilter])
+  /** Browse grid: community peer listings only (no Fetch store / supplier catalog). */
+  const gridRows = useMemo(
+    () => peerListings.map((l) => ({ kind: 'peer' as const, listing: l })),
+    [peerListings],
+  )
 
-  const productCarousels = useMemo(() => {
-    const groups = new Map<string, SupplyProduct[]>()
-    for (const p of products) {
-      const label = (p.subcategoryLabel && p.subcategoryLabel.trim()) || 'All products'
-      const arr = groups.get(label) ?? []
-      arr.push(p)
-      groups.set(label, arr)
-    }
-    const titles = [...groups.keys()].sort((a, b) => {
-      const pri = (t: string) => (t === 'General' || t === 'All products' ? 0 : 1)
-      const pa = pri(a)
-      const pb = pri(b)
-      if (pa !== pb) return pa - pb
-      return a.localeCompare(b)
-    })
-    return titles.map((title) => {
-      const items = groups.get(title)!
-      const subcategoryId = items[0]?.subcategoryId ?? null
-      return { title, items, subcategoryId }
-    })
-  }, [products])
+  const openSellerInDrops = useCallback(() => {
+    onRequestHomeShellTab?.('reels')
+  }, [onRequestHomeShellTab])
 
-  useEffect(() => {
-    if (browseShelf !== 'products' || !pendingScrollSubcategoryId) return
-    const target = pendingScrollSubcategoryId
-    const timer = window.setTimeout(() => {
-      const el = document.querySelector(`[data-fetch-marketplace-sub-id="${target}"]`)
-      el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      setPendingScrollSubcategoryId(null)
-    }, 140)
-    return () => window.clearTimeout(timer)
-  }, [browseShelf, pendingScrollSubcategoryId, productCarousels])
+  const closePeerListingSheet = useCallback(() => {
+    setPeerListingSheet(null)
+    setPeerStripeBuy(null)
+    setPeerBuyErr(null)
+  }, [])
+
+  const startPeerBuy = useCallback(
+    async (listing: PeerListing) => {
+      setPeerBuyErr(null)
+      setPeerStripeBuy(null)
+      setPeerCheckoutBusy(true)
+      try {
+        await syncCustomerSessionCookie()
+        const { paymentIntent } = await checkoutListing(listing.id)
+        if (paymentIntent.provider === 'stripe') {
+          if (!isStripePublishableConfigured()) {
+            setPeerBuyErr('Set VITE_STRIPE_PUBLISHABLE_KEY to pay with Stripe.')
+            return
+          }
+          if (!paymentIntent.clientSecret) {
+            setPeerBuyErr('Missing Stripe client secret.')
+            return
+          }
+          setPeerStripeBuy({ clientSecret: paymentIntent.clientSecret, paymentIntentId: paymentIntent.id })
+          return
+        }
+        await confirmDemoPaymentIntent(paymentIntent)
+        closePeerListingSheet()
+        void loadPeerListings()
+      } catch (e) {
+        setPeerBuyErr(e instanceof Error ? e.message : 'Checkout failed')
+      } finally {
+        setPeerCheckoutBusy(false)
+      }
+    },
+    [closePeerListingSheet, loadPeerListings],
+  )
 
   const cartLines = useMemo(() => {
     const out: { product: SupplyProduct; qty: number }[] = []
@@ -704,76 +609,13 @@ function HomeShellMarketplacePageInner({
     })
   }, [])
 
-  const activeBundle = useMemo(
-    () => (isSupplyCategoryId(category) ? getMarketplaceBundleForCategory(category) : null),
-    [category],
-  )
-  const activeBundleProducts = useMemo(
-    () => (activeBundle ? resolveBundleProducts(activeBundle, productById) : []),
-    [activeBundle, productById],
-  )
-  const activeBundleRetail = useMemo(
-    () => bundleRetailTotalAud(activeBundleProducts),
-    [activeBundleProducts],
-  )
-
-  const sheetBundleProducts = useMemo(
-    () => (bundleSheet ? resolveBundleProducts(bundleSheet, productById) : []),
-    [bundleSheet, productById],
-  )
-  const sheetBundleRetail = useMemo(
-    () => bundleRetailTotalAud(sheetBundleProducts),
-    [sheetBundleProducts],
-  )
-
-  const addBundleToCart = useCallback((bundle: MarketplaceBundleDef) => {
-    setCartQtyById((prev) => {
-      const next = { ...prev }
-      for (const id of bundle.productIds) {
-        next[id] = (next[id] ?? 0) + 1
-      }
-      return next
-    })
-    setBundleSheet(null)
-    setCartEnterLoading(true)
-    setCartOpenSeq((n) => n + 1)
-    setSubView('cart')
-  }, [])
-
   const goBrowse = useCallback(() => {
     setCompletedOrderId(null)
     setStripeStoreCheckout(null)
     setCheckoutError(null)
     setSubView('browse')
-    setBrowseShelf('categories')
-    setPendingScrollSubcategoryId(null)
   }, [])
 
-  const finishDrinksFreezerSplash = useCallback(() => {
-    setDrinksFreezerSplashOpen(false)
-    setCategory('drinks')
-    setBrowseShelf('products')
-  }, [])
-
-  const openCategoryBrowse = useCallback(
-    (categoryId: string, opts?: { scrollSubId?: string; directToProducts?: boolean }) => {
-      if (categoryId === 'drinks' && !opts?.directToProducts) {
-        const reducedMotion =
-          typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-        playDrinksFreezerStormSound({
-          durationMs: reducedMotion ? 0 : DRINKS_FREEZER_SPLASH_MS,
-          reducedMotion,
-        })
-        setDrinksFreezerSplashOpen(true)
-        return
-      }
-      setCategory(categoryId)
-      setProductTagFilter('')
-      if (opts?.scrollSubId) setPendingScrollSubcategoryId(opts.scrollSubId)
-      setBrowseShelf('products')
-    },
-    [],
-  )
   const goCart = useCallback(() => {
     setCartEnterLoading(true)
     setCartOpenSeq((n) => n + 1)
@@ -794,12 +636,11 @@ function HomeShellMarketplacePageInner({
       return
     }
     dropsProductHandoffDoneRef.current = sig
-    setBundleSheet(null)
+    setPeerListingSheet(null)
     setCompletedOrderId(null)
     setStripeStoreCheckout(null)
     setCheckoutError(null)
     setSubView('browse')
-    openCategoryBrowse(p.categoryId, { directToProducts: true })
     if (dropsProductHandoff.mode === 'sheet' || isExternalAffiliateProduct(p)) {
       setProductSheet(p)
     } else {
@@ -807,14 +648,41 @@ function HomeShellMarketplacePageInner({
       goCart()
     }
     onDropsProductHandoffConsumed?.()
-  }, [
-    dropsProductHandoff,
-    productById,
-    openCategoryBrowse,
-    addOne,
-    goCart,
-    onDropsProductHandoffConsumed,
-  ])
+  }, [dropsProductHandoff, productById, addOne, goCart, onDropsProductHandoffConsumed])
+
+  useEffect(() => {
+    if (!dropsListingHandoff) {
+      dropsListingHandoffDoneRef.current = null
+      return
+    }
+    const { listingId, mode } = dropsListingHandoff
+    const sig = `${listingId}:${mode}`
+    if (dropsListingHandoffDoneRef.current === sig) return
+    dropsListingHandoffDoneRef.current = sig
+
+    const run = async () => {
+      let listing = peerListings.find((l) => l.id === listingId)
+      if (!listing) {
+        try {
+          const fetched = await fetchListing(listingId)
+          listing = fetched
+          setPeerListings((prev) => (prev.some((x) => x.id === fetched.id) ? prev : [fetched, ...prev]))
+        } catch {
+          dropsListingHandoffDoneRef.current = null
+          onDropsListingHandoffConsumed?.()
+          return
+        }
+      }
+      setProductSheet(null)
+      setSubView('browse')
+      setPeerListingSheet(listing)
+      if (mode === 'buyNow') {
+        queueMicrotask(() => void startPeerBuy(listing))
+      }
+      onDropsListingHandoffConsumed?.()
+    }
+    void run()
+  }, [dropsListingHandoff, peerListings, onDropsListingHandoffConsumed, startPeerBuy])
 
   const goCheckout = useCallback(() => setSubView('checkout'), [])
 
@@ -874,9 +742,14 @@ function HomeShellMarketplacePageInner({
   }, [cartLines, checkoutAddress, checkoutEmail, checkoutName])
 
   useEffect(() => {
-    if (!bundleSheet) return
+    if (!productSheet && !peerListingSheet) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setBundleSheet(null)
+      if (e.key !== 'Escape') return
+      if (peerListingSheet) {
+        closePeerListingSheet()
+      } else {
+        setProductSheet(null)
+      }
     }
     window.addEventListener('keydown', onKey)
     const prev = document.body.style.overflow
@@ -885,21 +758,7 @@ function HomeShellMarketplacePageInner({
       window.removeEventListener('keydown', onKey)
       document.body.style.overflow = prev
     }
-  }, [bundleSheet])
-
-  useEffect(() => {
-    if (!productSheet) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setProductSheet(null)
-    }
-    window.addEventListener('keydown', onKey)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      window.removeEventListener('keydown', onKey)
-      document.body.style.overflow = prev
-    }
-  }, [productSheet])
+  }, [productSheet, peerListingSheet, closePeerListingSheet])
 
   useEffect(() => {
     if (subView === 'checkout' && cartLines.length === 0) {
@@ -928,103 +787,32 @@ function HomeShellMarketplacePageInner({
     checkoutEmail.trim().length > 0 &&
     checkoutAddress.trim().length > 0
 
-  const browseProductBannerSrc = useMemo(() => {
-    const hero = currentCategoryRow?.hero_image_url?.trim()
-    if (hero) return hero
-    if (isSupplyCategoryId(category)) return categoryBannerImageSrc(category)
-    return null
-  }, [currentCategoryRow, category])
+  const browseShellClass =
+    subView === 'browse'
+      ? 'bg-[#064e3b]'
+      : 'bg-white'
 
   return (
     <div
-      className="fetch-home-marketplace-page absolute inset-0 z-[60] flex min-h-0 flex-col bg-white"
+      className={[
+        'fetch-home-marketplace-page absolute inset-0 z-[60] flex min-h-0 flex-col',
+        browseShellClass,
+      ].join(' ')}
       role="main"
-      aria-label="Fetch Shop supplies marketplace"
+      aria-label="Marketplace"
       aria-busy={marketplaceBootLoading}
     >
-        <DrinksFreezerSplash open={drinksFreezerSplashOpen} onFinished={finishDrinksFreezerSplash} />
         {marketplaceBootLoading ? (
           <MarketplaceBrowseBootSkeleton />
         ) : (
-        <div className="fetch-home-marketplace-body flex min-h-0 flex-1 flex-col bg-white">
+        <div
+          className={[
+            'fetch-home-marketplace-body flex min-h-0 flex-1 flex-col',
+            subView === 'browse' ? 'bg-transparent' : 'bg-white',
+          ].join(' ')}
+        >
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            {subView === 'browse' ? (
-              browseShelf === 'categories' ? (
-                <header className="relative shrink-0 border-b border-zinc-200/80 bg-white px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top,0px))]">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                      <FetchEyesMarketplaceIntroIcon className="h-9 w-9 shrink-0 text-zinc-900" />
-                      <div className="flex min-w-0 items-baseline gap-1.5">
-                        <span className="fetch-home-map-brand-logo text-[1.35rem] font-bold leading-none tracking-[-0.03em] text-zinc-900">
-                          Fetch
-                        </span>
-                        <span className="text-[1.1rem] font-semibold leading-none tracking-[-0.02em] text-zinc-500">
-                          Shop
-                        </span>
-                      </div>
-                    </div>
-                    <MarketplaceBrowseHeaderActions
-                      cartItemCount={cartItemCount}
-                      onCart={goCart}
-                      onAccount={onMenuAccount}
-                      showAdmin={showMarketplaceAdminEntry}
-                      onAdmin={() => navigate('/admin/products')}
-                    />
-                  </div>
-                  {onRequestHomeShellTab ? (
-                    <FetchShopModeSegment
-                      className="mt-3"
-                      active="supplies"
-                      onChange={(mode) => {
-                        if (mode === 'peer') onRequestHomeShellTab('buySell')
-                      }}
-                    />
-                  ) : null}
-                </header>
-              ) : (
-                <header className="relative shrink-0 border-b border-zinc-200/80 bg-white px-3 pb-3 pt-[max(0.75rem,env(safe-area-inset-top,0px))]">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-zinc-800 active:bg-zinc-100"
-                      aria-label="Back to categories"
-                      onClick={() => setBrowseShelf('categories')}
-                    >
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
-                        <path
-                          d="M15 6l-6 6 6 6"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    </button>
-                    <h1 className="fetch-home-map-brand-logo min-w-0 flex-1 text-[1.2rem] font-bold leading-tight tracking-[-0.03em] text-zinc-900">
-                      {categoryTitle}
-                    </h1>
-                    <MarketplaceBrowseHeaderActions
-                      cartItemCount={cartItemCount}
-                      onCart={goCart}
-                      onAccount={onMenuAccount}
-                      showAdmin={showMarketplaceAdminEntry}
-                      onAdmin={() => navigate('/admin/products')}
-                    />
-                  </div>
-                  <label className="mt-2 block px-1">
-                    <span className="sr-only">Filter products by tag</span>
-                    <input
-                      type="search"
-                      enterKeyHint="search"
-                      className="w-full rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-2 text-[14px] text-zinc-900 placeholder:text-zinc-400"
-                      placeholder="Filter by tag…"
-                      value={productTagFilter}
-                      onChange={(e) => setProductTagFilter(e.target.value)}
-                    />
-                  </label>
-                </header>
-              )
-            ) : subView === 'cart' ? (
+            {subView === 'browse' ? null : subView === 'cart' ? (
               <header className="shrink-0 border-b border-zinc-200/80 bg-white px-3 pb-3 pt-[max(0.75rem,env(safe-area-inset-top,0px))]">
                 <div className="flex items-center gap-2">
                   <button
@@ -1086,266 +874,164 @@ function HomeShellMarketplacePageInner({
             )}
 
             {subView === 'browse' ? (
-              browseShelf === 'categories' ? (
-                <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white">
-                  <div className="fetch-home-marketplace-grid-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden [-webkit-overflow-scrolling:touch] px-4 pt-4">
-                    <div className="flex flex-col gap-10 pb-[max(1rem,env(safe-area-inset-bottom,0px))]">
-                      {productsApiError ? (
-                        <div className="rounded-2xl border border-amber-200/90 bg-amber-50 px-4 py-3">
-                          <p className="text-[13px] font-bold text-amber-950">Could not load live catalog</p>
-                          <p className="mt-1 text-[12px] leading-snug text-amber-900/85">{productsApiError}</p>
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                <div className="mx-auto flex w-full max-w-[min(100%,430px)] min-h-0 flex-1 flex-col px-3 pb-0 pt-[max(0.5rem,env(safe-area-inset-top,0px))]">
+                  <div className="flex shrink-0 items-center gap-2 rounded-full bg-white px-3.5 py-2.5 shadow-[0_4px_24px_rgba(0,0,0,0.14)] ring-1 ring-black/[0.06]">
+                    <MarketplaceMapPinIcon className="shrink-0 text-zinc-900" />
+                    <input
+                      className="min-w-0 flex-1 bg-transparent text-[15px] font-medium leading-tight text-zinc-900 outline-none placeholder:text-zinc-400"
+                      value={locationQuery}
+                      onChange={(e) => setLocationQuery(e.target.value)}
+                      aria-label="Location"
+                      placeholder="City or area"
+                      autoComplete="address-level2"
+                    />
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-full p-1 text-zinc-700 transition-colors active:bg-zinc-100"
+                      aria-label="Location options"
+                    >
+                      <MarketplaceChevronDownIcon className="h-[18px] w-[18px]" />
+                    </button>
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-full p-1.5 text-zinc-900 transition-colors active:bg-zinc-100"
+                      aria-label="Filters"
+                    >
+                      <MarketplaceFilterLinesIcon className="h-[22px] w-[22px]" />
+                    </button>
+                  </div>
+
+                  <div className="fetch-home-marketplace-flat-sheet mt-3 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-t-[1.75rem] shadow-[0_-8px_36px_rgba(0,0,0,0.12)] ring-1 ring-black/[0.05]">
+                    <div className="flex shrink-0 items-center justify-between gap-2 px-4 pb-2 pt-3.5">
+                      <div className="flex min-w-0 flex-1 items-center gap-2">
+                        <button
+                          type="button"
+                          className="flex min-w-0 items-center gap-1 text-left text-[17px] font-bold tracking-tight text-zinc-900 active:opacity-80"
+                        >
+                          <span className="truncate">Near you</span>
+                          <MarketplaceChevronDownIcon className="shrink-0 text-zinc-600" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSellerToolsOpen(true)}
+                          className="shrink-0 rounded-full bg-emerald-50 px-3 py-1.5 text-[13px] font-bold text-emerald-950 ring-1 ring-emerald-200/90 active:bg-emerald-100/80"
+                        >
+                          Sell
+                        </button>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-0.5">
+                        <MarketplaceBrowseHeaderActions
+                          cartItemCount={cartItemCount}
+                          onCart={goCart}
+                          onAccount={onMenuAccount}
+                          showAdmin={showMarketplaceAdminEntry}
+                          onAdmin={() => navigate('/admin/products')}
+                        />
+                        <button
+                          type="button"
+                          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-zinc-900 transition-colors active:bg-zinc-200/60"
+                          aria-label="Filters"
+                        >
+                          <MarketplaceFilterLinesIcon />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="fetch-home-marketplace-grid-scroll flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden [-webkit-overflow-scrolling:touch] px-3 pb-3">
+                      {peerListErr ? (
+                        <div className="mb-3 rounded-2xl border border-amber-200/90 bg-amber-50 px-4 py-3">
+                          <p className="text-[13px] font-bold text-amber-950">Community listings</p>
+                          <p className="mt-1 text-[12px] leading-snug text-amber-900/85">{peerListErr}</p>
                           <button
                             type="button"
                             className="mt-3 rounded-xl bg-amber-950 px-4 py-2 text-[12px] font-bold text-white active:opacity-90"
-                            onClick={() => void retryApiProducts()}
+                            onClick={() => void loadPeerListings()}
                           >
                             Retry
                           </button>
                         </div>
                       ) : null}
-                      {categoryListSorted.map((row) => {
-                        const known = isSupplyCategoryId(row.id)
-                        const [line1, line2] = known
-                          ? CATEGORY_BANNER_LINES[row.id as SupplyCategoryId]
-                          : [
-                              row.label,
-                              row.short_description?.trim() ||
-                                `${row.label} — curated supplies delivered fast.`,
-                            ]
-                        const deliveryLine = MARKETPLACE_DELIVERY_PROMO
-                        const imgSrc =
-                          row.hero_image_url?.trim() ||
-                          (known ? categoryBannerImageSrc(row.id) : null)
-                        const quickSubs = pickQuickMarketplaceSubcategories(row.subcategories ?? [])
-                        return (
-                          <div key={row.id} className="w-full">
-                            <button
-                              type="button"
-                              onClick={() => openCategoryBrowse(row.id)}
-                              className="block w-full cursor-pointer border-0 bg-transparent p-0 text-left transition-opacity active:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
-                              aria-label={`${row.label} category hero`}
-                            >
-                              <div className="relative aspect-video w-full overflow-hidden rounded-2xl bg-zinc-100 ring-1 ring-zinc-200/80">
-                                {imgSrc ? (
-                                  <img
-                                    src={imgSrc}
-                                    alt=""
-                                    className="h-full w-full object-cover"
-                                    decoding="async"
-                                    sizes="100vw"
-                                  />
-                                ) : (
-                                  <CategoryBannerGradient id={row.id} label={row.label} />
-                                )}
-                              </div>
-                            </button>
-                            {quickSubs.length > 0 ? (
-                              <div className="mt-2 flex flex-col gap-2 px-0.5">
-                                {quickSubs.map((sub) => (
-                                  <MarketplaceQuickSubRow
-                                    key={sub.id}
-                                    label={sub.label}
-                                    thumbs={marketplaceSubcategoryThumbUrls(catalogProducts, row.id, sub.id)}
-                                    onNavigate={() =>
-                                      openCategoryBrowse(row.id, {
-                                        directToProducts: true,
-                                        scrollSubId: sub.id,
-                                      })
-                                    }
-                                  />
-                                ))}
-                              </div>
-                            ) : null}
-                            <button
-                              type="button"
-                              onClick={() => openCategoryBrowse(row.id)}
-                              className="mt-3 block w-full cursor-pointer border-0 bg-transparent p-0 text-left transition-opacity active:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
-                              aria-label={`${row.label} supplies. ${deliveryLine} ${line2}`}
-                            >
-                              <div className="space-y-1.5 px-0.5">
-                                <p className="text-[22px] font-bold leading-tight tracking-[-0.03em] text-zinc-900">
-                                  {line1}
-                                </p>
-                                <p className="text-[13px] font-semibold leading-snug text-emerald-900/90 [text-wrap:pretty]">
-                                  {deliveryLine}
-                                </p>
-                                <p className="text-[13px] font-medium leading-snug text-zinc-600 [text-wrap:pretty]">
-                                  {line2}
-                                </p>
-                              </div>
-                            </button>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                  {cartItemCount > 0 ? (
-                    <div className="shrink-0 border-t border-zinc-200/80 bg-white/95 px-3 py-2.5 backdrop-blur-md supports-[backdrop-filter]:bg-white/85">
-                      <MarketplaceViewCartButton
-                        cartItemCount={cartItemCount}
-                        onOpen={goCart}
-                        ariaLabel={`View cart, ${cartItemCount} items, ${formatAud(cartTotalAud)}`}
-                      />
-                    </div>
-                  ) : null}
-                </div>
-              ) : (
-                <>
-                  <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-                    <div className="fetch-home-marketplace-grid-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-white [-webkit-overflow-scrolling:touch]">
-                      {activeBundle && activeBundleProducts.length > 0 ? (
-                        browseProductBannerSrc ? (
-                          <div className="shrink-0 border-b border-zinc-200/80 shadow-[0_10px_28px_-8px_rgba(15,23,42,0.14)]">
-                            <button
-                              type="button"
-                              onClick={() => setBundleSheet(activeBundle)}
-                              aria-label={`${activeBundle.title}. ${formatAud(activeBundle.bundlePriceAud)} bundle. View details.`}
-                              className="block w-full cursor-pointer border-0 bg-transparent p-0 text-left transition-opacity active:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-900"
-                            >
-                              <div className="relative aspect-video w-full overflow-hidden bg-zinc-100">
-                                <img
-                                  src={browseProductBannerSrc}
-                                  alt=""
-                                  className="h-full w-full object-cover"
-                                  decoding="async"
-                                  sizes="100vw"
-                                />
-                              </div>
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="shrink-0 border-b border-zinc-100 bg-white px-3 py-3">
-                            <button
-                              type="button"
-                              onClick={() => setBundleSheet(activeBundle)}
-                              className="flex w-full items-center gap-3 rounded-xl border border-violet-200/80 bg-gradient-to-r from-violet-50/60 via-white to-emerald-50/30 px-3 py-3 text-left shadow-sm shadow-violet-900/[0.04] transition-[transform,box-shadow] active:scale-[0.99] active:shadow-md"
-                            >
-                              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                                <span className="text-[10px] font-extrabold uppercase tracking-[0.08em] text-violet-700">
-                                  Bundle &amp; save
-                                </span>
-                                <span className="text-[14px] font-bold leading-tight tracking-tight text-zinc-900">
-                                  {activeBundle.title}
-                                </span>
-                                <span className="text-[11px] font-medium leading-snug text-zinc-500">
-                                  {formatAud(activeBundle.bundlePriceAud)} bundle ·{' '}
-                                  <span className="line-through decoration-zinc-400/80">
-                                    {formatAud(activeBundleRetail)}
-                                  </span>{' '}
-                                  separately
-                                </span>
-                              </div>
-                              <span className="shrink-0 rounded-full bg-zinc-900 px-3 py-1.5 text-[12px] font-semibold text-white">
-                                View
-                              </span>
-                            </button>
-                          </div>
-                        )
-                      ) : null}
 
-                      <div className="space-y-5 px-0 py-2.5 pb-4">
-                        {products.length === 0 ? (
-                          <p className="py-10 text-center text-[13px] font-medium text-zinc-500">
-                            No products in this category.
+                      <div
+                        className="rounded-2xl bg-white/70 p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] ring-1 ring-black/[0.06]"
+                        aria-busy={peerListLoading}
+                      >
+                        {gridRows.length === 0 ? (
+                          <p className="py-12 text-center text-[13px] font-medium text-zinc-500">
+                            No community listings yet.
                           </p>
                         ) : (
-                          productCarousels.map(({ title, items, subcategoryId }) => (
-                            <section
-                              key={title}
-                              role="region"
-                              aria-label={`${title} products`}
-                              className="min-w-0"
-                              data-fetch-marketplace-sub-id={subcategoryId ?? ''}
-                            >
-                              <h2 className="pl-4 pr-3 pb-2 text-[15px] font-bold tracking-tight text-zinc-900">
-                                {title}
-                              </h2>
-                              <div className="flex gap-2 overflow-x-auto overflow-y-hidden scroll-smooth pb-1 pl-4 pr-3 pt-0.5 [-webkit-overflow-scrolling:touch] [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden snap-x snap-mandatory">
-                                {items.map((p) => (
-                                  <article
-                                    key={p.id}
-                                    role="button"
-                                    tabIndex={0}
-                                    onClick={() => setProductSheet(p)}
-                                    onKeyDown={(e) => {
-                                      if (e.key === 'Enter' || e.key === ' ') {
-                                        e.preventDefault()
-                                        setProductSheet(p)
-                                      }
-                                    }}
-                                    className="flex w-[44vw] max-w-[200px] shrink-0 snap-start flex-col overflow-hidden rounded-xl bg-white transition-[box-shadow,ring] focus-visible:outline focus-visible:ring-2 active:bg-zinc-50/80"
-                                  >
-                                    <div className="relative flex aspect-square w-full shrink-0 items-center justify-center bg-zinc-50/80">
-                                      <SupplyProductThumb
-                                        src={p.coverImageUrl}
-                                        alt={p.title}
-                                        className="max-h-full max-w-full object-contain object-center p-2"
-                                      />
-                                      {isExternalAffiliateProduct(p) && p.affiliateUrl ? (
-                                        <a
-                                          href={p.affiliateUrl}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          className="absolute bottom-1 right-1 z-[1] flex h-7 min-w-7 items-center justify-center rounded-lg border border-amber-200/90 bg-amber-50 px-1 text-[10px] font-extrabold leading-none text-amber-950 shadow-sm shadow-zinc-900/10 transition-[transform,colors] active:scale-95"
-                                          aria-label={`View ${p.title} on Amazon`}
-                                          onClick={(ev) => ev.stopPropagation()}
-                                        >
-                                          Amazon
-                                        </a>
-                                      ) : (
-                                        <button
-                                          type="button"
-                                          className="absolute bottom-1 right-1 z-[1] flex h-7 w-7 items-center justify-center rounded-lg border border-zinc-200/90 bg-white text-[16px] font-semibold leading-none text-zinc-900 shadow-sm shadow-zinc-900/10 transition-[transform,colors] active:scale-95 active:bg-zinc-50"
-                                          aria-label={`Quick add ${p.title} to cart`}
-                                          onClick={(ev) => {
-                                            ev.stopPropagation()
-                                            addOne(p)
-                                          }}
-                                        >
-                                          +
-                                        </button>
-                                      )}
+                          <div className="grid grid-cols-2 gap-3">
+                            {gridRows.map((row) => (
+                              <article
+                                key={`peer-${row.listing.id}`}
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => {
+                                  setProductSheet(null)
+                                  setPeerListingSheet(row.listing)
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault()
+                                    setProductSheet(null)
+                                    setPeerListingSheet(row.listing)
+                                  }
+                                }}
+                                className="flex min-w-0 flex-col overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/[0.05] transition-[transform,box-shadow] focus-visible:outline focus-visible:ring-2 focus-visible:ring-zinc-900 active:scale-[0.99]"
+                              >
+                                <div className="relative aspect-square w-full shrink-0 bg-zinc-100">
+                                  {row.listing.images?.[0]?.url ? (
+                                    <img
+                                      src={listingImageAbsoluteUrl(row.listing.images[0].url)}
+                                      alt=""
+                                      className="h-full w-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="flex h-full items-center justify-center text-[11px] font-medium text-zinc-400">
+                                      No photo
                                     </div>
-                                    <div className="flex min-h-0 flex-1 flex-col px-2 pb-2 pt-1.5">
-                                      <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0">
-                                        {supplyProductShowsCompare(p) ? (
-                                          <span className="text-[11px] font-bold tabular-nums text-zinc-400 line-through decoration-zinc-300">
-                                            {formatAud(p.compareAtAud ?? 0)}
-                                          </span>
-                                        ) : null}
-                                        <p className="text-[14px] font-extrabold leading-none tabular-nums tracking-tight text-zinc-900">
-                                          {formatListingPriceAud(p)}
-                                        </p>
-                                        {supplyProductShowsCompare(p) && p.compareAtAud && p.priceAud > 0 ? (
-                                          <span className="text-[9px] font-extrabold text-emerald-700">
-                                            −
-                                            {Math.min(
-                                              99,
-                                              Math.round(
-                                                ((p.compareAtAud - p.priceAud) / p.compareAtAud) * 100,
-                                              ),
-                                            )}
-                                            %
-                                          </span>
-                                        ) : null}
-                                      </div>
-                                      <h3 className="mt-1 line-clamp-2 min-w-0 text-[11px] font-bold leading-snug tracking-tight text-zinc-900">
-                                        {p.title}
-                                      </h3>
-                                      <p className="mt-1 line-clamp-2 text-[10px] font-medium leading-snug text-zinc-500">
-                                        {p.subtitle}
-                                      </p>
-                                    </div>
-                                  </article>
-                                ))}
-                              </div>
-                            </section>
-                          ))
+                                  )}
+                                  <span className="absolute left-1.5 top-1.5 z-[1] rounded-md bg-violet-600 px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-white shadow-sm">
+                                    Community
+                                  </span>
+                                </div>
+                                <div className="flex min-h-0 flex-1 flex-col px-2.5 pb-2.5 pt-2">
+                                  <h3 className="line-clamp-2 text-[14px] font-bold leading-snug tracking-tight text-zinc-900">
+                                    {row.listing.title}
+                                  </h3>
+                                  <div className="mt-1 flex flex-wrap items-baseline gap-x-1.5 gap-y-0">
+                                    {peerListingCompareAtCents(row.listing) > 0 &&
+                                    (row.listing.priceCents ?? 0) > 0 &&
+                                    peerListingCompareAtCents(row.listing) > (row.listing.priceCents ?? 0) ? (
+                                      <span className="text-[12px] font-bold tabular-nums text-zinc-400 line-through decoration-zinc-300">
+                                        {formatAudFromCents(peerListingCompareAtCents(row.listing))}
+                                      </span>
+                                    ) : null}
+                                    <p className="text-[15px] font-extrabold tabular-nums tracking-tight text-zinc-900">
+                                      {formatAudFromCents(row.listing.priceCents ?? 0)}
+                                    </p>
+                                  </div>
+                                  <p className="mt-1 line-clamp-1 text-[11px] font-medium text-zinc-500">
+                                    Community
+                                    {peerListingPublicSellerLine(row.listing)
+                                      ? ` · ${peerListingPublicSellerLine(row.listing)}`
+                                      : ''}{' '}
+                                    · {listingDistanceMi(row.listing.id)}
+                                  </p>
+                                </div>
+                              </article>
+                            ))}
+                          </div>
                         )}
                       </div>
+
+                      <div className="min-h-[max(0.5rem,env(safe-area-inset-bottom,0px))] shrink-0" aria-hidden />
                     </div>
+
                     {cartItemCount > 0 ? (
-                      <div className="shrink-0 border-t border-zinc-200/80 bg-white/95 px-3 py-2.5 backdrop-blur-md supports-[backdrop-filter]:bg-white/85">
+                      <div className="shrink-0 border-t border-black/[0.06] bg-[#f0ebe3]/95 px-3 py-2.5 backdrop-blur-md">
                         <MarketplaceViewCartButton
                           cartItemCount={cartItemCount}
                           onOpen={goCart}
@@ -1354,8 +1040,8 @@ function HomeShellMarketplacePageInner({
                       </div>
                     ) : null}
                   </div>
-                </>
-              )
+                </div>
+              </div>
             ) : subView === 'cart' ? (
               <div
                 className="flex min-h-0 flex-1 flex-col bg-white"
@@ -1636,125 +1322,6 @@ function HomeShellMarketplacePageInner({
           </div>
         ) : null}
 
-
-
-      {bundleSheet && sheetBundleProducts.length > 0
-        ? createPortal(
-            <div className="fixed inset-0 z-[200] flex flex-col justify-end" role="presentation">
-              <button
-                type="button"
-                className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
-                aria-label="Close bundle details"
-                onClick={() => setBundleSheet(null)}
-              />
-              <div
-                className="relative z-[1] flex max-h-[min(88dvh,36rem)] flex-col rounded-t-[1.25rem] border border-zinc-200/90 bg-white shadow-[0_-8px_40px_rgba(15,23,42,0.12)]"
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="fetch-marketplace-bundle-sheet-title"
-              >
-                <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-zinc-200" aria-hidden />
-                <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
-                  <p className="text-[10px] font-extrabold uppercase tracking-[0.08em] text-violet-700">
-                    Bundle &amp; save
-                  </p>
-                  <h2
-                    id="fetch-marketplace-bundle-sheet-title"
-                    className="mt-1 text-[1.25rem] font-bold leading-tight tracking-[-0.03em] text-zinc-900"
-                  >
-                    {bundleSheet.title}
-                  </h2>
-                  <p className="mt-2 text-[13px] font-medium leading-snug text-zinc-600">
-                    {bundleSheet.marketing?.subtitle ?? bundleSheet.tagline}
-                  </p>
-                  {bundleSheet.marketing ? (
-                    <>
-                      <p className="mt-4 text-[11px] font-bold uppercase tracking-wide text-zinc-500">
-                        What&apos;s inside
-                      </p>
-                      <ul className="mt-2 list-disc space-y-1.5 border-t border-zinc-100 pt-3 pl-5 text-[13px] font-medium leading-snug text-zinc-700">
-                        {bundleSheet.marketing.whatsInside.map((line) => (
-                          <li key={line}>{line}</li>
-                        ))}
-                      </ul>
-                      <p className="mt-4 text-[11px] font-bold uppercase tracking-wide text-zinc-500">
-                        Perfect for
-                      </p>
-                      <ul className="mt-2 list-disc space-y-1.5 border-t border-zinc-100 pt-3 pl-5 text-[13px] font-medium leading-snug text-zinc-700">
-                        {bundleSheet.marketing.perfectFor.map((line) => (
-                          <li key={line}>{line}</li>
-                        ))}
-                      </ul>
-                      <p className="mt-4 text-[13px] font-semibold leading-snug text-zinc-800">
-                        {bundleSheet.marketing.closing}
-                      </p>
-                    </>
-                  ) : null}
-                  <p className="mt-4 text-[11px] font-bold uppercase tracking-wide text-zinc-500">
-                    {bundleSheet.marketing ? 'Included in your order' : 'What you get'}
-                  </p>
-                  <ul className="mt-2 space-y-3 border-t border-zinc-100 pt-3">
-                    {sheetBundleProducts.map((p) => (
-                      <li key={p.id} className="flex gap-3">
-                        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-zinc-50">
-                          <SupplyProductThumb
-                            src={p.coverImageUrl}
-                            alt={p.title}
-                            className="max-h-full max-w-full object-contain p-1"
-                          />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[13px] font-bold leading-snug text-zinc-900">{p.title}</p>
-                          <p className="mt-0.5 text-[12px] leading-snug text-zinc-500">{p.subtitle}</p>
-                          <p className="mt-1 text-[12px] font-semibold tabular-nums text-zinc-800">
-                            {formatAud(p.priceAud)}
-                          </p>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="mt-4 rounded-xl border border-zinc-100 bg-zinc-50/80 px-3 py-3">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="text-[12px] font-semibold text-zinc-500">If bought separately</span>
-                      <span className="text-[13px] font-semibold tabular-nums line-through text-zinc-400">
-                        {formatAud(sheetBundleRetail)}
-                      </span>
-                    </div>
-                    <div className="mt-2 flex items-baseline justify-between gap-2">
-                      <span className="text-[14px] font-bold text-zinc-900">Bundle price</span>
-                      <span className="text-[1.125rem] font-extrabold tabular-nums text-zinc-900">
-                        {formatAud(bundleSheet.bundlePriceAud)}
-                      </span>
-                    </div>
-                    {sheetBundleRetail > bundleSheet.bundlePriceAud ? (
-                      <p className="mt-1.5 text-[12px] font-semibold text-emerald-700">
-                        You save {formatAud(sheetBundleRetail - bundleSheet.bundlePriceAud)}
-                      </p>
-                    ) : null}
-                  </div>
-                  <div className="mt-4 flex flex-col gap-2">
-                    <button
-                      type="button"
-                      className="w-full rounded-xl bg-zinc-900 py-3.5 text-[15px] font-semibold text-white active:opacity-90"
-                      onClick={() => addBundleToCart(bundleSheet)}
-                    >
-                      Add bundle to cart
-                    </button>
-                    <button
-                      type="button"
-                      className="w-full py-2 text-[13px] font-semibold text-zinc-600 active:text-zinc-900"
-                      onClick={() => setBundleSheet(null)}
-                    >
-                      Not now
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
-
       {productSheet
         ? createPortal(
             <div className="fixed inset-0 z-[200] flex flex-col justify-end" role="presentation">
@@ -1900,6 +1467,221 @@ function HomeShellMarketplacePageInner({
             document.body,
           )
         : null}
+
+      {peerListingSheet
+        ? createPortal(
+            (() => {
+              const selected = peerListingSheet
+              const sellerEm = selected.sellerEmail?.trim().toLowerCase() ?? ''
+              const viewerEm = sessionEmail.trim().toLowerCase()
+              const isViewerSeller = Boolean(sellerEm && viewerEm && sellerEm === viewerEm)
+              return (
+                <div className="fixed inset-0 z-[200] flex flex-col justify-end" role="presentation">
+                  <button
+                    type="button"
+                    className="absolute inset-0 bg-black/40 backdrop-blur-[2px]"
+                    aria-label="Close listing details"
+                    onClick={closePeerListingSheet}
+                  />
+                  <div
+                    className="relative z-[1] flex max-h-[min(92dvh,40rem)] flex-col rounded-t-[1.25rem] border border-zinc-200/90 bg-white shadow-[0_-8px_40px_rgba(15,23,42,0.12)]"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="fetch-marketplace-peer-sheet-title"
+                  >
+                    <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-zinc-200" aria-hidden />
+                    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+                      {selected.images && selected.images.length > 0 ? (
+                        <div className="-mx-1 mb-3 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                          {[...selected.images]
+                            .sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0))
+                            .map((im) => (
+                              <img
+                                key={im.url}
+                                src={listingImageAbsoluteUrl(im.url)}
+                                alt=""
+                                className="h-44 w-44 shrink-0 rounded-2xl border border-zinc-200/80 object-cover shadow-sm"
+                              />
+                            ))}
+                        </div>
+                      ) : (
+                        <div className="mb-3 flex h-36 items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-zinc-50 text-[12px] font-medium text-zinc-400">
+                          No photos
+                        </div>
+                      )}
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-violet-700">
+                        Community listing
+                      </p>
+                      <h2
+                        id="fetch-marketplace-peer-sheet-title"
+                        className="mt-1 text-[1.15rem] font-bold text-zinc-900"
+                      >
+                        {selected.title}
+                      </h2>
+                      <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                        {peerListingCompareAtCents(selected) > 0 &&
+                        (selected.priceCents ?? 0) > 0 &&
+                        peerListingCompareAtCents(selected) > (selected.priceCents ?? 0) ? (
+                          <span className="text-[16px] font-bold tabular-nums text-zinc-400 line-through decoration-zinc-300">
+                            {formatAudFromCents(peerListingCompareAtCents(selected))}
+                          </span>
+                        ) : null}
+                        <p className="text-[20px] font-extrabold tabular-nums text-zinc-900">
+                          {formatAudFromCents(selected.priceCents ?? 0)}
+                        </p>
+                        {peerListingSavingsPercent(selected) != null ? (
+                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[12px] font-extrabold text-emerald-900">
+                            Save {peerListingSavingsPercent(selected)}%
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-semibold capitalize text-zinc-800">
+                          {selected.condition || 'used'}
+                        </span>
+                        <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-[11px] font-semibold capitalize text-zinc-800">
+                          {selected.category || 'general'}
+                        </span>
+                        {selected.locationLabel?.trim() ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-900">
+                            <PeerListingSheetMapPin className="h-3.5 w-3.5 shrink-0" />
+                            {selected.locationLabel.trim()}
+                          </span>
+                        ) : null}
+                        {selected.sku?.trim() ? (
+                          <span className="rounded-full bg-amber-50 px-2.5 py-1 font-mono text-[11px] font-semibold text-amber-950">
+                            SKU {selected.sku.trim()}
+                          </span>
+                        ) : null}
+                        {selected.acceptsOffers ? (
+                          <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-bold text-emerald-900">
+                            Offers welcome
+                          </span>
+                        ) : null}
+                        {selected.fetchDelivery ? (
+                          <span className="rounded-full bg-violet-600 px-2.5 py-1 text-[11px] font-bold text-white">
+                            Fetch delivery
+                          </span>
+                        ) : null}
+                      </div>
+                      {selected.profileAuthorId?.trim() ? (
+                        <div className="mt-3 flex items-center gap-3 rounded-xl border border-zinc-200/90 bg-zinc-50/90 px-3 py-2.5">
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-zinc-200 bg-white text-lg leading-none">
+                            {(() => {
+                              const av = selected.profileAvatar?.trim()
+                              if (av && /^https?:\/\//i.test(av)) {
+                                return <img src={av} alt="" className="h-full w-full object-cover" />
+                              }
+                              return <span aria-hidden>{av && av.length <= 8 ? av : '🏪'}</span>
+                            })()}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[10px] font-bold uppercase tracking-wide text-zinc-400">Seller</p>
+                            <p className="truncate text-[14px] font-semibold text-zinc-900">
+                              {peerListingPublicSellerLine(selected) ?? '@seller'}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            className="shrink-0 rounded-lg bg-zinc-900 px-3 py-2 text-[12px] font-bold text-white active:bg-zinc-800"
+                            onClick={openSellerInDrops}
+                          >
+                            View in Drops
+                          </button>
+                        </div>
+                      ) : null}
+                      {selected.keywords?.trim() ? (
+                        <p className="mt-2 text-[11px] leading-snug text-zinc-500">
+                          <span className="font-semibold text-zinc-600">Search terms: </span>
+                          {selected.keywords.trim()}
+                        </p>
+                      ) : null}
+                      <p className="mt-3 whitespace-pre-wrap text-[13px] leading-snug text-zinc-600">
+                        {selected.description}
+                      </p>
+                      {sessionEmail && onOpenListingChat && !isViewerSeller ? (
+                        <button
+                          type="button"
+                          disabled={peerCheckoutBusy}
+                          className="mt-3 w-full rounded-xl border border-zinc-300 bg-white py-3 text-[15px] font-semibold text-zinc-900 shadow-sm active:bg-zinc-50 disabled:opacity-50"
+                          onClick={() => void onOpenListingChat(selected.id)}
+                        >
+                          Message seller
+                        </button>
+                      ) : null}
+                      {peerBuyErr ? (
+                        <p className="mt-2 text-[12px] text-red-600">{peerBuyErr}</p>
+                      ) : null}
+                      {peerStripeBuy && import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY?.trim() ? (
+                        <div className="mt-4 rounded-xl border border-zinc-900 bg-zinc-950 p-3">
+                          <FetchStripePaymentElement
+                            publishableKey={import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY.trim()}
+                            clientSecret={peerStripeBuy.clientSecret}
+                            submitLabel={peerCheckoutBusy ? '…' : 'Pay'}
+                            disabled={peerCheckoutBusy}
+                            errorText={peerBuyErr}
+                            onError={(m) => setPeerBuyErr(m)}
+                            onSuccess={() => {
+                              void (async () => {
+                                const stripe = peerStripeBuy
+                                if (!stripe) return
+                                setPeerCheckoutBusy(true)
+                                setPeerBuyErr(null)
+                                try {
+                                  await waitForPaymentIntentServerConfirmed(stripe.paymentIntentId)
+                                  closePeerListingSheet()
+                                  void loadPeerListings()
+                                } catch (e) {
+                                  setPeerBuyErr(e instanceof Error ? e.message : 'Confirm failed')
+                                } finally {
+                                  setPeerCheckoutBusy(false)
+                                }
+                              })()
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={peerCheckoutBusy || isViewerSeller}
+                          className="mt-4 w-full rounded-xl bg-zinc-900 py-3.5 text-[15px] font-semibold text-white disabled:opacity-50"
+                          onClick={() => void startPeerBuy(selected)}
+                        >
+                          {peerCheckoutBusy ? '…' : 'Buy now'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className="mt-3 w-full py-2 text-[13px] font-semibold text-zinc-500 active:text-zinc-800"
+                        onClick={closePeerListingSheet}
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )
+            })(),
+            document.body,
+          )
+        : null}
+
+      {sellerToolsOpen ? (
+        <div className="absolute inset-0 z-[70] flex min-h-0 flex-col bg-zinc-100">
+          <HomeShellBuySellPage
+            bottomNav={bottomNav}
+            onMenuAccount={onMenuAccount}
+            onOpenListingChat={onOpenListingChat}
+            onRequestHomeShellTab={onRequestHomeShellTab}
+            onBookDriver={onBookDriver}
+            overlayMode
+            onOverlayClose={() => {
+              setSellerToolsOpen(false)
+              void loadPeerListings()
+            }}
+          />
+        </div>
+      ) : null}
     </div>
   )
 }

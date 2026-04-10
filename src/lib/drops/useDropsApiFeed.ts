@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { getFetchApiBaseUrl } from '../fetchApiBase'
+import { loadSession } from '../fetchUserSession'
+import { isFetchDevDemoSession } from '../fetchDevDemo'
 import type { DropReel } from './types'
+import { buildDevDemoDropApiRows } from './devDemoDropsFeed'
 import { mapApiDropToReel } from './mapApiReel'
 
 export type UseDropsApiFeedState = {
@@ -28,6 +31,7 @@ export function useDropsApiFeed(): UseDropsApiFeedState {
       try {
         const res = await fetch(`${getFetchApiBaseUrl()}/api/drops/feed?limit=48&rank=1`, {
           credentials: 'include',
+          cache: 'no-store',
         })
         const payload = (await res.json().catch(() => ({}))) as {
           drops?: Record<string, unknown>[]
@@ -42,9 +46,20 @@ export function useDropsApiFeed(): UseDropsApiFeedState {
           return
         }
         const list = Array.isArray(payload.drops) ? payload.drops : []
-        const mapped = list.map((row) => mapApiDropToReel(row)).filter(Boolean) as DropReel[]
+        let mapped = list.map((row) => mapApiDropToReel(row)).filter(Boolean) as DropReel[]
+        const session = loadSession()
+        if (session && isFetchDevDemoSession(session)) {
+          const demoRows = buildDevDemoDropApiRows(session)
+          const demoReels = demoRows
+            .map((row) => mapApiDropToReel(row))
+            .filter(Boolean) as DropReel[]
+          const ids = new Set(mapped.map((r) => r.id))
+          const extra = demoReels.filter((r) => !ids.has(r.id))
+          mapped = [...extra, ...mapped]
+        }
         setReels(mapped)
-      } catch {
+      } catch (e) {
+        console.error('[drops/feed] request failed', e)
         if (!cancelled) {
           setReels([])
           setError('network_error')

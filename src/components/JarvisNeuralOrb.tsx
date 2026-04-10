@@ -18,9 +18,12 @@ function drawOrbSparkle(
   y: number,
   s: number,
   a: number,
+  warm?: boolean,
 ) {
   ctx.save()
-  ctx.strokeStyle = `rgba(224, 245, 255, ${a})`
+  ctx.strokeStyle = warm
+    ? `rgba(188, 142, 108, ${a})`
+    : `rgba(224, 245, 255, ${a})`
   ctx.lineWidth = Math.max(0.55, s * 0.24)
   ctx.lineCap = 'round'
   ctx.beginPath()
@@ -29,7 +32,9 @@ function drawOrbSparkle(
   ctx.moveTo(x, y - s * 0.92)
   ctx.lineTo(x, y + s * 0.92)
   ctx.stroke()
-  ctx.fillStyle = `rgba(255, 255, 255, ${a * 0.9})`
+  ctx.fillStyle = warm
+    ? `rgba(210, 168, 128, ${a * 0.85})`
+    : `rgba(186, 206, 232, ${a * 0.85})`
   ctx.beginPath()
   ctx.arc(x, y, s * 0.12, 0, Math.PI * 2)
   ctx.fill()
@@ -125,7 +130,8 @@ const BASE_HW = 0.106 * FACE_SCALE
 const BASE_HH = 0.184 * FACE_SCALE
 const BASE_SPREAD = 0.244 * FACE_SCALE
 const ORB_LID_SHADE = 'rgba(10,11,14,0.97)'
-const ORB_LID_LIGHT = 'rgba(252,252,254,0.97)'
+/** Day flatlay — eyelids match skin (no white bars). */
+const ORB_LID_SKIN = 'rgba(218, 178, 142, 0.98)'
 
 function clamp01(v: number) {
   return Math.max(0, Math.min(1, v))
@@ -165,24 +171,11 @@ function drawExpressivePillEye(
   if (onLightSphere) {
     ctx.save()
     ctx.globalCompositeOperation = 'source-over'
-    ctx.shadowColor = 'rgba(15, 30, 45, 0.2)'
-    ctx.shadowBlur = halfW * 1.35
-    ctx.shadowOffsetY = halfH * 0.1
     const lg = ctx.createRadialGradient(cx, cy - h * 0.12, 0, cx, cy, Math.max(w, h) * 0.72)
     lg.addColorStop(0, `rgba(48,52,62,${0.9 * int})`)
     lg.addColorStop(0.42, `rgba(24,26,32,${0.96 * int})`)
     lg.addColorStop(1, `rgba(6,7,10,${0.99 * int})`)
     ctx.fillStyle = lg
-    ctx.beginPath()
-    ctx.roundRect(x, y, w, h, corner)
-    ctx.fill()
-    ctx.shadowBlur = 0
-    ctx.shadowOffsetY = 0
-    const hi = ctx.createLinearGradient(cx - halfW, y, cx + halfW, y + h * 0.4)
-    hi.addColorStop(0, `rgba(255,255,255,${0.1 * int})`)
-    hi.addColorStop(0.55, `rgba(255,255,255,${0.03 * int})`)
-    hi.addColorStop(1, 'rgba(255,255,255,0)')
-    ctx.fillStyle = hi
     ctx.beginPath()
     ctx.roundRect(x, y, w, h, corner)
     ctx.fill()
@@ -192,8 +185,8 @@ function drawExpressivePillEye(
       const browH = Math.min(h * (0.18 + browTension * 0.22), h * 0.45)
       ctx.save()
       const g = ctx.createLinearGradient(x, y, x, y + browH)
-      g.addColorStop(0, `rgba(255,255,255,${0.28 * browTension})`)
-      g.addColorStop(1, 'rgba(255,255,255,0)')
+      g.addColorStop(0, `rgba(120, 82, 58, ${0.22 * browTension})`)
+      g.addColorStop(1, 'rgba(120, 82, 58, 0)')
       ctx.fillStyle = g
       ctx.beginPath()
       ctx.roundRect(x, y - 0.5, w, browH + 1, Math.min(corner * 0.6, 6))
@@ -205,14 +198,14 @@ function drawExpressivePillEye(
     ctx.globalCompositeOperation = 'source-over'
     if (upperLid > 0.02) {
       const cover = h * clamp01(upperLid)
-      ctx.fillStyle = ORB_LID_LIGHT
+      ctx.fillStyle = ORB_LID_SKIN
       ctx.beginPath()
       ctx.rect(x - 1.5, y - 1, w + 3, cover + 0.5)
       ctx.fill()
     }
     if (lowerLid > 0.02) {
       const cover = h * clamp01(lowerLid)
-      ctx.fillStyle = ORB_LID_LIGHT
+      ctx.fillStyle = ORB_LID_SKIN
       ctx.beginPath()
       ctx.rect(x - 1.5, y + h - cover - 0.5, w + 3, cover + 2)
       ctx.fill()
@@ -222,29 +215,20 @@ function drawExpressivePillEye(
   }
 
   ctx.save()
-  ctx.globalCompositeOperation = 'screen'
-
-  /* Outer soft glow — makes eyes feel like light, not shapes */
-  ctx.shadowColor = `rgba(210,215,225,${0.38 * int})`
-  ctx.shadowBlur = halfW * 2.65
-  ctx.fillStyle = `rgba(200,205,215,${0.14 * int})`
-  ctx.beginPath()
-  ctx.roundRect(x, y, w, h, corner)
-  ctx.fill()
-  ctx.shadowBlur = 0
-
-  /* Inner gradient — off-white with subtle falloff */
-  const lg = ctx.createRadialGradient(
-    cx, cy, 0,
-    cx, cy, Math.max(w, h) * 0.65,
-  )
-  lg.addColorStop(0, `rgba(220,224,232,${0.82 * int})`)
-  lg.addColorStop(0.55, `rgba(210,214,222,${0.68 * int})`)
-  lg.addColorStop(1, `rgba(180,185,198,${0.38 * int})`)
+  ctx.globalCompositeOperation = 'source-over'
+  ctx.shadowColor = 'rgba(0,0,0,0.35)'
+  ctx.shadowBlur = halfW * 0.85
+  ctx.shadowOffsetY = halfH * 0.06
+  const lg = ctx.createRadialGradient(cx, cy - h * 0.1, 0, cx, cy, Math.max(w, h) * 0.72)
+  lg.addColorStop(0, `rgba(22,24,30,${0.92 * int})`)
+  lg.addColorStop(0.45, `rgba(14,15,19,${0.97 * int})`)
+  lg.addColorStop(1, `rgba(8,9,12,${0.99 * int})`)
   ctx.fillStyle = lg
   ctx.beginPath()
   ctx.roundRect(x, y, w, h, corner)
   ctx.fill()
+  ctx.shadowBlur = 0
+  ctx.shadowOffsetY = 0
   ctx.restore()
 
   if (browTension > 0.03) {
@@ -295,18 +279,6 @@ function drawPupilDot(
   ctx.save()
   if (onLightSphere) {
     ctx.globalCompositeOperation = 'source-over'
-    ctx.fillStyle = `rgba(255,255,255,${0.5 * a})`
-    ctx.beginPath()
-    ctx.ellipse(
-      cx + shiftX - R * 0.0045,
-      cy + shiftY - R * 0.005,
-      R * 0.0068,
-      R * 0.0082,
-      0,
-      0,
-      Math.PI * 2,
-    )
-    ctx.fill()
     ctx.fillStyle = `rgba(4,5,8,${0.94 * a})`
     ctx.beginPath()
     ctx.ellipse(cx + shiftX, cy + shiftY, R * 0.017, R * 0.021, 0, 0, Math.PI * 2)
@@ -405,7 +377,7 @@ function drawHumanLipsSpeak(
 
   ctx.strokeStyle = onLightSphere
     ? `rgba(18,20,28,${alphaMul * (0.88 + lip * 0.1)})`
-    : `rgba(248,247,252,${alphaMul * (0.88 + lip * 0.1)})`
+    : `rgba(108,112,124,${alphaMul * (0.88 + lip * 0.1)})`
   ctx.lineWidth = lineUpper
   ctx.beginPath()
   ctx.moveTo(cx - hw, cornerY)
@@ -430,7 +402,7 @@ function drawHumanLipsSpeak(
   const yLowerMid = cornerY + lowerHang
   ctx.strokeStyle = onLightSphere
     ? `rgba(22,24,32,${alphaMul * (0.85 + lip * 0.12)})`
-    : `rgba(232,233,242,${alphaMul * (0.85 + lip * 0.12)})`
+    : `rgba(98,102,114,${alphaMul * (0.85 + lip * 0.12)})`
   ctx.lineWidth = lineLower
   ctx.beginPath()
   ctx.moveTo(cx - hw * 0.96, cornerY + hw * 0.028)
@@ -447,7 +419,7 @@ function drawHumanLipsSpeak(
   if (lip > 0.06) {
     ctx.strokeStyle = onLightSphere
       ? `rgba(60,65,78,${0.12 + lip * 0.2})`
-      : `rgba(255,255,255,${0.06 + lip * 0.14})`
+      : `rgba(72,76,88,${0.12 + lip * 0.2})`
     ctx.lineWidth = Math.max(0.6, lineLower * 0.32)
     ctx.beginPath()
     ctx.moveTo(cx - hw * 0.42, yLowerMid + hw * 0.04)
@@ -493,7 +465,7 @@ function drawOrbMouth(
       const alpha = clamp01((0.62 + en * 0.34) * (0.75 + fi * 0.28))
       ctx.strokeStyle = onLightSphere
         ? `rgba(20,22,30,${alpha})`
-        : `rgba(252,252,255,${alpha})`
+        : `rgba(100,104,118,${alpha})`
       ctx.lineWidth = Math.max(1.15, R * 0.0092)
       strokeSmileArc(ctx, cx, my, w, sagitta)
       break
@@ -533,7 +505,7 @@ function drawOrbMouth(
       const sagitta = R * 0.038 * FACE_SCALE
       ctx.strokeStyle = onLightSphere
         ? `rgba(28,30,38,${0.52 * fi})`
-        : `rgba(236,238,244,${0.45 * fi})`
+        : `rgba(95,99,112,${0.45 * fi})`
       ctx.lineWidth = Math.max(1, R * 0.009)
       strokeSmileArc(ctx, cx, my, w, sagitta)
       break
@@ -543,7 +515,7 @@ function drawOrbMouth(
       const rh = R * 0.034 * FACE_SCALE
       ctx.strokeStyle = onLightSphere
         ? `rgba(22,24,32,${0.58 * fi})`
-        : `rgba(252,252,255,${0.52 * fi})`
+        : `rgba(102,106,120,${0.52 * fi})`
       ctx.lineWidth = Math.max(1, R * 0.011)
       ctx.beginPath()
       ctx.ellipse(cx, my + rh * 0.18, rw, rh, 0, 0, Math.PI * 2)
@@ -563,7 +535,7 @@ function drawFetchWaveHand(
   cy: number,
   R: number,
   waveOsc: number,
-  glow: GlowRGB,
+  _glow: GlowRGB,
   alpha: number,
   onLightSphere: boolean,
 ) {
@@ -580,7 +552,7 @@ function drawFetchWaveHand(
   const rr = Math.min(R * 0.06, palmW * 0.22)
   const fill = onLightSphere
     ? 'rgba(18,20,28,0.92)'
-    : `rgba(${glow.r},${glow.g},${glow.b},0.9)`
+    : 'rgba(26,28,36,0.92)'
   ctx.beginPath()
   if (typeof ctx.roundRect === 'function') {
     ctx.roundRect(-palmW * 0.32, -palmH * 0.15, palmW, palmH, rr)
@@ -589,7 +561,7 @@ function drawFetchWaveHand(
   }
   ctx.fillStyle = fill
   ctx.fill()
-  ctx.strokeStyle = onLightSphere ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.32)'
+  ctx.strokeStyle = onLightSphere ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.1)'
   ctx.lineWidth = Math.max(1, R * 0.011)
   ctx.stroke()
 
@@ -1029,37 +1001,37 @@ export function JarvisNeuralOrb({
         ctx.clip()
 
         if (dayOrb) {
-          /* Daytime: white / porcelain sphere */
+          /* Day flatlay — matte tan disk (no white center glow) */
           const core = ctx.createRadialGradient(
-            cx - R * 0.1,
-            cy - R * 0.2,
-            R * 0.02,
+            cx - R * 0.06,
+            cy - R * 0.12,
+            R * 0.04,
             cx,
             cy,
             R * 1.0,
           )
-          core.addColorStop(0, 'rgba(255,255,255,1)')
-          core.addColorStop(0.35, 'rgba(252,253,255,1)')
-          core.addColorStop(0.65, 'rgba(245,247,250,1)')
-          core.addColorStop(0.9, 'rgba(236,240,245,1)')
-          core.addColorStop(1, 'rgba(228,234,240,1)')
+          core.addColorStop(0, 'rgba(244,214,182,1)')
+          core.addColorStop(0.38, 'rgba(232,196,160,1)')
+          core.addColorStop(0.68, 'rgba(214,172,132,1)')
+          core.addColorStop(0.9, 'rgba(196,152,116,1)')
+          core.addColorStop(1, 'rgba(188,142,108,1)')
           ctx.fillStyle = core
           ctx.fillRect(cx - R * 1.2, cy - R * 1.2, R * 2.4, R * 2.4)
 
           const edgeFade = ctx.createRadialGradient(cx, cy, R * 0.78, cx, cy, R)
           edgeFade.addColorStop(0, 'rgba(0,0,0,0)')
-          edgeFade.addColorStop(0.55, 'rgba(80,110,130,0.05)')
-          edgeFade.addColorStop(1, 'rgba(40,70,90,0.1)')
+          edgeFade.addColorStop(0.55, 'rgba(92,58,42,0.05)')
+          edgeFade.addColorStop(1, 'rgba(72,44,32,0.08)')
           ctx.fillStyle = edgeFade
           ctx.beginPath()
           ctx.arc(cx, cy, R, 0, Math.PI * 2)
           ctx.fill()
 
           const warmCore =
-            (0.028 + act * 0.032) * vis.innerWarm * (0.75 + vis.redAccent * 0.06)
+            (0.018 + act * 0.02) * vis.innerWarm * (0.75 + vis.redAccent * 0.06)
           const innerWarm = ctx.createRadialGradient(cx + R * 0.08, cy + R * 0.1, 0, cx, cy, R * 0.62)
-          innerWarm.addColorStop(0, `rgba(${gc.r},${gc.g},${gc.b},${warmCore})`)
-          innerWarm.addColorStop(1, 'rgba(255,255,255,0)')
+          innerWarm.addColorStop(0, `rgba(168, 112, 78, ${warmCore * 1.1})`)
+          innerWarm.addColorStop(1, 'rgba(210, 168, 128, 0)')
           ctx.fillStyle = innerWarm
           ctx.globalCompositeOperation = 'multiply'
           ctx.beginPath()
@@ -1067,21 +1039,18 @@ export function JarvisNeuralOrb({
           ctx.fill()
           ctx.globalCompositeOperation = 'source-over'
 
-          if (vis.shimmer > 0.02) {
-            const sh = shimmerPhaseRef.current
-            const gx = cx + Math.cos(sh * 0.75) * R * 0.16
-            const gy = cy + Math.sin(sh * 0.55) * R * 0.12
-            const sg = ctx.createRadialGradient(gx, gy, 0, gx, gy, R * 0.48)
-            const amp = vis.shimmer * (0.045 + Math.sin(sh * 0.9) * 0.028)
-            sg.addColorStop(0, `rgba(255,255,255,${amp})`)
-            sg.addColorStop(0.45, `rgba(255,255,255,${amp * 0.35})`)
-            sg.addColorStop(1, 'rgba(255,255,255,0)')
-            ctx.fillStyle = sg
-            ctx.globalCompositeOperation = 'source-over'
-            ctx.beginPath()
-            ctx.arc(cx, cy, R * 0.9, 0, Math.PI * 2)
-            ctx.fill()
-          }
+          /* Flatlay: hard-edged interior shadow — bottom, biased to the right */
+          ctx.save()
+          ctx.beginPath()
+          ctx.moveTo(cx - R * 0.42, cy + R * 0.36)
+          ctx.lineTo(cx + R * 0.88, cy + R * 0.2)
+          ctx.lineTo(cx + R * 0.99, cy + R * 0.97)
+          ctx.lineTo(cx - R * 0.91, cy + R * 0.99)
+          ctx.closePath()
+          ctx.fillStyle = 'rgba(48, 34, 24, 0.36)'
+          ctx.globalCompositeOperation = 'multiply'
+          ctx.fill()
+          ctx.restore()
         } else {
           /* Deep matte sphere — dark center, slightly lighter edges for depth */
           const core = ctx.createRadialGradient(
@@ -1111,34 +1080,29 @@ export function JarvisNeuralOrb({
           ctx.fill()
 
           const warmCore =
-            (0.058 + act * 0.065) * vis.innerWarm * (0.85 + vis.redAccent * 0.08)
+            (0.038 + act * 0.042) * vis.innerWarm * (0.85 + vis.redAccent * 0.08)
           const innerWarm = ctx.createRadialGradient(cx + R * 0.08, cy + R * 0.12, 0, cx, cy, R * 0.7)
-          innerWarm.addColorStop(0, `rgba(${gc.r},${gc.g},${gc.b},${warmCore})`)
+          innerWarm.addColorStop(0, `rgba(36, 48, 64, ${warmCore * 1.35})`)
           innerWarm.addColorStop(1, 'rgba(0,0,0,0)')
           ctx.fillStyle = innerWarm
-          ctx.globalCompositeOperation = 'lighter'
+          ctx.globalCompositeOperation = 'multiply'
           ctx.beginPath()
           ctx.arc(cx, cy, R * 0.88, 0, Math.PI * 2)
           ctx.fill()
           ctx.globalCompositeOperation = 'source-over'
 
-          /* Slow internal shimmer — faint wandering light inside the sphere */
-          if (vis.shimmer > 0.02) {
-            const sh = shimmerPhaseRef.current
-            const gx = cx + Math.cos(sh * 0.75) * R * 0.18
-            const gy = cy + Math.sin(sh * 0.55) * R * 0.14
-            const sg = ctx.createRadialGradient(gx, gy, 0, gx, gy, R * 0.52)
-            const amp = vis.shimmer * (0.016 + Math.sin(sh * 0.9) * 0.012)
-            sg.addColorStop(0, `rgba(255,255,255,${amp})`)
-            sg.addColorStop(0.5, `rgba(255,255,255,${amp * 0.3})`)
-            sg.addColorStop(1, 'rgba(255,255,255,0)')
-            ctx.fillStyle = sg
-            ctx.globalCompositeOperation = 'lighter'
-            ctx.beginPath()
-            ctx.arc(cx, cy, R * 0.88, 0, Math.PI * 2)
-            ctx.fill()
-            ctx.globalCompositeOperation = 'source-over'
-          }
+          /* Night: subtle flatlay interior shadow (same bias as day, lower contrast) */
+          ctx.save()
+          ctx.beginPath()
+          ctx.moveTo(cx - R * 0.42, cy + R * 0.38)
+          ctx.lineTo(cx + R * 0.85, cy + R * 0.24)
+          ctx.lineTo(cx + R * 0.98, cy + R * 0.96)
+          ctx.lineTo(cx - R * 0.9, cy + R * 0.98)
+          ctx.closePath()
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.38)'
+          ctx.globalCompositeOperation = 'multiply'
+          ctx.fill()
+          ctx.restore()
         }
 
         if (homeMagicalDock) {
@@ -1152,21 +1116,21 @@ export function JarvisNeuralOrb({
             cy,
             R * 0.91,
           )
-          const b0 = (dayOrb ? 0.15 : 0.34) * pulse
-          const b1 = (dayOrb ? 0.09 : 0.22) * pulse
-          const b2 = (dayOrb ? 0.042 : 0.12) * pulse
+          const b0 = (dayOrb ? 0.09 : 0.34) * pulse
+          const b1 = (dayOrb ? 0.055 : 0.22) * pulse
+          const b2 = (dayOrb ? 0.028 : 0.12) * pulse
           if (dayOrb) {
-            blueFill.addColorStop(0, `rgba(255, 255, 255, ${b0})`)
-            blueFill.addColorStop(0.4, `rgba(248, 250, 252, ${b1})`)
-            blueFill.addColorStop(0.74, `rgba(226, 232, 240, ${b2})`)
+            blueFill.addColorStop(0, `rgba(228, 188, 152, ${b0})`)
+            blueFill.addColorStop(0.4, `rgba(200, 158, 118, ${b1})`)
+            blueFill.addColorStop(0.74, `rgba(176, 132, 98, ${b2})`)
           } else {
             blueFill.addColorStop(0, `rgba(56, 189, 248, ${b0})`)
             blueFill.addColorStop(0.38, `rgba(129, 140, 246, ${b1})`)
             blueFill.addColorStop(0.72, `rgba(59, 130, 246, ${b2})`)
           }
-          blueFill.addColorStop(1, dayOrb ? 'rgba(255,255,255,0)' : 'rgba(0,0,0,0)')
+          blueFill.addColorStop(1, dayOrb ? 'rgba(210,168,128,0)' : 'rgba(0,0,0,0)')
           ctx.fillStyle = blueFill
-          ctx.globalCompositeOperation = dayOrb ? 'soft-light' : 'lighter'
+          ctx.globalCompositeOperation = dayOrb ? 'multiply' : 'source-over'
           ctx.beginPath()
           ctx.arc(cx, cy, R * 0.99, 0, Math.PI * 2)
           ctx.fill()
@@ -1174,24 +1138,24 @@ export function JarvisNeuralOrb({
           const edgeBlue = ctx.createRadialGradient(cx, cy, R * 0.62, cx, cy, R * 0.995)
           edgeBlue.addColorStop(
             0,
-            dayOrb ? 'rgba(248, 250, 252, 0)' : 'rgba(56, 189, 248, 0)',
+            dayOrb ? 'rgba(210, 170, 130, 0)' : 'rgba(56, 189, 248, 0)',
           )
           edgeBlue.addColorStop(
             0.72,
-            dayOrb ? 'rgba(255, 255, 255, 0.05)' : 'rgba(56, 189, 248, 0.12)',
+            dayOrb ? 'rgba(150, 98, 68, 0.06)' : 'rgba(56, 189, 248, 0.12)',
           )
           edgeBlue.addColorStop(
             1,
-            dayOrb ? 'rgba(226, 232, 240, 0.11)' : 'rgba(56, 189, 248, 0.22)',
+            dayOrb ? 'rgba(120, 78, 52, 0.1)' : 'rgba(56, 189, 248, 0.22)',
           )
           ctx.fillStyle = edgeBlue
-          ctx.globalCompositeOperation = dayOrb ? 'source-over' : 'lighter'
+          ctx.globalCompositeOperation = 'source-over'
           ctx.beginPath()
           ctx.arc(cx, cy, R * 0.99, 0, Math.PI * 2)
           ctx.fill()
 
           ctx.globalCompositeOperation = 'source-over'
-          ctx.strokeStyle = dayOrb ? 'rgba(226, 232, 240, 0.4)' : 'rgba(125, 211, 252, 0.32)'
+          ctx.strokeStyle = dayOrb ? 'rgba(160, 108, 78, 0.38)' : 'rgba(125, 211, 252, 0.32)'
           ctx.lineWidth = Math.max(1, R * 0.018)
           ctx.beginPath()
           ctx.arc(cx, cy, R * 0.985, 0, Math.PI * 2)
@@ -1202,22 +1166,21 @@ export function JarvisNeuralOrb({
           const ly = cy - R * 0.7
           const rimGlow = ctx.createRadialGradient(lx, ly, 0, lx, ly, R * 0.28)
           if (dayOrb) {
-            rimGlow.addColorStop(0, `rgba(255,255,255,${0.46 * pulse})`)
-            rimGlow.addColorStop(0.35, `rgba(248, 250, 252, ${0.16 * pulse})`)
-            rimGlow.addColorStop(0.65, `rgba(226, 232, 240, ${0.05 * pulse})`)
-            rimGlow.addColorStop(1, 'rgba(255,255,255,0)')
+            rimGlow.addColorStop(0, `rgba(200, 160, 124, ${0.08 * pulse})`)
+            rimGlow.addColorStop(0.45, `rgba(188, 142, 108, ${0.04 * pulse})`)
+            rimGlow.addColorStop(1, 'rgba(188,142,108,0)')
           } else {
-            rimGlow.addColorStop(0, `rgba(255,255,255,${0.2 * pulse})`)
-            rimGlow.addColorStop(0.4, `rgba(147, 197, 253, ${0.12 * pulse})`)
+            rimGlow.addColorStop(0, `rgba(96, 165, 220, ${0.12 * pulse})`)
+            rimGlow.addColorStop(0.5, `rgba(59, 99, 140, ${0.05 * pulse})`)
             rimGlow.addColorStop(1, 'rgba(0,0,0,0)')
           }
           ctx.fillStyle = rimGlow
-          ctx.globalCompositeOperation = dayOrb ? 'source-over' : 'lighter'
+          ctx.globalCompositeOperation = 'source-over'
           ctx.beginPath()
           ctx.arc(cx, cy, R * 0.99, 0, Math.PI * 2)
           ctx.fill()
 
-          ctx.globalCompositeOperation = dayOrb ? 'source-over' : 'lighter'
+          ctx.globalCompositeOperation = 'source-over'
           const dustAlphaMul = 1 - act * 0.38
           const dustN = 11
           for (let i = 0; i < dustN; i++) {
@@ -1233,7 +1196,7 @@ export function JarvisNeuralOrb({
             const alpha =
               (0.042 + Math.sin(t * 0.76 + i * 1.13) * 0.022) * dustAlphaMul
             ctx.fillStyle = dayOrb
-              ? `rgba(248, 250, 252, ${alpha})`
+              ? `rgba(196, 158, 122, ${alpha})`
               : `rgba(199, 210, 254, ${alpha})`
             ctx.beginPath()
             ctx.arc(px, py, pr, 0, Math.PI * 2)
@@ -1251,7 +1214,7 @@ export function JarvisNeuralOrb({
             const sz = R * (0.055 + (j % 3) * 0.018)
             const sa =
               (0.32 + Math.sin(t * 1.05 + j * 1.4) * 0.18) * dustAlphaMul * (dayOrb ? 0.85 : 1)
-            drawOrbSparkle(ctx, sx, sy, sz, sa)
+            drawOrbSparkle(ctx, sx, sy, sz, sa, dayOrb)
           }
 
           ctx.globalCompositeOperation = 'source-over'
@@ -1430,21 +1393,16 @@ export function JarvisNeuralOrb({
       if (confirmPulseRef.current > 0.01) {
         const p = easeOutCubic(confirmPulseRef.current)
         ctx.save()
-        ctx.globalCompositeOperation = dayOrb ? 'source-over' : 'screen'
+               ctx.globalCompositeOperation = 'source-over'
         const pr = R + (1 - p) * R * 0.38
         const pg = ctx.createRadialGradient(cx, cy, R * 0.92, cx, cy, pr)
         if (dayOrb) {
-          pg.addColorStop(0, `rgba(${gc.r},${gc.g},${gc.b},${p * 0.14})`)
-          pg.addColorStop(
-            0.45,
-            dayOrb
-              ? `rgba(248, 250, 252, ${p * 0.1})`
-              : `rgba(56, 189, 248, ${p * 0.08})`,
-          )
-          pg.addColorStop(1, 'rgba(255,255,255,0)')
+          pg.addColorStop(0, `rgba(188, 132, 96, ${p * 0.12})`)
+          pg.addColorStop(0.5, `rgba(168, 112, 78, ${p * 0.07})`)
+          pg.addColorStop(1, 'rgba(188,142,108,0)')
         } else {
-          pg.addColorStop(0, `rgba(${gc.r},${gc.g},${gc.b},${p * 0.12})`)
-          pg.addColorStop(0.5, `rgba(${gc.r},${gc.g},${gc.b},${p * 0.06})`)
+          pg.addColorStop(0, `rgba(45, 72, 98, ${p * 0.1})`)
+          pg.addColorStop(0.55, `rgba(28, 44, 62, ${p * 0.045})`)
           pg.addColorStop(1, 'rgba(0,0,0,0)')
         }
         ctx.fillStyle = pg

@@ -71,6 +71,8 @@ type MapTimeWeatherOverlayProps = {
   hideSystemHeader?: boolean
   /** Floating back control when the system header is hidden. */
   mapBackBubble?: MapBackBubbleProps | null
+  /** Intent AI scanner: large rounded SCAN wordmark instead of Fetch + eyes. */
+  scannerWordmark?: boolean
 }
 
 function HelpCircleIcon({ className = '' }: { className?: string }) {
@@ -161,6 +163,7 @@ function MapTimeWeatherOverlayInner({
   mapHeaderAddressEntry = null,
   hideSystemHeader = false,
   mapBackBubble = null,
+  scannerWordmark = false,
 }: MapTimeWeatherOverlayProps) {
   const isDriver = overlayContext === 'driver'
   const [sideMenuOpen, setSideMenuOpen] = useState(false)
@@ -349,13 +352,24 @@ function MapTimeWeatherOverlayInner({
                 >
                   <ShellMenuIcon className="h-[18px] w-[18px] translate-y-px" />
                 </button>
-                <div className="pointer-events-none flex min-w-0 items-center gap-1.5" aria-label="Fetch">
-                  <span className="inline-flex shrink-0" aria-hidden>
-                    <FetchEyesHomeIcon className="h-[17px] w-[17px] text-zinc-900" tight />
-                  </span>
-                  <p className="fetch-home-map-nav-brand min-w-0 select-none truncate text-[12px] font-extrabold leading-none tracking-[-0.04em] text-zinc-900">
-                    Fetch
-                  </p>
+                <div
+                  className="pointer-events-none flex min-w-0 items-center gap-1.5"
+                  aria-label={scannerWordmark ? 'Scan' : 'Fetch'}
+                >
+                  {scannerWordmark ? (
+                    <p className="min-w-0 select-none text-[11px] font-black uppercase leading-none tracking-[0.2em] text-zinc-900">
+                      Scan
+                    </p>
+                  ) : (
+                    <>
+                      <span className="inline-flex shrink-0" aria-hidden>
+                        <FetchEyesHomeIcon className="h-[17px] w-[17px] text-zinc-900" tight />
+                      </span>
+                      <p className="fetch-home-map-nav-brand min-w-0 select-none truncate text-[12px] font-extrabold leading-none tracking-[-0.04em] text-zinc-900">
+                        Fetch
+                      </p>
+                    </>
+                  )}
                 </div>
               </div>
               <div className="pointer-events-auto flex shrink-0 justify-end">
@@ -391,15 +405,23 @@ function MapTimeWeatherOverlayInner({
                 </button>
               </div>
               <div
-                className="pointer-events-none flex min-w-0 select-none items-center justify-center gap-2 truncate"
-                aria-label="Fetch"
+                className="pointer-events-none flex min-w-0 select-none items-center justify-center truncate"
+                aria-label={scannerWordmark ? 'Scan' : 'Fetch'}
               >
-                <span className="inline-flex shrink-0" aria-hidden>
-                  <FetchEyesHomeIcon className="h-8 w-8 text-zinc-900" />
-                </span>
-                <span className="fetch-home-map-brand-logo text-[1.25rem] font-bold leading-none tracking-[-0.03em] text-zinc-900">
-                  Fetch
-                </span>
+                {scannerWordmark ? (
+                  <span className="text-[1.7rem] font-black uppercase leading-none tracking-[0.22em] text-zinc-900 antialiased">
+                    Scan
+                  </span>
+                ) : (
+                  <div className="flex min-w-0 items-center justify-center gap-2 truncate">
+                    <span className="inline-flex shrink-0" aria-hidden>
+                      <FetchEyesHomeIcon className="h-8 w-8 text-zinc-900" />
+                    </span>
+                    <span className="fetch-home-map-brand-logo text-[1.25rem] font-bold leading-none tracking-[-0.03em] text-zinc-900">
+                      Fetch
+                    </span>
+                  </div>
+                )}
               </div>
               <div className="pointer-events-auto flex justify-end">
                 <button

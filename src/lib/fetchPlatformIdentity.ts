@@ -102,9 +102,9 @@ export function roleLabel(role: PlatformRole | null): string {
 
 const ONBOARDING_RETURN_SESSION_KEY = 'fetch.onboardingReturn'
 
-export function setOnboardingReturnTarget(target: 'account' | null) {
+export function setOnboardingReturnTarget(target: 'profile' | null) {
   try {
-    if (target === 'account') sessionStorage.setItem(ONBOARDING_RETURN_SESSION_KEY, 'account')
+    if (target === 'profile') sessionStorage.setItem(ONBOARDING_RETURN_SESSION_KEY, 'profile')
     else sessionStorage.removeItem(ONBOARDING_RETURN_SESSION_KEY)
   } catch {
     /* ignore */
@@ -112,11 +112,11 @@ export function setOnboardingReturnTarget(target: 'account' | null) {
 }
 
 /** Read and clear — call once when finishing onboarding. */
-export function consumeOnboardingReturnTarget(): 'account' | null {
+export function consumeOnboardingReturnTarget(): 'profile' | null {
   try {
     const v = sessionStorage.getItem(ONBOARDING_RETURN_SESSION_KEY)
     sessionStorage.removeItem(ONBOARDING_RETURN_SESSION_KEY)
-    return v === 'account' ? 'account' : null
+    return v === 'profile' ? 'profile' : null
   } catch {
     return null
   }

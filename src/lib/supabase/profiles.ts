@@ -1,13 +1,113 @@
 import type { SupabaseClient, User } from '@supabase/supabase-js'
 import { getSupabaseBrowserClient, requireSupabaseBrowserClient } from './client'
 
-const LOG = '[fetch:profile]'
+const LOG = '[PROFILE]'
+
+const PROFILE_SELECT =
+  'id,username,avatar_url,created_at,email,full_name,onboarding_complete' as const
 
 export type SupabaseProfile = {
   id: string
   username: string | null
   avatar_url: string | null
   created_at?: string
+  email?: string | null
+  full_name?: string | null
+  /** When missing (legacy DB), treated as complete so existing users are not blocked. */
+  onboarding_complete?: boolean | null
+}
+
+function normEmail(email: string): string {
+  return email.trim().toLowerCase()
+}
+
+/** Same rules as `primaryEmailFromSupabaseUser` in fetchUserSession (kept local to avoid import cycles). */
+function profileEmailFromUser(user: User): string {
+  if (user.email?.trim()) return normEmail(user.email)
+  const meta = user.user_metadata as Record<string, unknown> | undefined
+  const mEmail = meta?.email
+  if (typeof mEmail === 'string' && mEmail.trim()) return normEmail(mEmail)
+  for (const row of user.identities ?? []) {
+    const data = row.identity_data as Record<string, unknown> | undefined
+    const e = data?.email
+    if (typeof e === 'string' && e.trim()) return normEmail(e)
+  }
+  const local = user.user_metadata?.full_name
+  if (typeof local === 'string' && local.includes('@')) return normEmail(local)
+  return normEmail(`${user.id.replace(/-/g, '').slice(0, 12)}@users.oauth.fetch`)
+}
+
+function fullNameFromUser(user: User): string {
+  const m = user.user_metadata as Record<string, unknown> | undefined
+  const a = typeof m?.full_name === 'string' ? m.full_name.trim() : ''
+  const b = typeof m?.name === 'string' ? m.name.trim() : ''
+  return a || b || ''
+}
+
+/** Friendly two-word names for instant profiles (users can change anytime in settings). */
+const FETCH_PROFILE_NAME_ADJECTIVES = [
+  'Swift',
+  'Bright',
+  'Calm',
+  'Bold',
+  'Gentle',
+  'Clever',
+  'Happy',
+  'Lucky',
+  'Cosmic',
+  'Urban',
+  'Coastal',
+  'Sunny',
+  'Misty',
+  'Golden',
+  'Silver',
+  'Quiet',
+  'Brave',
+  'Kind',
+  'Wild',
+  'Noble',
+] as const
+
+const FETCH_PROFILE_NAME_NOUNS = [
+  'Falcon',
+  'Koala',
+  'Penguin',
+  'Otter',
+  'Heron',
+  'Lark',
+  'Coral',
+  'Cedar',
+  'Maple',
+  'Willow',
+  'Harbor',
+  'Summit',
+  'Breeze',
+  'Comet',
+  'Nova',
+  'River',
+  'Meadow',
+  'Pebble',
+  'Spruce',
+  'Laurel',
+] as const
+
+function pickRandom<const T extends readonly string[]>(items: T): T[number] {
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const buf = new Uint32Array(1)
+    crypto.getRandomValues(buf)
+    return items[buf[0]! % items.length]!
+  }
+  return items[Math.floor(Math.random() * items.length)]!
+}
+
+export function generateRandomProfileDisplayName(): string {
+  return `${pickRandom(FETCH_PROFILE_NAME_ADJECTIVES)} ${pickRandom(FETCH_PROFILE_NAME_NOUNS)}`
+}
+
+/** `false` means the new onboarding flow is required; missing/`true` means proceed to the app. */
+export function isProfileOnboardingComplete(row: SupabaseProfile | null | undefined): boolean {
+  if (!row) return false
+  return row.onboarding_complete !== false
 }
 
 /**
@@ -115,131 +215,184 @@ function profileInsertPayload(user: User): { id: string; username: string; avata
   }
 }
 
+/** @deprecated Prefer {@link ensureUserProfile}; kept for call sites that only need side effects. */
 export async function ensureProfile(user: User | null | undefined): Promise<void> {
-  if (!user?.id) return
-  const sb = getSupabaseBrowserClient()
-  if (!sb) {
-    console.warn('[AUTH] ensureProfile failure: supabase client missing')
-    return
-  }
-  const fullName =
-    (typeof user.user_metadata?.full_name === 'string' && user.user_metadata.full_name.trim()) ||
-    (typeof user.user_metadata?.name === 'string' && user.user_metadata.name.trim()) ||
-    ''
-  const profileRich = {
-    id: user.id,
-    email: user.email || '',
-    full_name: fullName,
-    avatar_url:
-      (typeof user.user_metadata?.avatar_url === 'string' && user.user_metadata.avatar_url.trim()) ||
-      (typeof user.user_metadata?.picture === 'string' && user.user_metadata.picture.trim()) ||
-      '',
-    updated_at: new Date().toISOString(),
-  }
-  const { error: richError } = await sb.from('profiles').upsert(profileRich as never, { onConflict: 'id' })
-  if (!richError) {
-    console.log('[AUTH] ensureProfile success:', user.id)
-    return
-  }
-  console.error('[AUTH] ensureProfile failure (rich payload):', richError)
-  const fallback = profileInsertPayload(user)
-  const { error: fallbackError } = await sb.from('profiles').upsert(fallback as never, { onConflict: 'id' })
-  if (fallbackError) {
-    console.error('[AUTH] ensureProfile failure (fallback payload):', fallbackError)
-  } else {
-    console.log('[AUTH] ensureProfile success (fallback):', user.id)
-  }
+  await ensureUserProfile(user)
 }
 
-/**
- * Single entry for ensuring `public.profiles` has a row for this auth user.
- * Safe when `user` is missing (returns null). Uses JWT from the browser Supabase client (must be logged in).
- *
- * Schema today: `id`, `username`, `avatar_url`, `created_at` (see scripts/supabase-auth-profiles-setup.sql).
- * There is no `email` / `full_name` column; display name stays in `user_metadata` and session cache.
- */
-export async function ensureUserProfile(user: User | null | undefined): Promise<SupabaseProfile | null> {
-  if (!user?.id) {
-    console.info(LOG, 'ensure skipped: no user')
-    return null
-  }
-
-  const sb = getSupabaseBrowserClient()
-  if (!sb) {
-    console.warn(LOG, 'ensure skipped: Supabase client not configured')
-    return null
-  }
-
-  const uid = user.id
-  console.info(LOG, 'ensure start', { userId: uid })
-  await ensureProfile(user)
-
-  const { data: existing, error: selErr } = await sb
-    .from('profiles')
-    .select('id,username,avatar_url,created_at')
-    .eq('id', uid)
-    .maybeSingle()
-
-  if (selErr) {
-    console.error(LOG, 'select failed', selErr)
-    throw selErr
-  }
-
-  if (existing) {
-    console.info(LOG, 'profile already exists', { userId: uid })
-    const row = existing as SupabaseProfile
-    const remoteAvatar = avatarUrlFromUser(user)
-    if (remoteAvatar && !row.avatar_url) {
-      const { data: patched, error: upErr } = await sb
-        .from('profiles')
-        .update({ avatar_url: remoteAvatar })
-        .eq('id', uid)
-        .select('id,username,avatar_url,created_at')
-        .single()
-      if (upErr) {
-        console.error(LOG, 'avatar backfill update failed', upErr)
-      } else if (patched) {
-        console.info(LOG, 'backfilled avatar_url from provider metadata')
-        return patched as SupabaseProfile
-      }
-    }
-    return row
-  }
-
-  console.info(LOG, 'profile missing, inserting', { userId: uid })
-  const payload = profileInsertPayload(user)
-
-  const { error: insErr } = await sb.from('profiles').insert(payload)
-  if (insErr) {
-    console.error(LOG, 'insert failed', insErr)
-    const { data: raced, error: retryErr } = await sb
+async function fetchProfileRow(sb: SupabaseClient, uid: string): Promise<SupabaseProfile | null> {
+  const { data, error } = await sb.from('profiles').select(PROFILE_SELECT).eq('id', uid).maybeSingle()
+  if (error) {
+    const { data: legacy, error: e2 } = await sb
       .from('profiles')
       .select('id,username,avatar_url,created_at')
       .eq('id', uid)
       .maybeSingle()
-    if (retryErr) {
-      console.error(LOG, 'post-insert retry select failed', retryErr)
-      throw insErr
-    }
-    if (raced) {
-      console.info(LOG, 'profile appeared after insert conflict (trigger or race)', { userId: uid })
-      return raced as SupabaseProfile
-    }
-    throw insErr
+    if (e2) throw error
+    return legacy as SupabaseProfile | null
+  }
+  return data as SupabaseProfile | null
+}
+
+/**
+ * Idempotent: ensures a `profiles` row exists and backfills email / full_name / avatar from auth metadata
+ * without clobbering `onboarding_complete` once set.
+ *
+ * Requires migration `scripts/supabase-profiles-onboarding-columns.sql` for full behavior; degrades on older DBs.
+ */
+export async function ensureUserProfile(user: User | null | undefined): Promise<SupabaseProfile | null> {
+  if (!user?.id) {
+    console.log('[PROFILE] ensureUserProfile skipped: no auth user')
+    return null
   }
 
-  const { data: created, error: readErr } = await sb
+  const sb = getSupabaseBrowserClient()
+  if (!sb) {
+    console.warn('[PROFILE] ensureUserProfile skipped: Supabase client not configured')
+    return null
+  }
+
+  const uid = user.id
+  const email = profileEmailFromUser(user)
+  const fullName = fullNameFromUser(user)
+  const avatarMeta = avatarUrlFromUser(user)
+  console.log('[PROFILE] ensureUserProfile start', { userId: uid })
+
+  let row = await fetchProfileRow(sb, uid)
+  const base = profileInsertPayload(user)
+
+  if (!row) {
+    const autoDisplayName = fullName || generateRandomProfileDisplayName()
+    const rich = {
+      id: uid,
+      username: base.username,
+      avatar_url: base.avatar_url ?? avatarMeta,
+      email: email || null,
+      full_name: autoDisplayName,
+      onboarding_complete: true,
+    }
+    console.log('[PROFILE] inserting profile row', { userId: uid })
+    let insErr = (await sb.from('profiles').insert(rich as never)).error
+    if (insErr) {
+      const legacy = { id: uid, username: base.username, avatar_url: base.avatar_url ?? avatarMeta ?? null }
+      console.warn('[PROFILE] rich insert failed, trying legacy columns', insErr.message)
+      insErr = (await sb.from('profiles').insert(legacy as never)).error
+    }
+    if (insErr) {
+      const msg = String(insErr.message || '')
+      const dup =
+        insErr.code === '23505' || msg.includes('duplicate') || msg.includes('unique')
+      if (dup) {
+        console.info('[PROFILE] insert raced or row exists; loading existing profile', { userId: uid })
+      } else {
+        console.warn('[PROFILE] insert failed (RLS or schema)', insErr.message)
+      }
+    }
+    row = await fetchProfileRow(sb, uid)
+  }
+
+  if (!row) {
+    console.error('[PROFILE] ensureUserProfile failed: could not load row', { userId: uid })
+    return null
+  }
+
+  /* One-shot: older rows with onboarding_complete = false skip straight into the app with a name. */
+  if (row.onboarding_complete === false) {
+    const display =
+      (row.full_name || '').trim() || fullNameFromUser(user) || generateRandomProfileDisplayName()
+    const body = { onboarding_complete: true, full_name: display }
+    const { data: fixed, error: fixErr } = await sb
+      .from('profiles')
+      .update(body as never)
+      .eq('id', uid)
+      .select(PROFILE_SELECT)
+      .single()
+    if (!fixErr && fixed) {
+      row = fixed as SupabaseProfile
+    } else if (fixErr) {
+      const { data: leg, error: legErr } = await sb
+        .from('profiles')
+        .update({ full_name: display } as never)
+        .eq('id', uid)
+        .select('id,username,avatar_url,created_at')
+        .single()
+      if (!legErr && leg) row = { ...(leg as SupabaseProfile), full_name: display, onboarding_complete: true }
+      else console.warn('[PROFILE] could not auto-complete onboarding flag', fixErr?.message ?? legErr?.message)
+    }
+  }
+
+  const patch: Record<string, string | null> = {}
+  if (email && !(row.email || '').trim()) patch.email = email
+  if (fullName && !(row.full_name || '').trim()) patch.full_name = fullName
+  const remoteAvatar = avatarMeta
+  if (remoteAvatar && !(row.avatar_url || '').trim()) patch.avatar_url = remoteAvatar
+
+  if (Object.keys(patch).length > 0) {
+    console.log('[PROFILE] backfilling empty profile fields', { userId: uid, keys: Object.keys(patch) })
+    const { data: updated, error: upErr } = await sb
+      .from('profiles')
+      .update(patch as never)
+      .eq('id', uid)
+      .select(PROFILE_SELECT)
+      .single()
+    if (!upErr && updated) {
+      row = updated as SupabaseProfile
+    } else if (upErr) {
+      const { data: u2, error: e2 } = await sb
+        .from('profiles')
+        .update(patch as never)
+        .eq('id', uid)
+        .select('id,username,avatar_url,created_at')
+        .single()
+      if (!e2 && u2) row = u2 as SupabaseProfile
+      else console.error('[PROFILE] backfill update failed', upErr)
+    }
+  }
+
+  console.log('[PROFILE] ensureUserProfile done', {
+    userId: uid,
+    onboarding_complete: row.onboarding_complete,
+  })
+  return row
+}
+
+export async function completeFetchProfileOnboarding(input: {
+  fullName: string
+  avatarUrl?: string | null
+}): Promise<SupabaseProfile> {
+  const sb = requireSupabaseBrowserClient()
+  const user = await resolveAuthUser(sb)
+  if (!user) throw new Error('You must be logged in')
+  const uid = user.id
+  await ensureUserProfile(user)
+  const name = input.fullName.trim()
+  if (name.length < 1) throw new Error('Enter your name.')
+
+  const body = {
+    full_name: name,
+    avatar_url: input.avatarUrl ?? null,
+    onboarding_complete: true,
+  }
+  const full = await sb
     .from('profiles')
-    .select('id,username,avatar_url,created_at')
+    .update(body as never)
     .eq('id', uid)
+    .select(PROFILE_SELECT)
     .single()
-
-  if (readErr) {
-    console.error(LOG, 'read-after-insert failed', readErr)
-    throw readErr
+  let data: SupabaseProfile | null = (full.data as SupabaseProfile | null) ?? null
+  if (full.error) {
+    const leg = await sb
+      .from('profiles')
+      .update({ full_name: name, avatar_url: input.avatarUrl ?? null } as never)
+      .eq('id', uid)
+      .select('id,username,avatar_url,created_at')
+      .single()
+    if (leg.error) throw full.error
+    data = leg.data as SupabaseProfile
   }
-  console.info(LOG, 'profile created', { userId: uid })
-  return created as SupabaseProfile
+  if (!data) throw new Error('Could not update profile.')
+  console.log('[ONBOARDING] profile marked complete', { userId: uid })
+  return data
 }
 
 /**
@@ -332,6 +485,7 @@ export async function uploadMySupabaseAvatar(file: File): Promise<string> {
 export async function updateMySupabaseProfile(patch: {
   username?: string
   avatar_url?: string | null
+  full_name?: string | null
 }): Promise<SupabaseProfile> {
   const sb = requireSupabaseBrowserClient()
   const user = await resolveAuthUser(sb)
@@ -343,12 +497,22 @@ export async function updateMySupabaseProfile(patch: {
   const next: Record<string, string | null> = {}
   if (patch.username !== undefined) next.username = patch.username.trim()
   if (patch.avatar_url !== undefined) next.avatar_url = patch.avatar_url
+  if (patch.full_name !== undefined) next.full_name = patch.full_name?.trim() || null
   const { data, error } = await sb
     .from('profiles')
     .update(next)
     .eq('id', uid)
-    .select('id,username,avatar_url,created_at')
+    .select(PROFILE_SELECT)
     .single()
-  if (error) throw error
+  if (error) {
+    const { data: d2, error: e2 } = await sb
+      .from('profiles')
+      .update(next)
+      .eq('id', uid)
+      .select('id,username,avatar_url,created_at')
+      .single()
+    if (e2) throw error
+    return d2 as SupabaseProfile
+  }
   return data as SupabaseProfile
 }

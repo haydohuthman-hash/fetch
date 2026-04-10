@@ -17,7 +17,6 @@ import {
   type PeerListing,
 } from '../lib/listingsApi'
 import { formatDropHandle, getMyDropProfile } from '../lib/drops/profileStore'
-import { dispatchOpenPublicProfile } from '../lib/fetchProfile/openPublicProfileEvent'
 import { syncCustomerSessionCookie } from '../lib/fetchServerSession'
 import { loadSession } from '../lib/fetchUserSession'
 import { confirmDemoPaymentIntent, isStripePublishableConfigured } from '../lib/paymentCheckout'
@@ -34,7 +33,7 @@ import {
 } from './icons/HomeShellNavIcons'
 import { FetchShopModeSegment } from './FetchShopModeSegment'
 import { FetchStripePaymentElement } from './FetchStripePaymentElement'
-import type { HomeShellTabRequest } from './profile/FetchProfileSheet'
+import type { HomeShellTab } from './FetchHomeBookingSheet'
 import { BRISBANE_CENTER } from './FetchHomeStepOne/brisbaneMap'
 import {
   LocationRadiusPickerSheet,
@@ -182,13 +181,18 @@ export type HomeShellBuySellPageProps = {
   onMenuAccount?: () => void
   /** Create/open a listing DM and let the shell switch to the chat tab. */
   onOpenListingChat?: (listingId: string) => void | Promise<void>
-  /** Switch to Drops so `FetchProfileSheet` can open (View seller profile). */
-  onRequestHomeShellTab?: (tab: HomeShellTabRequest) => void
+  /** Switch shell tab (e.g. open Drops from marketplace). */
+  onRequestHomeShellTab?: (tab: HomeShellTab) => void
   /** From Drops: open a peer listing (and optionally start buy). */
   dropsListingHandoff?: BuySellDropsListingHandoff | null
   onDropsListingHandoffConsumed?: () => void
   /** Jump to home services and start pick & drop booking. */
   onBookDriver?: () => void
+  /**
+   * When true, skip the public browse feed (used when opened from the unified marketplace “Sell” hub).
+   */
+  overlayMode?: boolean
+  onOverlayClose?: () => void
 }
 
 function formatAudFromCents(cents: number): string {
@@ -251,6 +255,9 @@ function HomeShellBuySellPageInner({
   onRequestHomeShellTab,
   dropsListingHandoff = null,
   onDropsListingHandoffConsumed,
+  onBookDriver,
+  overlayMode = false,
+  onOverlayClose,
 }: HomeShellBuySellPageProps) {
   const mapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ?? ''
   const [panel, setPanel] = useState<Panel>('feed')
@@ -409,6 +416,7 @@ function HomeShellBuySellPageInner({
   }, [panel, locationLabel])
 
   const loadBrowse = useCallback(async () => {
+    if (overlayMode) return
     setListErr(null)
     setBusy(true)
     try {
@@ -430,11 +438,12 @@ function HomeShellBuySellPageInner({
     } finally {
       setBusy(false)
     }
-  }, [debouncedSearch, categoryId])
+  }, [debouncedSearch, categoryId, overlayMode])
 
   useEffect(() => {
+    if (overlayMode) return
     void loadBrowse()
-  }, [loadBrowse])
+  }, [loadBrowse, overlayMode])
 
   const loadMyListings = useCallback(async () => {
     if (!sessionEmail) {
@@ -699,19 +708,9 @@ function HomeShellBuySellPageInner({
     }
   }
 
-  const openSellerPublicProfile = useCallback(
-    (l: PeerListing) => {
-      const id = l.profileAuthorId?.trim()
-      if (!id) return
-      const raw = l.profileDisplayName?.trim()
-      dispatchOpenPublicProfile({
-        authorId: id,
-        sellerDisplay: raw ? formatDropHandle(raw) : '@seller',
-      })
-      onRequestHomeShellTab?.('reels')
-    },
-    [onRequestHomeShellTab],
-  )
+  const openSellerInDrops = useCallback(() => {
+    onRequestHomeShellTab?.('reels')
+  }, [onRequestHomeShellTab])
 
   const startBuy = async (listing: PeerListing) => {
     setBuyErr(null)
@@ -744,6 +743,7 @@ function HomeShellBuySellPageInner({
 
   const dropsListingHandoffDoneRef = useRef<string | null>(null)
   useEffect(() => {
+    if (overlayMode) return
     if (!dropsListingHandoff) {
       dropsListingHandoffDoneRef.current = null
       return
@@ -767,7 +767,7 @@ function HomeShellBuySellPageInner({
     }
     onDropsListingHandoffConsumed?.()
   // eslint-disable-next-line react-hooks/exhaustive-deps -- startBuy not stable; once per handoff via dropsListingHandoffDoneRef
-  }, [busy, dropsListingHandoff, listings, onDropsListingHandoffConsumed])
+  }, [busy, dropsListingHandoff, listings, onDropsListingHandoffConsumed, overlayMode])
 
   const loadEarnings = useCallback(async () => {
     if (!sessionEmail) {
@@ -1084,7 +1084,7 @@ function HomeShellBuySellPageInner({
     <div
       className="fetch-home-buysell-page absolute inset-0 z-[60] flex min-h-0 min-w-0 w-full flex-col bg-zinc-100"
       role="main"
-      aria-label="Fetch buy and sell"
+      aria-label={overlayMode ? 'Sell and manage listings' : 'Fetch buy and sell'}
     >
       {menuOpen ? (
         <div className="fixed inset-0 z-[75] flex" role="dialog" aria-modal aria-label="Buy and sell menu">
@@ -1328,98 +1328,179 @@ function HomeShellBuySellPageInner({
 
       <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
         {panel === 'feed' ? (
-          <>
-            {feedChrome}
-
-            {!sessionEmail ? (
-              <p className="mx-3 mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] font-medium text-amber-900 sm:mx-4">
-                Open Profile and sign in with email so the server can attach listings and payouts to you.
-              </p>
-            ) : null}
-
-            <div className="mx-auto w-full min-w-0 max-w-lg flex-1 px-3 pb-4 pt-2 sm:px-4">
-              {listErr ? <p className="text-[13px] font-medium text-red-600">{listErr}</p> : null}
-
-              <div className="mt-2 mb-3">{marketplaceScopePillsRow}</div>
-
-              {todaysPicks.length > 0 ? (
-                <section className="mt-0" aria-labelledby="buysell-todays-picks">
-                  <div className="flex items-end justify-between gap-2">
-                    <h2 id="buysell-todays-picks" className="text-[16px] font-bold tracking-tight text-zinc-900">
-                      Today&apos;s picks
-                    </h2>
-                    <span className="text-[12px] font-semibold text-zinc-400">
-                      {marketScope === 'global' ? 'Australia wide' : locationLabel.split(',')[0]}
-                    </span>
-                  </div>
-                  <div className="mt-2 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                    {todaysPicks.map((l) => (
-                      <button
-                        key={`pick-${l.id}`}
-                        type="button"
-                        aria-label={`${l.title}, ${formatAudFromCents(l.priceCents ?? 0)}`}
-                        onClick={() => setSelected(l)}
-                        className="w-[7.5rem] shrink-0 overflow-hidden rounded-xl border border-zinc-200/90 bg-white text-left shadow-sm active:bg-zinc-50"
-                      >
-                        <div className="aspect-square w-full bg-zinc-100">
-                          {l.images?.[0]?.url ? (
-                            <img
-                              src={listingImageAbsoluteUrl(l.images[0].url)}
-                              alt=""
-                              className="h-full w-full object-cover"
-                            />
-                          ) : null}
-                        </div>
-                        <div className="flex min-w-0 items-center gap-1 border-t border-zinc-100 px-1.5 py-1">
-                          <span className="shrink-0 text-[11px] font-bold tabular-nums text-zinc-900">
-                            {formatAudFromCents(l.priceCents ?? 0)}
-                          </span>
-                          <p className="ml-auto min-w-0 max-w-[4.25rem] truncate text-right text-[11px] font-semibold leading-tight text-zinc-900">
-                            {l.title}
-                          </p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
-
-              <section className="mt-5" aria-label="Listings">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <h2 className="text-[16px] font-bold tracking-tight text-zinc-900">
-                    {categoryId === 'all' ? 'Browse' : CATEGORY_CHIPS.find((c) => c.id === categoryId)?.label ?? 'Browse'}
-                  </h2>
+          overlayMode ? (
+            <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col bg-zinc-100">
+              <header className="shrink-0 border-b border-zinc-200/90 bg-white px-3 pb-2.5 pt-[max(0.5rem,env(safe-area-inset-top,0px))] sm:px-4">
+                <div className="mx-auto flex w-full max-w-lg items-center gap-2">
+                  {onOverlayClose ? (
+                    <button
+                      type="button"
+                      onClick={onOverlayClose}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-zinc-800 transition-colors active:bg-zinc-100"
+                      aria-label="Back to marketplace"
+                    >
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
+                        <path
+                          d="M15 6l-6 6 6 6"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </button>
+                  ) : (
+                    <div className="w-10 shrink-0" aria-hidden />
+                  )}
+                  <h1 className="min-w-0 flex-1 text-center text-[16px] font-bold tracking-tight text-zinc-900">
+                    Sell on Fetch
+                  </h1>
+                  <div className="w-10 shrink-0" aria-hidden />
+                </div>
+              </header>
+              <div className="mx-auto flex w-full min-w-0 max-w-lg flex-1 flex-col gap-3 overflow-y-auto px-4 py-4">
+                <p className="text-[13px] leading-snug text-zinc-600">
+                  List items for sale, connect Stripe for payouts, and track earnings — all tied to your public Drops
+                  profile.
+                </p>
+                {!sessionEmail ? (
+                  <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] font-medium text-amber-900">
+                    Sign in from Profile with email so listings and payouts attach to your account.
+                  </p>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setPanel('create')}
+                  className="w-full rounded-xl bg-zinc-900 py-3 text-[15px] font-semibold text-white active:opacity-90"
+                >
+                  List an item
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPanel('myListings')}
+                  className="w-full rounded-xl border border-zinc-200 bg-white py-3 text-[15px] font-semibold text-zinc-900 active:bg-zinc-50"
+                >
+                  Your listings
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPanel('connect')}
+                  className="w-full rounded-xl border border-zinc-200 bg-white py-3 text-[15px] font-semibold text-zinc-900 active:bg-zinc-50"
+                >
+                  Seller — Stripe Connect
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPanel('earnings')}
+                  className="w-full rounded-xl border border-zinc-200 bg-white py-3 text-[15px] font-semibold text-zinc-900 active:bg-zinc-50"
+                >
+                  Seller earnings
+                </button>
+                {onBookDriver ? (
                   <button
                     type="button"
-                    className="text-[13px] font-semibold text-[#1877f2] disabled:opacity-40"
-                    disabled={busy}
-                    onClick={() => void loadBrowse()}
+                    onClick={onBookDriver}
+                    className="w-full rounded-xl border border-emerald-200 bg-emerald-50/80 py-3 text-[15px] font-semibold text-emerald-950 active:bg-emerald-100/80"
                   >
-                    Refresh
+                    Book a Fetch pickup
                   </button>
-                </div>
-                {busy && feedListings.length === 0 ? (
-                  <p className="py-8 text-center text-[14px] text-zinc-500">Loading…</p>
-                ) : feedListings.length === 0 ? (
-                  <p className="py-8 text-center text-[14px] text-zinc-500">
-                    {debouncedSearch
-                      ? 'Nothing matches your search.'
-                      : marketScope === 'local' && listings.length > 0
-                        ? 'No Fetch delivery listings match your area. Open Categories for Australia wide or update Set location.'
-                        : 'No published listings yet.'}
-                  </p>
-                ) : (
-                  <ul className="grid min-w-0 grid-cols-[repeat(2,minmax(0,1fr))] gap-2 sm:gap-3">
-                    {feedListings.map((l) => (
-                      <li key={l.id} className="min-w-0">
-                        {listingGridCard(l)}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
+                ) : null}
+              </div>
             </div>
-          </>
+          ) : (
+            <>
+              {feedChrome}
+
+              {!sessionEmail ? (
+                <p className="mx-3 mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] font-medium text-amber-900 sm:mx-4">
+                  Open Profile and sign in with email so the server can attach listings and payouts to you.
+                </p>
+              ) : null}
+
+              <div className="mx-auto w-full min-w-0 max-w-lg flex-1 px-3 pb-4 pt-2 sm:px-4">
+                {listErr ? <p className="text-[13px] font-medium text-red-600">{listErr}</p> : null}
+
+                <div className="mt-2 mb-3">{marketplaceScopePillsRow}</div>
+
+                {todaysPicks.length > 0 ? (
+                  <section className="mt-0" aria-labelledby="buysell-todays-picks">
+                    <div className="flex items-end justify-between gap-2">
+                      <h2 id="buysell-todays-picks" className="text-[16px] font-bold tracking-tight text-zinc-900">
+                        Today&apos;s picks
+                      </h2>
+                      <span className="text-[12px] font-semibold text-zinc-400">
+                        {marketScope === 'global' ? 'Australia wide' : locationLabel.split(',')[0]}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                      {todaysPicks.map((l) => (
+                        <button
+                          key={`pick-${l.id}`}
+                          type="button"
+                          aria-label={`${l.title}, ${formatAudFromCents(l.priceCents ?? 0)}`}
+                          onClick={() => setSelected(l)}
+                          className="w-[7.5rem] shrink-0 overflow-hidden rounded-xl border border-zinc-200/90 bg-white text-left shadow-sm active:bg-zinc-50"
+                        >
+                          <div className="aspect-square w-full bg-zinc-100">
+                            {l.images?.[0]?.url ? (
+                              <img
+                                src={listingImageAbsoluteUrl(l.images[0].url)}
+                                alt=""
+                                className="h-full w-full object-cover"
+                              />
+                            ) : null}
+                          </div>
+                          <div className="flex min-w-0 items-center gap-1 border-t border-zinc-100 px-1.5 py-1">
+                            <span className="shrink-0 text-[11px] font-bold tabular-nums text-zinc-900">
+                              {formatAudFromCents(l.priceCents ?? 0)}
+                            </span>
+                            <p className="ml-auto min-w-0 max-w-[4.25rem] truncate text-right text-[11px] font-semibold leading-tight text-zinc-900">
+                              {l.title}
+                            </p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+
+                <section className="mt-5" aria-label="Listings">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <h2 className="text-[16px] font-bold tracking-tight text-zinc-900">
+                      {categoryId === 'all' ? 'Browse' : CATEGORY_CHIPS.find((c) => c.id === categoryId)?.label ?? 'Browse'}
+                    </h2>
+                    <button
+                      type="button"
+                      className="text-[13px] font-semibold text-[#1877f2] disabled:opacity-40"
+                      disabled={busy}
+                      onClick={() => void loadBrowse()}
+                    >
+                      Refresh
+                    </button>
+                  </div>
+                  {busy && feedListings.length === 0 ? (
+                    <p className="py-8 text-center text-[14px] text-zinc-500">Loading…</p>
+                  ) : feedListings.length === 0 ? (
+                    <p className="py-8 text-center text-[14px] text-zinc-500">
+                      {debouncedSearch
+                        ? 'Nothing matches your search.'
+                        : marketScope === 'local' && listings.length > 0
+                          ? 'No Fetch delivery listings match your area. Open Categories for Australia wide or update Set location.'
+                          : 'No published listings yet.'}
+                    </p>
+                  ) : (
+                    <ul className="grid min-w-0 grid-cols-[repeat(2,minmax(0,1fr))] gap-2 sm:gap-3">
+                      {feedListings.map((l) => (
+                        <li key={l.id} className="min-w-0">
+                          {listingGridCard(l)}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              </div>
+            </>
+          )
         ) : null}
 
         {panel === 'create' || isEditMode ? (
@@ -2076,9 +2157,9 @@ function HomeShellBuySellPageInner({
                 <button
                   type="button"
                   className="shrink-0 rounded-lg bg-zinc-900 px-3 py-2 text-[12px] font-bold text-white active:bg-zinc-800"
-                  onClick={() => openSellerPublicProfile(selected)}
+                  onClick={openSellerInDrops}
                 >
-                  View profile
+                  View in Drops
                 </button>
               </div>
             ) : null}

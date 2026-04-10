@@ -1,3 +1,5 @@
+import { FETCH_APP_PATH } from '../fetchRoutes'
+
 /** Strip OAuth redirect query/hash debris after Supabase exchanges the session. */
 export function cleanupSupabaseOAuthUrl(): void {
   if (typeof window === 'undefined') return
@@ -21,6 +23,13 @@ export function cleanupSupabaseOAuthUrl(): void {
 
 const LIVE_SITE = 'https://www.tryfetchit.app'
 const LOCAL_DEV = 'http://localhost:5174'
+
+/** OAuth must return into the SPA route that loads the shell (so PKCE + router agree). */
+function oauthRedirectWithAppPath(base: string): string {
+  const b = base.replace(/\/$/, '')
+  if (b.endsWith(FETCH_APP_PATH)) return b
+  return `${b}${FETCH_APP_PATH}`
+}
 
 /**
  * URL passed to `signInWithOAuth({ options: { redirectTo } })` for Google and Apple.
@@ -58,6 +67,8 @@ export function getOAuthRedirectTo(): string {
   if (!isLocalhost && /127\.0\.0\.1|localhost/i.test(redirectTo)) {
     redirectTo = LIVE_SITE.replace(/\/$/, '')
   }
+
+  redirectTo = oauthRedirectWithAppPath(redirectTo)
 
   console.log('[AUTH] oauth redirectTo:', redirectTo)
   return redirectTo

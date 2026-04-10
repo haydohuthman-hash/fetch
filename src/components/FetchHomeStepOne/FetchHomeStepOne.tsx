@@ -1,4 +1,4 @@
-import { memo, useEffect, useState, type CSSProperties } from 'react'
+import { memo, useEffect, useState, type CSSProperties, type ReactNode } from 'react'
 import type { BookingStage } from '../../lib/assistant'
 import { useFetchTheme } from '../../theme/FetchThemeContext'
 import { FakeMapBackground } from './FakeMapBackground'
@@ -92,6 +92,10 @@ export type FetchHomeStepOneProps = {
   mapRegionLockedShowcase?: boolean
   /** Status pill on the real map during SEQ lock demo (requires Maps key). */
   mapRegionLockedStatusLine?: string | null
+  /** Optional overlay inside the map viewport (e.g. intent AI scanner viewfinder). */
+  mapViewportOverlay?: ReactNode
+  /** Intent scanner: replace map header “Fetch” wordmark with large SCAN treatment. */
+  mapScannerWordmark?: boolean
 }
 
 /**
@@ -135,6 +139,8 @@ function FetchHomeStepOneInner({
   squareMapTopCorners = false,
   mapRegionLockedShowcase = false,
   mapRegionLockedStatusLine = null,
+  mapViewportOverlay = null,
+  mapScannerWordmark = false,
 }: FetchHomeStepOneProps) {
   const [map, setMap] = useState<google.maps.Map | null>(null)
   const mapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ?? ''
@@ -305,6 +311,9 @@ function FetchHomeStepOneInner({
               </p>
             </div>
           ) : null}
+          {mapViewportOverlay ? (
+            <div className="pointer-events-none absolute inset-0 z-[25] overflow-hidden">{mapViewportOverlay}</div>
+          ) : null}
           {showMapTimeWeatherOverlay ? (
             <MapTimeWeatherOverlay
               navStrip={mapNavStrip}
@@ -317,6 +326,7 @@ function FetchHomeStepOneInner({
               }
               hideSystemHeader={hideMapSystemHeader}
               mapBackBubble={hideMapSystemHeader ? mapBackBubble : null}
+              scannerWordmark={mapScannerWordmark}
             />
           ) : null}
           {mapRegionLockedShowcase ? (

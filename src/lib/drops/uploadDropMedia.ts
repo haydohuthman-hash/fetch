@@ -77,6 +77,30 @@ function videoMimeOk(mime: string): boolean {
   return /^video\/(mp4|webm|quicktime)$/i.test(mime || '')
 }
 
+/** Browsers often leave `file.type` empty or use `application/octet-stream` for .mov / .mp4. */
+function inferVideoMimeForUpload(file: File): { validatedMime: string; storageContentType: string } {
+  const raw = (file.type || '').trim().toLowerCase()
+  const ext = (file.name.split(/[./]/).pop() || '').toLowerCase()
+  const fromExt =
+    ext === 'mov' || ext === 'qt'
+      ? 'video/quicktime'
+      : ext === 'webm'
+        ? 'video/webm'
+        : ext === 'm4v' || ext === 'mp4'
+          ? 'video/mp4'
+          : ''
+  if (raw && videoMimeOk(raw)) {
+    return { validatedMime: raw, storageContentType: raw }
+  }
+  if (fromExt && videoMimeOk(fromExt)) {
+    return { validatedMime: fromExt, storageContentType: fromExt }
+  }
+  if (raw.startsWith('video/')) {
+    return { validatedMime: raw, storageContentType: raw }
+  }
+  return { validatedMime: 'video/mp4', storageContentType: 'video/mp4' }
+}
+
 function imageMimeOk(mime: string): boolean {
   return /^image\/(jpeg|jpg|png|webp|gif)$/i.test(mime || '')
 }
@@ -153,11 +177,11 @@ export async function uploadDropMedia(params: {
 
   if (params.video) {
     const file = params.video
-    const mime = file.type || 'video/mp4'
-    if (!videoMimeOk(mime)) {
+    const { validatedMime, storageContentType } = inferVideoMimeForUpload(file)
+    if (!videoMimeOk(validatedMime)) {
       throw new UploadDropMediaError('Unsupported video type (use MP4, WebM, or QuickTime).', 400, {
         error: 'invalid_video_type',
-        detail: mime,
+        detail: `${file.type || '(empty)'}; inferred=${validatedMime}`,
       })
     }
     if (file.size > DROP_VIDEO_MAX_BYTES) {
@@ -167,12 +191,14 @@ export async function uploadDropMedia(params: {
     console.log('[publish-upload] step 6: before supabase.storage upload (video)', {
       filePath,
       bytes: file.size,
-      mime,
+      fileType: file.type || '(empty)',
+      validatedMime,
+      storageContentType,
     })
     const { data, error } = await sb.storage.from(bucket).upload(filePath, file, {
       upsert: true,
       cacheControl: '3600',
-      contentType: file.type || undefined,
+      contentType: storageContentType,
     })
     console.log('[publish-upload] step 7: after supabase.storage upload (video)', {
       ok: !error,

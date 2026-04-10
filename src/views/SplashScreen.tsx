@@ -1,17 +1,14 @@
-import { useCallback, useEffect, useRef, useState, type AnimationEvent } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { FetchSplashEyes } from '../components/FetchSplashEyes'
 
 type SplashScreenProps = {
   onComplete: () => void
 }
 
-type SplashPhase = 'blink' | 'glance' | 'hop'
-
 /**
- * Cold open: eyes blink, pupils glance left/right, then hop off-screen — no wordmark.
+ * Cold open: dark green field + two white eyes blinking (no logo, glance, or hop).
  */
 export default function SplashScreen({ onComplete }: SplashScreenProps) {
-  const [phase, setPhase] = useState<SplashPhase>('blink')
   const doneRef = useRef(false)
   const reducedMotion =
     typeof window !== 'undefined' &&
@@ -25,53 +22,24 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
 
   useEffect(() => {
     if (reducedMotion) {
-      const t = window.setTimeout(finish, 220)
+      const t = window.setTimeout(finish, 280)
       return () => window.clearTimeout(t)
     }
-
-    const blinkMs = 1680
-    const hopStartMs = 3120
-    const safetyMs = 4500
-
-    const a = window.setTimeout(() => setPhase('glance'), blinkMs)
-    const b = window.setTimeout(() => setPhase('hop'), hopStartMs)
-    const c = window.setTimeout(finish, safetyMs)
-
-    return () => {
-      window.clearTimeout(a)
-      window.clearTimeout(b)
-      window.clearTimeout(c)
-    }
+    /** One `fetch-splash-blink` cycle (two blinks) is 1.5s; short beat before handoff. */
+    const t = window.setTimeout(finish, 1680)
+    return () => window.clearTimeout(t)
   }, [finish, reducedMotion])
-
-  const onHopAnimationEnd = useCallback(
-    (e: AnimationEvent<HTMLDivElement>) => {
-      if (reducedMotion) return
-      if (e.animationName !== 'fetch-splash-hop-out') return
-      finish()
-    },
-    [finish, reducedMotion],
-  )
 
   return (
     <div
-      className="fetch-splash-root fetch-app-shell-bg flex min-h-dvh min-h-[100dvh] w-full flex-col items-center justify-center px-6"
+      className="fetch-splash-root fetch-splash-root--minimal-eyes fetch-app-shell-bg flex min-h-dvh min-h-[100dvh] w-full flex-col items-center justify-center px-6"
       role="status"
       aria-live="polite"
       aria-busy="true"
       aria-label="Loading"
     >
-      <div
-        className={['fetch-splash-stage', phase === 'hop' ? 'fetch-splash-stage--hop-out' : '']
-          .filter(Boolean)
-          .join(' ')}
-        onAnimationEnd={onHopAnimationEnd}
-      >
-        <FetchSplashEyes
-          mode={phase === 'blink' ? 'blinking' : 'splashRest'}
-          showSplashIris={phase === 'glance' || phase === 'hop'}
-          splashGlanceActive={phase === 'glance' || phase === 'hop'}
-        />
+      <div className="fetch-splash-stage fetch-splash-stage--minimal">
+        <FetchSplashEyes mode="blinking" />
       </div>
     </div>
   )

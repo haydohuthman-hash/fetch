@@ -1,15 +1,7 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { applyServerUserProfile, refreshSessionFromSupabase } from '../lib/fetchUserSession'
+import { useCallback, useState, type FormEvent } from 'react'
+import type { User } from '@supabase/supabase-js'
+import { refreshSessionFromSupabase } from '../lib/fetchUserSession'
 import { getSupabaseBrowserClient } from '../lib/supabase/client'
-import {
-  ensureProfile,
-  getMySupabaseProfile,
-  isAutomaticDefaultUsername,
-  suggestUniqueUsernameFromEmail,
-  uploadMySupabaseAvatar,
-  updateMySupabaseProfile,
-  validateUsername,
-} from '../lib/supabase/profiles'
 import { getOAuthRedirectTo } from '../lib/supabase/oauthSession'
 import { OAuthBrandedButtons } from '../components/auth/OAuthBrandedButtons'
 
@@ -33,13 +25,13 @@ function mapServerAuthError(code: string): string {
 }
 
 type AuthScreenProps = {
-  onSuccess: () => void
+  /** Called after Supabase session is valid — parent runs `handlePostAuthUser`. */
+  onSignedIn: (user: User) => void | Promise<void>
   onBack: () => void
-  /** Open on sign-in or sign-up tab */
   initialTab?: 'signin' | 'signup'
 }
 
-export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }: AuthScreenProps) {
+export default function AuthScreen({ onSignedIn, onBack, initialTab = 'signin' }: AuthScreenProps) {
   const serverDbAuth = true
   const [tab, setTab] = useState<'signin' | 'signup'>(initialTab)
   const [showEmailForm, setShowEmailForm] = useState(false)
@@ -50,17 +42,12 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
   const [error, setError] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [needsProfileSetup, setNeedsProfileSetup] = useState(false)
-  const [username, setUsername] = useState('')
-  const [existingAvatarUrl, setExistingAvatarUrl] = useState<string | null>(null)
-  const [photoFile, setPhotoFile] = useState<File | null>(null)
-  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null)
 
   const requireAuthenticatedSessionUser = useCallback(async () => {
     const sb = getSupabaseBrowserClient()
     if (!sb) throw new Error('Supabase is not configured in this app.')
     const { data, error: sessionError } = await sb.auth.getSession()
-    console.log('[AUTH] auth guard session result:', data, sessionError)
+    console.log('[AUTH] getSession in AuthScreen:', Boolean(data.session?.user), sessionError?.message ?? '')
     if (sessionError) throw sessionError
     const user = data.session?.user ?? null
     if (!user) throw new Error('Authentication incomplete. Please sign in again.')
@@ -68,90 +55,11 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
   }, [])
 
   const afterSupabaseAuth = useCallback(async () => {
-    console.log('[AUTH] post-auth processing start')
     const sessionUser = await requireAuthenticatedSessionUser()
-    console.log('[AUTH] session confirmed:', sessionUser.id)
-    const me = await refreshSessionFromSupabase()
-    if (!me) throw new Error('Could not load your session.')
-    // #region agent log
-    fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'AuthScreen:afterSupabaseAuth',message:'session loaded',data:{hasProfileStep:true,uidLen:me.id?.length??0,hypothesisId:'P1'},timestamp:Date.now(),hypothesisId:'P1'})}).catch(()=>{});
-    // #endregion
-    console.log('[AUTH] profile fetch start')
-    let profile = await getMySupabaseProfile()
-    console.log('[AUTH] profile fetch result:', profile ? `exists:${profile.id}` : 'missing')
-    if (!profile) {
-      await ensureProfile(sessionUser)
-      profile = await getMySupabaseProfile()
-      console.log('[AUTH] profile refetch result:', profile ? `exists:${profile.id}` : 'missing')
-    }
-    if (!profile) {
-      console.log('[AUTH] profile fetch missing')
-      console.log('[AUTH] authenticated without profile redirect blocked')
-      applyServerUserProfile({
-        id: me.id,
-        email: me.email,
-        displayName: me.displayName,
-        username: undefined,
-      })
-      console.log('[AUTH] redirect allowed: authenticated session with profile pending')
-      console.log('[AUTH] onSuccess execution')
-      onSuccess()
-      return
-    } else {
-      console.log('[AUTH] profile fetch success')
-    }
-    console.log('USERNAME', profile?.username ?? null)
-    const needHandle = !profile?.username || isAutomaticDefaultUsername(profile.username, me.id)
-    const currentAvatarUrl = profile.avatar_url?.trim() || null
-    const needAvatar = !currentAvatarUrl
-    // #region agent log
-    fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'AuthScreen:afterSupabaseAuth',message:'profile gate',data:{needHandle,unameLen:(profile.username||'').length,hypothesisId:'P1'},timestamp:Date.now(),hypothesisId:'P1'})}).catch(()=>{});
-    // #endregion
-    if (needHandle || needAvatar) {
-      setNeedsProfileSetup(true)
-      setExistingAvatarUrl(currentAvatarUrl)
-      setPhotoFile(null)
-      setPhotoPreviewUrl(currentAvatarUrl)
-      const suggested = needHandle
-        ? await suggestUniqueUsernameFromEmail(me.email, me.displayName).catch(() => '')
-        : ''
-      setUsername(
-        needHandle
-          ? suggested || profile?.username || ''
-          : profile?.username && !isAutomaticDefaultUsername(profile.username, me.id)
-            ? profile.username
-            : '',
-      )
-      return
-    }
-    applyServerUserProfile({
-      id: me.id,
-      email: me.email,
-      displayName: me.displayName,
-      username: profile.username ?? undefined,
-    })
-    console.log('[AUTH] redirect allowed: authenticated user + profile ready')
-    console.log('[AUTH] onSuccess execution')
-    onSuccess()
-  }, [onSuccess, requireAuthenticatedSessionUser])
-
-  useEffect(() => {
-    void (async () => {
-      const sb = getSupabaseBrowserClient()
-      if (!sb) return
-      const {
-        data: { session },
-      } = await sb.auth.getSession()
-      if (session?.access_token) {
-        try {
-          await afterSupabaseAuth()
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : 'Could not finish sign-in.'
-          setError(msg)
-        }
-      }
-    })()
-  }, [afterSupabaseAuth])
+    console.log('[AUTH] AuthScreen → refresh + onSignedIn', sessionUser.id)
+    await refreshSessionFromSupabase()
+    await onSignedIn(sessionUser)
+  }, [onSignedIn, requireAuthenticatedSessionUser])
 
   const onSignIn = async (e: FormEvent) => {
     e.preventDefault()
@@ -174,12 +82,11 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
           email: email.trim(),
           password,
         })
-        console.log('[AUTH] login result:', data, authError)
+        console.log('[AUTH] login result:', Boolean(data.session), authError?.message)
         if (authError) throw authError
         const session = data?.session || null
         const user = data?.user || null
         if (!session || !user) throw new Error('Login failed: no session')
-        console.log('[AUTH] login success:', user.id)
         await afterSupabaseAuth()
       } catch (e) {
         const msg = e instanceof Error ? e.message : mapServerAuthError('invalid_credentials')
@@ -188,7 +95,6 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
       } finally {
         setBusy(false)
       }
-      return
     }
   }
 
@@ -216,7 +122,7 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
             data: { full_name: displayName.trim() || '' },
           },
         })
-        console.log('[AUTH] signup result:', data, authError)
+        console.log('[AUTH] signup result:', Boolean(data.session), authError?.message)
         if (authError) {
           console.error('[AUTH] signup error:', authError)
           throw authError
@@ -225,11 +131,10 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
         const user = data?.user || null
         if (!user) throw new Error('Signup succeeded but no user returned')
         if (!session) {
-          console.log('[AUTH] redirect blocked: no session (email confirmation required)')
+          console.log('[AUTH] no session (email confirmation required)')
           setMessage('Account created. Check your email to confirm your account.')
           return
         }
-        console.log('[AUTH] signup success session:', session.user.id)
         await afterSupabaseAuth()
       } catch (e) {
         const msg = e instanceof Error ? e.message : mapServerAuthError('invalid_credentials')
@@ -237,60 +142,6 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
       } finally {
         setBusy(false)
       }
-      return
-    }
-  }
-
-  useEffect(() => {
-    return () => {
-      if (photoPreviewUrl && photoPreviewUrl.startsWith('blob:')) URL.revokeObjectURL(photoPreviewUrl)
-    }
-  }, [photoPreviewUrl])
-
-  const onCompleteProfileSetup = async (e: FormEvent) => {
-    e.preventDefault()
-    setError(null)
-    setMessage(null)
-    const err = validateUsername(username)
-    if (err) {
-      setError(err)
-      return
-    }
-    setBusy(true)
-    try {
-      let avatarUrl = existingAvatarUrl
-      if (photoFile) avatarUrl = await uploadMySupabaseAvatar(photoFile)
-      if (!avatarUrl) {
-        setError('Upload a real profile photo to continue.')
-        return
-      }
-      const updated = await updateMySupabaseProfile({
-        username: username.trim(),
-        avatar_url: avatarUrl,
-      })
-      // #region agent log
-      fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'AuthScreen:onCompleteUsername',message:'username saved',data:{ok:true,hypothesisId:'P2'},timestamp:Date.now(),hypothesisId:'P2'})}).catch(()=>{});
-      // #endregion
-      await refreshSessionFromSupabase()
-      const me = await refreshSessionFromSupabase()
-      if (me?.email) {
-        applyServerUserProfile({
-          id: me.id,
-          email: me.email,
-          displayName: me.displayName,
-          username: updated.username || undefined,
-        })
-      }
-      setNeedsProfileSetup(false)
-      const user = await requireAuthenticatedSessionUser()
-      console.log('[AUTH] profile setup success:', user.id)
-      console.log('[AUTH] onSuccess execution')
-      onSuccess()
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Could not save profile.'
-      setError(msg.toLowerCase().includes('duplicate') ? 'That username is already taken.' : msg)
-    } finally {
-      setBusy(false)
     }
   }
 
@@ -310,7 +161,7 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
         provider: 'google',
         options: { redirectTo },
       })
-      console.log('[AUTH] oauth google result:', data, oauthError)
+      console.log('[AUTH] oauth google:', data?.url ? 'redirecting' : 'no url', oauthError?.message)
       if (oauthError) setError(oauthError.message || 'Google sign-in failed.')
     } finally {
       setBusy(false)
@@ -333,7 +184,7 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
         provider: 'apple',
         options: { redirectTo },
       })
-      console.log('[AUTH] oauth apple result:', data, oauthError)
+      console.log('[AUTH] oauth apple:', data?.url ? 'redirecting' : 'no url', oauthError?.message)
       if (oauthError) setError(oauthError.message || 'Apple sign-in failed.')
     } finally {
       setBusy(false)
@@ -346,7 +197,9 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
   const emailInsteadLabel = tab === 'signup' ? 'Sign up with email instead' : 'Log in with email instead'
 
   return (
-    <div className="fetch-auth-screen fetch-theme-chrome mx-auto flex min-h-dvh w-full max-w-md flex-col px-4 pb-8 pt-[max(0.65rem,env(safe-area-inset-top))]">
+    <div className="fetch-auth-screen mx-auto flex min-h-dvh min-h-[100dvh] w-full flex-col">
+      <div className="flex min-h-0 flex-1 flex-col justify-center overflow-y-auto overscroll-contain">
+        <div className="mx-auto w-full max-w-md px-4 py-[max(1.25rem,env(safe-area-inset-top))] pb-[max(1.5rem,env(safe-area-inset-bottom))]">
       <div className="flex items-center gap-2">
         <button
           type="button"
@@ -395,60 +248,7 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
         </button>
       </div>
 
-      {needsProfileSetup ? (
-        <form onSubmit={onCompleteProfileSetup} className="mt-4 flex max-w-md flex-col gap-2">
-          <label className="fetch-auth-label text-[10px] font-semibold uppercase tracking-[0.1em] text-white/38">
-            Username
-          </label>
-          <input
-            type="text"
-            autoComplete="username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            placeholder="your_name12"
-            className={inputClass}
-          />
-          <p className="text-[11px] text-white/55">
-            Built from your email name + domain, with a unique suggested number.
-          </p>
-          <label className="fetch-auth-label mt-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-white/38">
-            Profile photo
-          </label>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => {
-              const next = e.target.files?.[0] ?? null
-              setPhotoFile(next)
-              if (photoPreviewUrl && photoPreviewUrl.startsWith('blob:')) URL.revokeObjectURL(photoPreviewUrl)
-              if (next) {
-                setPhotoPreviewUrl(URL.createObjectURL(next))
-              } else {
-                setPhotoPreviewUrl(existingAvatarUrl)
-              }
-            }}
-            className="rounded-xl border border-white/12 bg-black/40 px-3 py-2 text-[12px] text-white/80 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-1.5 file:text-[12px] file:font-semibold file:text-black"
-          />
-          <div className="mt-1 flex items-center gap-2">
-            <div className="h-12 w-12 overflow-hidden rounded-full bg-white/10 ring-1 ring-white/15">
-              {photoPreviewUrl ? (
-                <img src={photoPreviewUrl} alt="Profile preview" className="h-full w-full object-cover" />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center text-[11px] text-white/55">No photo</div>
-              )}
-            </div>
-            <p className="text-[11px] text-white/55">Upload a real image (not a link).</p>
-          </div>
-          {error ? <p className="text-[11px] text-red-300/90">{error}</p> : null}
-          <button
-            type="submit"
-            disabled={busy}
-            className="mt-1 rounded-xl bg-black py-3 text-[14px] font-bold text-white ring-1 ring-white/20 hover:bg-zinc-950 disabled:opacity-45"
-          >
-            {busy ? 'Saving…' : 'Continue'}
-          </button>
-        </form>
-      ) : !showEmailForm ? (
+      {!showEmailForm ? (
         <div className="mt-4 flex flex-col gap-2">
           <OAuthBrandedButtons
             disabled={busy}
@@ -587,6 +387,8 @@ export default function AuthScreen({ onSuccess, onBack, initialTab = 'signin' }:
           </button>
         </form>
       )}
+        </div>
+      </div>
     </div>
   )
 }

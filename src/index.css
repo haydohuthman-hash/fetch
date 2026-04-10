@@ -5,7 +5,17 @@
   --orb-glow: 244, 246, 250;
   /* Centered phone column + bottom sheet geometry (shared with TS where noted). */
   --fetch-home-frame-max-w: 430px;
-  --fetch-home-sheet-radius: 1.125rem;
+  --fetch-home-sheet-radius: 0.78rem;
+  /* Slightly softer bottom corners on floating sheets (below handle / above dock). */
+  --fetch-home-sheet-bottom-radius: 0.5rem;
+  --fetch-home-sheet-maps-radius: 0.625rem;
+  --fetch-home-sheet-maps-bottom-radius: 0.45rem;
+  /* Booking sheet fill — light warm sand (replaces cool grey-white). */
+  --fetch-home-sheet-sand-top: #fcf9f3;
+  --fetch-home-sheet-sand-mid: #f3ebe1;
+  --fetch-home-sheet-sand-muted: #efe6db;
+  --fetch-home-sheet-sand-shadow: #e8ded2;
+  --fetch-home-sheet-sand-deep: #e3d9cc;
 }
 
 /* Desktop / wide preview: letterboxed stage; fixed UI inside frame uses this as containing block. */
@@ -1672,73 +1682,65 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   }
 }
 
-/* Canvas living-face orb: no hard ring — soft shadow + ambient glow only */
+/* Canvas living-face orb — depth shadow only (no white halo) */
 .fetch-assistant-face-orb.fetch-jarvis-neural-sphere {
   animation: none;
   transform-origin: center;
   border: none !important;
   outline: none !important;
   box-shadow: none;
-  filter: drop-shadow(0 2px 7px rgba(0, 0, 0, 0.48))
-    drop-shadow(0 3px 9px rgba(var(--orb-glow), 0.42))
-    drop-shadow(0 1px 4px rgba(var(--orb-glow), 0.26));
+  filter: drop-shadow(0 2px 7px rgba(0, 0, 0, 0.48));
 }
 
-/* Home dock — dark contact shadow only under the orb (no top/side drop-shadow halo). */
+/* Home dock — flatlay: black rim + single hard offset shadow (depth is painted inside canvas) */
 .fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere {
   isolation: isolate;
   filter: none;
   box-shadow:
-    0 14px 28px -10px rgba(0, 0, 0, 0.45),
-    0 6px 16px -6px rgba(0, 0, 0, 0.32);
+    0 0 0 2px #000000,
+    0 5px 0 rgba(0, 0, 0, 0.22);
+}
+
+.fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -0.18rem;
+  z-index: 0;
+  width: 58%;
+  height: 0.5rem;
+  transform: translateX(-50%) scaleY(0.34);
+  border-radius: 50%;
+  pointer-events: none;
+  background: #0a0a0a;
+  opacity: 0.42;
+  box-shadow: none;
+}
+
+.fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere[data-orb-size='homeDockCompact']::before {
+  width: 52%;
+  height: 0.42rem;
+  bottom: -0.14rem;
+  transform: translateX(-50%) scaleY(0.3);
+  opacity: 0.38;
 }
 
 .fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere[data-fetch-orb-expression='excited'] {
   box-shadow:
-    0 18px 36px -10px rgba(0, 0, 0, 0.5),
-    0 8px 20px -8px rgba(0, 0, 0, 0.38),
-    0 0 28px -6px rgba(var(--orb-glow), 0.24);
+    0 0 0 2px #000000,
+    0 6px 0 rgba(0, 0, 0, 0.26);
 }
 
 .fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere[data-fetch-orb-expression='speaking'] {
   box-shadow:
-    0 18px 38px -10px rgba(0, 0, 0, 0.52),
-    0 8px 22px -8px rgba(0, 0, 0, 0.4),
-    0 0 32px -5px rgba(var(--orb-glow), 0.3);
+    0 0 0 2px #000000,
+    0 6px 0 rgba(0, 0, 0, 0.28);
 }
 
 .fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere[data-fetch-orb-expression='happy'] {
   box-shadow:
-    0 16px 32px -10px rgba(0, 0, 0, 0.46),
-    0 0 22px -6px rgba(var(--orb-glow), 0.18);
-}
-
-.fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere[data-orb-appearance='day']::after,
-.fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere[data-orb-appearance='night']::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  pointer-events: none;
-  z-index: 4;
-}
-
-/* Home dock — day sphere: white rim + soft neutral inner (matches fetch-theme) */
-.fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere[data-orb-appearance='day']::after {
-  box-shadow:
-    inset 6px 6px 16px -4px rgba(255, 255, 255, 0.52),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.38),
-    inset 0 -28px 48px rgba(241, 245, 249, 0.22),
-    inset 0 0 40px rgba(248, 250, 252, 0.12);
-}
-
-.fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere[data-orb-appearance='night']::after {
-  box-shadow:
-    inset 4px 4px 12px -3px rgba(255, 255, 255, 0.14),
-    inset 0 -30px 46px rgba(56, 189, 248, 0.1),
-    inset 0 0 38px rgba(99, 102, 241, 0.06),
-    inset 0 0 24px rgba(0, 0, 0, 0.48),
-    inset 0 -10px 20px rgba(0, 0, 0, 0.3);
+    0 0 0 2px #000000,
+    0 5px 0 rgba(0, 0, 0, 0.24);
 }
 
 /* Fullscreen assistant: canvas face only (no dark orb shell) */
@@ -1749,9 +1751,7 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   outline: none !important;
   box-shadow: none;
   background: transparent;
-  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.34))
-    drop-shadow(0 3px 10px rgba(var(--orb-glow), 0.34))
-    drop-shadow(0 1px 4px rgba(var(--orb-glow), 0.2));
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.34));
 }
 
 @keyframes fetch-jarvis-autonomous-breathe {
@@ -1771,11 +1771,17 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 
 .fetch-jarvis-neural-sphere {
   transform-origin: center;
-  filter:
-    drop-shadow(0 2px 7px rgba(0, 0, 0, 0.48))
-    drop-shadow(0 3px 9px rgba(var(--orb-glow), 0.42))
-    drop-shadow(0 1px 4px rgba(var(--orb-glow), 0.26));
+  filter: drop-shadow(0 2px 7px rgba(0, 0, 0, 0.48));
   animation: fetch-jarvis-neural-float 4.2s ease-in-out infinite;
+}
+
+/* Hide CSS bloom rings behind the canvas orb (no white halo). */
+.fetch-jarvis-neural-sphere .fetch-jarvis-neural-glow-ambient,
+.fetch-jarvis-neural-sphere .fetch-jarvis-neural-glow-mid,
+.fetch-jarvis-neural-sphere .fetch-jarvis-neural-glow-inner,
+.fetch-jarvis-neural-sphere .fetch-jarvis-neural-outer-glow,
+.fetch-jarvis-neural-sphere .fetch-jarvis-neural-mid-glow {
+  display: none !important;
 }
 
 .fetch-jarvis-neural-sphere--idle {
@@ -1995,12 +2001,13 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   inset: 0;
   border-radius: 50%;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 36% 30%, rgba(255, 255, 255, 0.14), transparent 30%),
-    radial-gradient(circle at 50% 56%, rgba(200, 210, 220, 0.16), rgba(20, 22, 28, 0.08) 60%, transparent 74%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    inset 0 -10px 22px rgba(69, 8, 18, 0.26);
+  background: radial-gradient(
+    circle at 52% 58%,
+    rgba(218, 172, 148, 0.28) 0%,
+    rgba(150, 102, 82, 0.18) 52%,
+    rgba(78, 52, 44, 0.12) 72%,
+    transparent 82%
+  );
 }
 
 /* Particles only — no glass disk / specular bowl */
@@ -2015,16 +2022,16 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   border-radius: 50%;
   background: conic-gradient(
     from 220deg at 50% 50%,
-    rgba(24, 255, 255, 0.08) 0deg,
-    rgba(38, 69, 255, 0.12) 68deg,
-    rgba(255, 255, 255, 0.08) 118deg,
-    rgba(220, 225, 235, 0.08) 188deg,
-    rgba(62, 255, 255, 0.06) 270deg,
-    rgba(24, 255, 255, 0.08) 360deg
+    rgba(24, 255, 255, 0.06) 0deg,
+    rgba(38, 69, 255, 0.08) 68deg,
+    rgba(120, 140, 160, 0.05) 118deg,
+    rgba(60, 70, 85, 0.06) 188deg,
+    rgba(62, 255, 255, 0.05) 270deg,
+    rgba(24, 255, 255, 0.06) 360deg
   );
   animation: fetch-jarvis-neural-gradient-orbit 12s linear infinite;
   mix-blend-mode: screen;
-  opacity: 0.34;
+  opacity: 0.14;
 }
 
 .fetch-jarvis-neural-sphere--processing .fetch-jarvis-neural-surface__spin {
@@ -2066,18 +2073,7 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 }
 
 .fetch-jarvis-neural-specular {
-  position: absolute;
-  inset: 12%;
-  border-radius: 50%;
-  background: radial-gradient(
-    circle at 30% 26%,
-    rgba(255, 255, 255, 0.16) 0%,
-    rgba(200, 210, 220, 0.14) 22%,
-    rgba(136, 249, 255, 0.06) 34%,
-    transparent 56%
-  );
-  pointer-events: none;
-  mix-blend-mode: screen;
+  display: none;
 }
 
 /* Simple face layered over neural sphere (does not replace particles) */
@@ -2133,6 +2129,7 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 }
 
 .fetch-jarvis-orb-face__eye {
+  position: relative;
   width: clamp(6px, 12.5%, 1.3rem);
   aspect-ratio: 1 / 1.12;
   border-radius: 50%;
@@ -2143,8 +2140,13 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
     rgba(10, 8, 12, 0.99) 100%
   );
   box-shadow:
-    inset 0 1px 2px rgba(255, 255, 255, 0.24),
-    0 1px 3px rgba(220, 225, 235, 0.14);
+    inset 0 2px 4px rgba(0, 0, 0, 0.5),
+    inset 0 -2px 3px rgba(0, 0, 0, 0.42);
+}
+
+.fetch-jarvis-orb-face__eye::after {
+  content: '';
+  display: none;
 }
 
 .fetch-jarvis-orb-face__mouth {
@@ -2167,8 +2169,8 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 .fetch-jarvis-neural-sphere--listening .fetch-jarvis-orb-face__eye {
   transform: scale(1.07);
   box-shadow:
-    inset 0 1px 2px rgba(255, 255, 255, 0.3),
-    0 0 12px rgba(220, 225, 235, 0.2);
+    inset 0 2px 5px rgba(0, 0, 0, 0.55),
+    inset 0 -2px 4px rgba(0, 0, 0, 0.4);
 }
 
 .fetch-jarvis-neural-sphere--listening .fetch-jarvis-orb-face__mouth {
@@ -2648,34 +2650,6 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 
 .fetch-skeleton-shimmer {
   animation: fetch-skeleton-shimmer 1.15s ease-in-out infinite;
-}
-
-@keyframes fetch-scanner-enter {
-  from {
-    transform: translateY(14px);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
-.fetch-scanner-enter {
-  animation: fetch-scanner-enter 0.24s cubic-bezier(0.32, 0.72, 0, 1) both;
-}
-
-@keyframes fetch-scanner-fade-in {
-  from {
-    opacity: 0.65;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-.fetch-scanner-fade-in {
-  animation: fetch-scanner-fade-in 0.22s ease-out both;
 }
 
 @keyframes fetch-scan-shimmer {
@@ -3544,6 +3518,16 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input.fetch
   filter: saturate(0.65);
 }
 
+/* Booking sheet: larger primary actions + slight upward nudge as a group */
+.fetch-home-vision .fetch-home-booking-sheet .fetch-stage-primary-btn {
+  min-height: 2.875rem;
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+  padding-left: 1rem;
+  padding-right: 1rem;
+  font-size: 0.9375rem;
+}
+
 .fetch-home-vision .fetch-stage-chip-selected {
   color: rgba(255, 255, 255, 0.98);
   text-shadow: none;
@@ -4096,6 +4080,27 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input.fetch
   padding-bottom: 0.15rem;
 }
 
+/*
+ * Expanded sheet header (Fetch + tabs, or shop icon) is `position:absolute` — the scroll region
+ * starts below the handle but the chrome band still overlaps the first pixels; pad + scroll-margin
+ * so primary buttons never sit under it (especially short floating-card snaps).
+ */
+.fetch-home-booking-sheet[data-expanded-header-chrome='brand'] .fetch-home-sheet-inner {
+  padding-top: 2.35rem;
+}
+
+.fetch-home-booking-sheet[data-expanded-header-chrome='brand'] .fetch-home-booking-sheet__scroll {
+  scroll-padding-top: 2.75rem;
+}
+
+.fetch-home-booking-sheet[data-expanded-header-chrome='maps'] .fetch-home-sheet-inner {
+  padding-top: 1.65rem;
+}
+
+.fetch-home-booking-sheet[data-expanded-header-chrome='maps'] .fetch-home-booking-sheet__scroll {
+  scroll-padding-top: 2rem;
+}
+
 /* Sheet body: scrollbar hidden when scroll is enabled (non–content-fit full snap) */
 .fetch-home-booking-sheet__scroll {
   scrollbar-width: none;
@@ -4417,8 +4422,8 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
 /* Sheet: default fill; vision / nav chrome layers add frosted glass + blur */
 .fetch-home-booking-sheet {
   position: relative;
-  --sheet-bg-top: #ffffff;
-  --sheet-bg-bottom: #fafbfc;
+  --sheet-bg-top: var(--fetch-home-sheet-sand-top);
+  --sheet-bg-bottom: var(--fetch-home-sheet-sand-mid);
   border: none;
   background-color: var(--sheet-bg-bottom);
   background-image: linear-gradient(180deg, var(--sheet-bg-top) 0%, var(--sheet-bg-bottom) 100%);
@@ -4429,6 +4434,19 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
   -webkit-backdrop-filter: none;
   min-height: 0;
   will-change: height, max-height;
+}
+
+/* Home shell: sheet sits inset from screen edges — lift with a slightly deeper stack shadow */
+.fetch-home-vision .fetch-home-booking-sheet[data-sheet-floating-card='true'] {
+  box-shadow:
+    0 18px 52px rgba(15, 23, 42, 0.14),
+    0 8px 24px rgba(15, 23, 42, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+.fetch-home-vision .fetch-home-booking-sheet[data-sheet-floating-card='true']::before {
+  border-radius: var(--fetch-home-sheet-radius) var(--fetch-home-sheet-radius)
+    var(--fetch-home-sheet-bottom-radius) var(--fetch-home-sheet-bottom-radius);
 }
 
 .fetch-home-booking-sheet::before {
@@ -4688,39 +4706,38 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
 }
 
 .fetch-home-vision .fetch-home-booking-sheet__shell-footer {
-  padding-bottom: max(0.14rem, env(safe-area-inset-bottom, 0px));
+  padding-bottom: max(0.04rem, env(safe-area-inset-bottom, 0px));
   padding-left: env(safe-area-inset-left, 0px);
   padding-right: env(safe-area-inset-right, 0px);
   border: none;
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.22) 0%,
-    rgba(255, 255, 255, 0.62) 32%,
-    rgba(255, 255, 255, 0.9) 68%,
-    #ffffff 100%
-  );
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  background: #064e3b;
+  box-shadow: none;
 }
 
 /*
- * iOS Safari + light theme: white band in the home-indicator inset below the sheet dock
- * (viewport-fit=cover). ::before sits behind sheet content; shell footer stays opaque white in fetch-theme.
+ * iOS Safari: home-indicator inset below the sheet dock matches solid nav (viewport-fit=cover).
  */
 @supports (-webkit-touch-callout: none) {
   html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-booking-sheet-outer--edge::before,
-  html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-booking-sheet-outer--fullbleed::before {
+  html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-booking-sheet-outer--fullbleed::before,
+  html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-booking-sheet-outer--edge::before,
+  html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-booking-sheet-outer--fullbleed::before {
     content: '';
     position: absolute;
     left: 0;
     right: 0;
     bottom: 0;
     height: env(safe-area-inset-bottom, 0px);
-    background-color: #ffffff;
+    background-color: #064e3b;
     pointer-events: none;
     z-index: 0;
   }
 
   html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-booking-sheet-outer--edge > *,
-  html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-booking-sheet-outer--fullbleed > * {
+  html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-booking-sheet-outer--fullbleed > *,
+  html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-booking-sheet-outer--edge > *,
+  html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-booking-sheet-outer--fullbleed > * {
     position: relative;
     z-index: 1;
   }
@@ -4733,25 +4750,61 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
   border-radius: 0;
 }
 
-.fetch-home-booking-sheet[data-shell-footer='true'] .fetch-home-booking-sheet__shell-footer-stack {
+/*
+ * Home shell: pin tab bar to the bottom of the phone column (transform ancestor is
+ * `.fetch-home-phone-frame`). Reserve space in the sheet column so the card does not sit under the bar.
+ */
+.fetch-home-vision .fetch-home-sheet-dock-panel--with-shell-nav {
+  padding-bottom: calc(3.95rem + env(safe-area-inset-bottom, 0px));
+}
+
+.fetch-home-vision
+  .fetch-home-sheet-dock-cluster[data-shell-footer='true']:has(
+    .fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active
+  )
+  .fetch-home-sheet-dock-panel--with-shell-nav {
+  padding-bottom: calc(4.35rem + env(safe-area-inset-bottom, 0px));
+}
+
+.fetch-home-vision .fetch-home-sheet-dock-cluster[data-shell-footer='true'] .fetch-home-booking-sheet__shell-footer-stack {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 55;
+  width: 100%;
+}
+
+.fetch-home-vision
+  .fetch-home-sheet-dock-cluster[data-shell-footer='true'][data-snap='closed'][data-intent-closed-peek='true']
+  .fetch-home-booking-sheet__shell-footer {
+  margin-top: 0;
+}
+
+/* Avoid a second band of inset padding below the fixed tab bar (safe area lives in the bar). */
+.fetch-home-vision .fetch-home-booking-sheet-outer.fetch-home-booking-sheet-outer--edge:has([data-shell-footer='true']) {
+  padding-bottom: 0;
+}
+
+.fetch-home-sheet-dock-cluster[data-shell-footer='true'] .fetch-home-booking-sheet__shell-footer-stack {
   flex-shrink: 0;
   flex-grow: 0;
 }
 
-/* Snap height ↔ subtle grey tier */
+/* Snap height ↔ subtle sand tier (darker toward closed) */
 .fetch-home-booking-sheet[data-snap='closed'] {
-  --sheet-bg-top: #ffffff;
-  --sheet-bg-bottom: #f6f7f9;
+  --sheet-bg-top: #faf6ee;
+  --sheet-bg-bottom: var(--fetch-home-sheet-sand-shadow);
 }
 
 /* Services (etc.) closed peek — glass over map; maps tab uses nav chrome below */
 .fetch-home-vision .fetch-home-booking-sheet[data-snap='closed']:not([data-nav-map-chrome='true']) {
-  background-color: rgba(255, 255, 255, 0.34);
+  background-color: rgba(252, 246, 236, 0.38);
   background-image: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.72) 0%,
-    rgba(252, 253, 255, 0.42) 42%,
-    rgba(244, 247, 252, 0.34) 100%
+    rgba(255, 252, 245, 0.78) 0%,
+    rgba(248, 240, 228, 0.48) 42%,
+    rgba(238, 228, 214, 0.36) 100%
   );
   box-shadow:
     0 -12px 44px rgba(15, 23, 42, 0.07),
@@ -4787,39 +4840,39 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
 }
 
 .fetch-home-booking-sheet[data-snap='compact'] {
-  --sheet-bg-top: #ffffff;
-  --sheet-bg-bottom: #f8f9fb;
+  --sheet-bg-top: var(--fetch-home-sheet-sand-top);
+  --sheet-bg-bottom: var(--fetch-home-sheet-sand-muted);
 }
 
 .fetch-home-booking-sheet[data-snap='half'] {
-  --sheet-bg-top: #ffffff;
-  --sheet-bg-bottom: #f5f6f8;
+  --sheet-bg-top: var(--fetch-home-sheet-sand-top);
+  --sheet-bg-bottom: var(--fetch-home-sheet-sand-shadow);
 }
 
 .fetch-home-booking-sheet[data-snap='full'] {
-  --sheet-bg-top: #ffffff;
-  --sheet-bg-bottom: #f4f5f7;
+  --sheet-bg-top: var(--fetch-home-sheet-sand-top);
+  --sheet-bg-bottom: var(--fetch-home-sheet-sand-deep);
 }
 
 .fetch-home-booking-sheet[data-surface='maps'] {
-  --sheet-bg-top: #ffffff;
-  --sheet-bg-bottom: #fafbfc;
+  --sheet-bg-top: var(--fetch-home-sheet-sand-top);
+  --sheet-bg-bottom: var(--fetch-home-sheet-sand-mid);
 }
 
 .fetch-home-booking-sheet .fetch-home-sheet-chrome-btn,
 .fetch-home-booking-sheet .fetch-home-sheet-peek-map,
 .fetch-home-booking-sheet .fetch-home-booking-sheet__account-btn {
-  background: #f1f5f9;
+  background: var(--fetch-home-sheet-sand-shadow);
   color: #0f172a;
-  border: 1px solid #e2e8f0;
+  border: 1px solid rgba(210, 198, 182, 0.85);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
 }
 
 .fetch-home-booking-sheet .fetch-home-sheet-chrome-btn:hover,
 .fetch-home-booking-sheet .fetch-home-sheet-peek-map:hover,
 .fetch-home-booking-sheet .fetch-home-booking-sheet__account-btn:hover {
-  background: #e8eef5;
-  border-color: #cbd5e1;
+  background: var(--fetch-home-sheet-sand-deep);
+  border-color: rgba(198, 186, 170, 0.95);
   color: #0f172a;
 }
 
@@ -4894,8 +4947,8 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
 .fetch-home-vision .fetch-apple-nav-route-panel--sheet {
   background: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.98) 0%,
-    rgba(248, 250, 252, 1) 100%
+    rgba(255, 252, 246, 0.98) 0%,
+    rgba(243, 235, 225, 1) 100%
   );
   border: 1px solid rgba(15, 23, 42, 0.06);
   box-shadow:
@@ -4986,7 +5039,7 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
 
 /* Maps explore UI — light cards on white sheet */
 .fetch-home-vision .fetch-maps-explore-input {
-  background: #f8fafc;
+  background: var(--fetch-home-sheet-sand-muted);
   border: 1px solid rgba(15, 23, 42, 0.2);
   color: #0f172a;
   font-weight: 650;
@@ -5523,17 +5576,26 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
 }
 
 /* Bottom shell nav (Home / Nav / Account): closed sheet must fit handle + peek row + footer */
-.fetch-home-booking-sheet[data-snap='closed'][data-shell-footer='true'] {
-  max-height: min(16rem, 62dvh);
+.fetch-home-sheet-dock-cluster[data-shell-footer='true'] .fetch-home-booking-sheet[data-snap='closed'] {
+  max-height: min(8rem, 31dvh);
 }
 
-.fetch-home-booking-sheet[data-snap='closed'][data-shell-footer='true'][data-maps-compact-peek='true'] {
-  max-height: min(16rem, 60dvh);
+.fetch-home-sheet-dock-cluster[data-shell-footer='true'][data-maps-compact-peek='true']
+  .fetch-home-booking-sheet[data-snap='closed'] {
+  max-height: min(8rem, 30dvh);
 }
 
 .fetch-home-booking-sheet[data-snap='compact'] {
-  height: min(50dvh, 29rem);
-  max-height: min(50dvh, 29rem);
+  height: min(
+    50dvh,
+    29rem,
+    calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 5.5rem)
+  );
+  max-height: min(
+    50dvh,
+    29rem,
+    calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 5.5rem)
+  );
 }
 
 /*
@@ -5541,18 +5603,84 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
  * (10dvh reads as ~10% viewport whitespace). Capped like before so small phones still scroll.
  */
 .fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] {
-  height: min(calc(21.75rem + 10dvh), 38dvh, 23.5rem);
-  max-height: min(calc(21.75rem + 10dvh), 38dvh, 23.5rem);
+  height: min(calc((10.875rem + 5dvh) * 1.4), calc(19dvh * 1.4), calc(11.75rem * 1.4));
+  max-height: min(calc((10.875rem + 5dvh) * 1.4), calc(19dvh * 1.4), calc(11.75rem * 1.4));
 }
 
 .fetch-home-booking-sheet[data-snap='half'] {
-  height: min(41dvh, 29rem);
-  max-height: min(41dvh, 29rem);
+  height: min(
+    41dvh,
+    29rem,
+    calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 5.5rem)
+  );
+  max-height: min(
+    41dvh,
+    29rem,
+    calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 5.5rem)
+  );
 }
 
 .fetch-home-booking-sheet[data-snap='full'] {
-  height: min(78dvh, 36rem);
-  max-height: min(78dvh, 36rem);
+  height: min(
+    78dvh,
+    36rem,
+    calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 4.5rem)
+  );
+  max-height: min(
+    78dvh,
+    36rem,
+    calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 4.5rem)
+  );
+}
+
+/* Home shell floating card: ~half prior snap heights + squarer panel */
+.fetch-home-vision .fetch-home-booking-sheet[data-sheet-floating-card='true'][data-snap='compact'] {
+  height: min(
+    max(22dvh, 14rem),
+    calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 10.5rem)
+  );
+  max-height: min(
+    max(22dvh, 14rem),
+    calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 10.5rem)
+  );
+}
+
+.fetch-home-vision
+  .fetch-home-booking-sheet[data-sheet-floating-card='true'][data-surface='intent'][data-snap='compact'] {
+  height: min(
+    calc((8.625rem + 3.5dvh) * 1.4),
+    calc(16dvh * 1.4),
+    calc(10rem * 1.4),
+    calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 10.5rem)
+  );
+  max-height: min(
+    calc((8.625rem + 3.5dvh) * 1.4),
+    calc(16dvh * 1.4),
+    calc(10rem * 1.4),
+    calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 10.5rem)
+  );
+}
+
+.fetch-home-vision .fetch-home-booking-sheet[data-sheet-floating-card='true'][data-snap='half'] {
+  height: min(
+    max(18dvh, 13.5rem),
+    calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 9.75rem)
+  );
+  max-height: min(
+    max(18dvh, 13.5rem),
+    calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 9.75rem)
+  );
+}
+
+.fetch-home-vision .fetch-home-booking-sheet[data-sheet-floating-card='true'][data-snap='full'] {
+  height: min(
+    max(35dvh, 17rem),
+    calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 9rem)
+  );
+  max-height: min(
+    max(35dvh, 17rem),
+    calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 9rem)
+  );
 }
 
 /*
@@ -5702,14 +5830,14 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 
 /* Maps tab (HomeView homeSheetNavMapChrome) — stronger glass over map at every snap */
 .fetch-home-booking-sheet[data-nav-map-chrome='true'] {
-  background-color: rgba(255, 255, 255, 0.14);
+  background-color: rgba(252, 246, 236, 0.2);
   background-image: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.18) 0%,
-    rgba(255, 255, 255, 0.42) 18%,
-    rgba(252, 253, 255, 0.68) 45%,
-    rgba(248, 250, 252, 0.86) 72%,
-    rgba(241, 245, 249, 0.93) 100%
+    rgba(255, 252, 245, 0.22) 0%,
+    rgba(252, 244, 232, 0.48) 18%,
+    rgba(245, 236, 222, 0.72) 45%,
+    rgba(236, 226, 212, 0.88) 72%,
+    rgba(228, 216, 200, 0.94) 100%
   );
   box-shadow:
     0 -16px 52px rgba(15, 23, 42, 0.08),
@@ -5749,12 +5877,14 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 }
 
 /* Nav maps + bottom shell: closed must stay tall enough for handle + peek + footer */
-.fetch-home-booking-sheet[data-nav-map-chrome='true'][data-snap='closed'][data-shell-footer='true'] {
-  max-height: min(17.5rem, 66dvh);
+.fetch-home-sheet-dock-cluster[data-shell-footer='true'][data-nav-map-chrome='true']
+  .fetch-home-booking-sheet[data-snap='closed'] {
+  max-height: min(8.75rem, 33dvh);
 }
 
-.fetch-home-booking-sheet[data-nav-map-chrome='true'][data-snap='closed'][data-shell-footer='true'][data-maps-compact-peek='true'] {
-  max-height: min(15.75rem, 58dvh);
+.fetch-home-sheet-dock-cluster[data-shell-footer='true'][data-nav-map-chrome='true'][data-maps-compact-peek='true']
+  .fetch-home-booking-sheet[data-snap='closed'] {
+  max-height: min(7.875rem, 29dvh);
 }
 
 .fetch-home-booking-sheet[data-nav-map-chrome='true'][data-snap='compact'] {
@@ -5772,13 +5902,15 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   max-height: min(62dvh, 34rem);
 }
 
-/* Maps tab + nav chrome: match flat panel top radius (overrides Tailwind sheet rounding) */
+/* Maps tab + nav chrome: match panel radius (slight bottom round) */
 .fetch-home-booking-sheet[data-surface='maps'][data-nav-map-chrome='true'] {
-  border-radius: 0.625rem 0.625rem 0 0;
+  border-radius: var(--fetch-home-sheet-maps-radius) var(--fetch-home-sheet-maps-radius)
+    var(--fetch-home-sheet-maps-bottom-radius) var(--fetch-home-sheet-maps-bottom-radius);
 }
 
 .fetch-home-booking-sheet[data-surface='maps'][data-nav-map-chrome='true']::before {
-  border-radius: 0.625rem 0.625rem 0 0;
+  border-radius: var(--fetch-home-sheet-maps-radius) var(--fetch-home-sheet-maps-radius)
+    var(--fetch-home-sheet-maps-bottom-radius) var(--fetch-home-sheet-maps-bottom-radius);
   left: 4px;
   right: 4px;
 }
@@ -5803,24 +5935,16 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 
 /* TTS: `.fetch-home-booking-sheet--speaking` is a hook for a11y/tests; visuals = voice-halo + speech-particles only. */
 
-/* Dock orb: no blue pool underfoot — neutral drop shadow + tighter top highlight from --orb-glow */
+/* Dock wrapper: no faux “orb plate” — rim + ground shadow live on `.fetch-assistant-face-orb` */
 .fetch-home-vision .fetch-home-orb-vision-halo[data-orb-idle='true'],
-.fetch-home-vision .fetch-home-orb-vision-halo:not([data-orb-idle='true']) {
-  filter: none;
-  border-radius: 50%;
-  box-shadow:
-    0 20px 40px rgba(0, 0, 0, 0.36),
-    0 10px 22px rgba(0, 0, 0, 0.22),
-    0 4px 10px rgba(0, 0, 0, 0.14),
-    0 -6px 18px -4px rgba(var(--orb-glow), 0.85),
-    0 -2px 8px -2px rgba(255, 255, 255, 0.35);
-}
-
+.fetch-home-vision .fetch-home-orb-vision-halo:not([data-orb-idle='true']),
 .fetch-home-vision .fetch-home-orb-vision-halo--booking-min[data-orb-idle='true'],
 .fetch-home-vision .fetch-home-orb-vision-halo--booking-min:not([data-orb-idle='true']) {
-  box-shadow:
-    0 10px 22px rgba(0, 0, 0, 0.2),
-    0 3px 8px rgba(0, 0, 0, 0.12);
+  overflow: visible;
+  filter: none;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
 }
 
 @keyframes fetch-home-orb-bubble-rise {
@@ -5993,16 +6117,16 @@ html[data-fetch-theme='light'] .fetch-home-vision {
     0 -18px 56px rgba(15, 23, 42, 0.06),
     inset 0 1px 0 rgba(255, 255, 255, 0.55);
   /* Translucent top: map bleeds slightly; blur aids legibility over the map */
-  background-color: rgba(255, 255, 255, 0.03);
+  background-color: rgba(252, 246, 236, 0.06);
   background-image: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.1) 0%,
-    rgba(255, 255, 255, 0.28) 10%,
-    rgba(255, 255, 255, 0.55) 22%,
-    rgba(255, 255, 255, 0.82) 34%,
-    rgba(248, 250, 252, 0.94) 46%,
-    #f3f6f9 58%,
-    #f8fafc 100%
+    rgba(255, 252, 245, 0.14) 0%,
+    rgba(255, 250, 242, 0.32) 10%,
+    rgba(252, 244, 232, 0.58) 22%,
+    rgba(245, 236, 222, 0.88) 34%,
+    rgba(238, 228, 214, 0.95) 46%,
+    #ebe2d6 58%,
+    #f3ebe1 100%
   );
   backdrop-filter: blur(36px) saturate(1.32);
   -webkit-backdrop-filter: blur(36px) saturate(1.32);
@@ -6012,25 +6136,37 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   .fetch-home-vision .fetch-home-booking-sheet[data-surface='intent'] {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-    background-color: #f8fafc;
-    background-image: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
-    border-color: rgba(226, 232, 240, 0.95);
+    background-color: var(--fetch-home-sheet-sand-mid);
+    background-image: linear-gradient(
+      180deg,
+      var(--fetch-home-sheet-sand-top) 0%,
+      var(--fetch-home-sheet-sand-shadow) 100%
+    );
+    border-color: rgba(218, 206, 190, 0.95);
   }
 
   .fetch-home-booking-sheet[data-nav-map-chrome='true'] {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-    background-color: #f8fafc;
-    background-image: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
-    border-color: rgba(226, 232, 240, 0.9);
+    background-color: var(--fetch-home-sheet-sand-mid);
+    background-image: linear-gradient(
+      180deg,
+      var(--fetch-home-sheet-sand-top) 0%,
+      var(--fetch-home-sheet-sand-shadow) 100%
+    );
+    border-color: rgba(218, 206, 190, 0.92);
   }
 
   .fetch-home-vision .fetch-home-booking-sheet[data-snap='closed']:not([data-nav-map-chrome='true']) {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-    background-color: #f8fafc;
-    background-image: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
-    border-color: rgba(226, 232, 240, 0.9);
+    background-color: var(--fetch-home-sheet-sand-mid);
+    background-image: linear-gradient(
+      180deg,
+      var(--fetch-home-sheet-sand-top) 0%,
+      var(--fetch-home-sheet-sand-shadow) 100%
+    );
+    border-color: rgba(218, 206, 190, 0.92);
   }
 
   .fetch-home-vision
@@ -6041,18 +6177,26 @@ html[data-fetch-theme='light'] .fetch-home-vision {
     .fetch-home-booking-sheet[data-surface='maps'][data-edge-shell='true'][data-snap='half']:not([data-nav-map-chrome='true']) {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-    background-color: #f8fafc;
-    background-image: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
-    border-color: rgba(226, 232, 240, 0.9);
+    background-color: var(--fetch-home-sheet-sand-mid);
+    background-image: linear-gradient(
+      180deg,
+      var(--fetch-home-sheet-sand-top) 0%,
+      var(--fetch-home-sheet-sand-shadow) 100%
+    );
+    border-color: rgba(218, 206, 190, 0.92);
   }
 
   .fetch-home-vision
     .fetch-home-booking-sheet[data-surface='maps'][data-edge-shell='true'][data-snap='closed'][data-maps-compact-peek='true'] {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-    background-color: #fafbfc;
-    background-image: linear-gradient(180deg, #ffffff 0%, #f4f6f8 100%);
-    border-color: rgba(226, 232, 240, 0.92);
+    background-color: var(--fetch-home-sheet-sand-muted);
+    background-image: linear-gradient(
+      180deg,
+      var(--fetch-home-sheet-sand-top) 0%,
+      var(--fetch-home-sheet-sand-deep) 100%
+    );
+    border-color: rgba(218, 206, 190, 0.92);
     box-shadow:
       0 -14px 44px rgba(15, 23, 42, 0.08),
       inset 0 1px 0 rgba(255, 255, 255, 0.95);
@@ -6060,7 +6204,8 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 }
 
 .fetch-home-vision .fetch-home-booking-sheet[data-surface='intent'][data-edge-shell='true'][data-snap='full'] {
-  border-radius: 46% 46% 0 0 / 17% 17% 0 0;
+  border-radius: var(--fetch-home-sheet-radius) var(--fetch-home-sheet-radius)
+    var(--fetch-home-sheet-bottom-radius) var(--fetch-home-sheet-bottom-radius);
   border-bottom: none;
 }
 
@@ -6068,7 +6213,8 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 .fetch-home-vision .fetch-home-booking-sheet[data-surface='maps'][data-edge-shell='true'][data-snap='closed']:not(
     [data-maps-compact-peek='true']
   ) {
-  border-radius: 0.625rem 0.625rem 0 0;
+  border-radius: var(--fetch-home-sheet-maps-radius) var(--fetch-home-sheet-maps-radius)
+    var(--fetch-home-sheet-maps-bottom-radius) var(--fetch-home-sheet-maps-bottom-radius);
   border: 1px solid rgba(255, 255, 255, 0.45);
   box-shadow:
     0 -18px 56px rgba(15, 23, 42, 0.085),
@@ -6077,14 +6223,15 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 }
 
 .fetch-home-vision .fetch-home-booking-sheet[data-surface='maps'][data-edge-shell='true'][data-snap='closed'][data-maps-compact-peek='true'] {
-  border-radius: 0.625rem 0.625rem 0 0;
+  border-radius: var(--fetch-home-sheet-maps-radius) var(--fetch-home-sheet-maps-radius)
+    var(--fetch-home-sheet-maps-bottom-radius) var(--fetch-home-sheet-maps-bottom-radius);
   border: 1px solid rgba(255, 255, 255, 0.48);
-  background-color: rgba(255, 255, 255, 0.76);
+  background-color: rgba(252, 246, 236, 0.82);
   background-image: linear-gradient(
     188deg,
-    rgba(255, 255, 255, 0.98) 0%,
-    rgba(252, 253, 255, 0.9) 38%,
-    rgba(248, 250, 252, 0.86) 100%
+    rgba(255, 252, 246, 0.98) 0%,
+    rgba(245, 236, 222, 0.92) 38%,
+    rgba(236, 226, 212, 0.88) 100%
   );
   backdrop-filter: blur(34px) saturate(1.3);
   -webkit-backdrop-filter: blur(34px) saturate(1.3);
@@ -6096,7 +6243,8 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 }
 
 .fetch-home-vision .fetch-home-booking-sheet[data-surface='maps'][data-edge-shell='true'][data-snap='full'] {
-  border-radius: 0.625rem 0.625rem 0 0;
+  border-radius: var(--fetch-home-sheet-maps-radius) var(--fetch-home-sheet-maps-radius)
+    var(--fetch-home-sheet-maps-bottom-radius) var(--fetch-home-sheet-maps-bottom-radius);
   border: 1px solid rgba(255, 255, 255, 0.38);
   box-shadow:
     0 -12px 40px rgba(15, 23, 42, 0.08),
@@ -6110,17 +6258,18 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   ),
 .fetch-home-vision
   .fetch-home-booking-sheet[data-surface='maps'][data-edge-shell='true'][data-snap='half']:not([data-nav-map-chrome='true']) {
-  border-radius: 0.625rem 0.625rem 0 0;
+  border-radius: var(--fetch-home-sheet-maps-radius) var(--fetch-home-sheet-maps-radius)
+    var(--fetch-home-sheet-maps-bottom-radius) var(--fetch-home-sheet-maps-bottom-radius);
   border: 1px solid rgba(255, 255, 255, 0.48);
   box-shadow:
     0 -12px 40px rgba(15, 23, 42, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.72);
-  background-color: rgba(255, 255, 255, 0.52);
+  background-color: rgba(248, 240, 228, 0.58);
   background-image: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.65) 0%,
-    rgba(248, 250, 252, 0.88) 55%,
-    rgba(241, 245, 249, 0.94) 100%
+    rgba(255, 252, 245, 0.72) 0%,
+    rgba(240, 230, 216, 0.9) 55%,
+    rgba(228, 216, 200, 0.95) 100%
   );
   backdrop-filter: blur(32px) saturate(1.26);
   -webkit-backdrop-filter: blur(32px) saturate(1.26);
@@ -6165,10 +6314,9 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 }
 
 /* Intent closed peek: sheet height cap (legacy body-only peek without shell promo) */
-.fetch-home-booking-sheet[data-snap='closed'][data-shell-footer='true'][data-intent-closed-peek='true']:not(
-    [data-intent-shell-promo='true']
-  ) {
-  max-height: min(12.5rem, 78dvh);
+.fetch-home-sheet-dock-cluster[data-shell-footer='true']
+  .fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true']:not([data-intent-shell-promo='true']) {
+  max-height: min(6.25rem, 39dvh);
 }
 
 /* Hide service rail only for legacy closed peek (promo lived in body). Shell promo: show service cards. */
@@ -6185,13 +6333,13 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 }
 
 /* Decorative promo peek under bottom nav — drags pass through (see canInitiateSheetDrag). */
-.fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true'][data-intent-shell-promo='true']
+.fetch-home-sheet-dock-cluster[data-shell-footer='true'][data-snap='closed'][data-intent-closed-peek='true'][data-intent-shell-promo='true']
   .fetch-home-booking-sheet__shell-footer-promo-peek
   .fetch-home-service-promo-wrap {
   pointer-events: none;
 }
 
-.fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true'][data-intent-shell-promo='true']
+.fetch-home-sheet-dock-cluster[data-shell-footer='true'][data-snap='closed'][data-intent-closed-peek='true'][data-intent-shell-promo='true']
   .fetch-home-booking-sheet__shell-footer-promo-peek
   .fetch-home-service-promo-carousel {
   touch-action: none;
@@ -6202,7 +6350,7 @@ html[data-fetch-theme='light'] .fetch-home-vision {
  * ~10% of promo tile height — strip below bottom nav (tile W ≈ max(11.75rem, (100cqi - gap) / 1.5)).
  */
 @supports (width: 1cqi) {
-  .fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true'][data-intent-shell-promo='true']
+  .fetch-home-sheet-dock-cluster[data-shell-footer='true'][data-snap='closed'][data-intent-closed-peek='true'][data-intent-shell-promo='true']
     .fetch-home-booking-sheet__shell-footer-promo-peek
     .fetch-home-service-promo-clip {
     max-height: calc(
@@ -6213,7 +6361,7 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 }
 
 @supports not (width: 1cqi) {
-  .fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true'][data-intent-shell-promo='true']
+  .fetch-home-sheet-dock-cluster[data-shell-footer='true'][data-snap='closed'][data-intent-closed-peek='true'][data-intent-shell-promo='true']
     .fetch-home-booking-sheet__shell-footer-promo-peek
     .fetch-home-service-promo-clip {
     max-height: calc(0.1 * 12rem * var(--fetch-promo-nh, 4) / var(--fetch-promo-nw, 5));
@@ -6269,25 +6417,26 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 }
 
 /* Shell nav */
-.fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true'] .fetch-home-booking-sheet__shell-footer {
+.fetch-home-sheet-dock-cluster[data-shell-footer='true'][data-snap='closed'][data-intent-closed-peek='true']
+  .fetch-home-booking-sheet__shell-footer {
   position: relative;
   z-index: 6;
   margin-top: -0.35rem;
   padding-top: 0.2rem;
-  border-top: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
   box-shadow: none;
-  background: #ffffff;
+  background: #064e3b;
 }
 
-.fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true'][data-intent-shell-promo='true']
+.fetch-home-sheet-dock-cluster[data-shell-footer='true'][data-snap='closed'][data-intent-closed-peek='true'][data-intent-shell-promo='true']
   .fetch-home-booking-sheet__shell-footer {
   margin-top: 0;
 }
 
 .fetch-home-vision
-  .fetch-home-booking-sheet[data-snap='closed'][data-intent-closed-peek='true']
+  .fetch-home-sheet-dock-cluster[data-shell-footer='true'][data-snap='closed'][data-intent-closed-peek='true']
   .fetch-home-booking-sheet__shell-footer {
-  background: #ffffff;
+  background: #064e3b;
 }
 
 /* Expanded sheet: full promo above bottom nav */
@@ -6309,7 +6458,7 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   .fetch-home-booking-sheet__body--intent-closed-peek,
 .fetch-home-booking-sheet[data-intent-shell-promo='true'][data-intent-closed-peek='true'][data-snap='closed']
   .fetch-home-booking-sheet__scroll--intent-peek {
-  max-height: min(7.75rem, 36dvh) !important;
+  max-height: min(3.875rem, 18dvh) !important;
   min-height: 0 !important;
   opacity: 1 !important;
   pointer-events: auto !important;
@@ -6320,8 +6469,9 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   margin: 0 !important;
 }
 
-.fetch-home-booking-sheet[data-snap='closed'][data-shell-footer='true'][data-intent-closed-peek='true'][data-intent-shell-promo='true'] {
-  max-height: min(23rem, 96dvh);
+.fetch-home-sheet-dock-cluster[data-shell-footer='true'][data-snap='closed'][data-intent-closed-peek='true'][data-intent-shell-promo='true']
+  .fetch-home-booking-sheet {
+  max-height: min(11.5rem, 48dvh);
 }
 
 .fetch-home-booking-sheet:not([data-snap='closed']) .fetch-home-booking-sheet__shell-footer-backdrop .fetch-home-service-promo-clip {
@@ -6430,7 +6580,11 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   max-height: min(88dvh, 40rem);
   flex-direction: column;
   border-radius: 1.35rem 1.35rem 0 0;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  background: linear-gradient(
+    180deg,
+    var(--fetch-home-sheet-sand-top) 0%,
+    var(--fetch-home-sheet-sand-mid) 100%
+  );
   border: 1px solid rgba(15, 23, 42, 0.08);
   border-bottom: none;
   box-shadow:
@@ -6615,13 +6769,21 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   box-shadow: 0 1px 10px rgba(6, 182, 212, 0.22);
 }
 
-/* Marketplace shell: frosted bottom nav strip + crisp white top edge */
+/* Marketplace / chat shell: solid dark emerald bar (icons: scoped white, no pills) */
 .fetch-home-marketplace-shell-footer {
-  border-top: 1px solid rgba(255, 255, 255, 0.92);
-  background: rgba(255, 255, 255, 0.72);
-  backdrop-filter: blur(22px) saturate(1.18);
-  -webkit-backdrop-filter: blur(22px) saturate(1.18);
-  box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.55);
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  background: #064e3b;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
+/* Marketplace browse: warm sheet behind the grid (flat-lay reference) */
+.fetch-home-marketplace-flat-sheet {
+  background-color: #f3efe6;
+  background-image:
+    radial-gradient(120% 90% at 18% 0%, rgba(255, 255, 255, 0.48), transparent 55%),
+    radial-gradient(100% 70% at 92% 100%, rgba(224, 219, 210, 0.6), transparent 52%);
 }
 
 /* Drops reels: vertical snap scroll without visible scrollbar */
@@ -6634,19 +6796,21 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   display: none;
 }
 
-/* Reels shell: dark footer so bottom nav stays legible on black feed */
+/*
+ * Drops shell: frosted glass strip (reads transparent over video) + dark icons / black “Menu” affordance in header.
+ */
 .fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon {
-  color: rgba(255, 255, 255, 0.52);
+  color: rgba(15, 23, 42, 0.58);
 }
 
 .fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon:hover {
-  color: rgba(255, 255, 255, 0.78);
+  color: rgba(15, 23, 42, 0.82);
   background: transparent;
 }
 
 .fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon--active,
 .fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon--active:hover {
-  color: #fff;
+  color: #0a0a0a;
   background: transparent;
 }
 
@@ -6655,18 +6819,17 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   .fetch-home-intent-bottom-nav--compact
   .fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active
   svg {
-  width: 4.35rem;
-  height: 4.35rem;
+  width: 4.85rem;
+  height: 4.85rem;
 }
 
 .fetch-home-reels-shell-footer[data-fetch-drops-upload-flow='true']
   .fetch-home-intent-bottom-nav--compact {
-  min-height: calc(3.4rem + env(safe-area-inset-bottom, 0px));
+  min-height: calc(3.95rem + env(safe-area-inset-bottom, 0px));
 }
 
-/* Plus glyph on white tile (active icon) — dark on reel footer, white on light bar */
-.fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon--active .fetch-reels-nav-icon__plus {
-  fill: #0a0a0a;
+.fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon:focus-visible {
+  outline-color: rgba(15, 23, 42, 0.35);
 }
 
 /* Full-width bottom bar — home / maps / marketplace (fixed row; safe-area on bottom). */
@@ -6676,9 +6839,9 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   align-items: stretch;
   justify-content: space-between;
   margin-top: 0;
-  min-height: calc(2.85rem + env(safe-area-inset-bottom, 0px));
-  padding: 0.28rem max(0.55rem, env(safe-area-inset-left, 0px))
-    max(0.28rem, env(safe-area-inset-bottom, 0px)) max(0.55rem, env(safe-area-inset-right, 0px));
+  min-height: calc(3.2rem + env(safe-area-inset-bottom, 0px));
+  padding: 0.32rem max(0.55rem, env(safe-area-inset-left, 0px))
+    max(0.32rem, env(safe-area-inset-bottom, 0px)) max(0.55rem, env(safe-area-inset-right, 0px));
   border-radius: 0;
   border: none;
   background: transparent;
@@ -6693,8 +6856,8 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   align-items: center;
   justify-content: center;
   min-width: 0;
-  min-height: 2.65rem;
-  padding: 0.22rem 0.35rem;
+  min-height: 2.95rem;
+  padding: 0.26rem 0.38rem;
   border: none;
   border-radius: 0.85rem;
   background: transparent;
@@ -6717,8 +6880,8 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 }
 
 .fetch-home-intent-bottom-nav__icon svg {
-  width: 2rem;
-  height: 2rem;
+  width: 2.35rem;
+  height: 2.35rem;
   flex-shrink: 0;
   transition:
     width 0.2s ease,
@@ -6727,20 +6890,20 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 }
 
 .fetch-home-intent-bottom-nav__icon--active svg {
-  width: 2.5rem;
-  height: 2.5rem;
+  width: 2.85rem;
+  height: 2.85rem;
 }
 
 /* Drops active: large upload tile in the tab bar */
 .fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active svg {
-  width: 4.25rem;
-  height: 4.25rem;
+  width: 4.65rem;
+  height: 4.65rem;
 }
 
 .fetch-home-intent-bottom-nav:has(
     .fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active
   ) {
-  min-height: calc(3.55rem + env(safe-area-inset-bottom, 0px));
+  min-height: calc(3.95rem + env(safe-area-inset-bottom, 0px));
 }
 
 .fetch-home-intent-bottom-nav__icon--active {
@@ -6758,73 +6921,117 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   outline-offset: 2px;
 }
 
-/* Tighter bottom tab bar (shop first in DOM order from HomeView). */
+/* Home / shop / chat dock: white icons on dark emerald — no tile backgrounds */
+.fetch-home-booking-sheet__shell-footer .fetch-home-intent-bottom-nav,
+.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav {
+  gap: 0;
+}
+
+.fetch-home-booking-sheet__shell-footer .fetch-home-intent-bottom-nav__icon,
+.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav__icon {
+  background: transparent;
+  box-shadow: none;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.fetch-home-booking-sheet__shell-footer .fetch-home-intent-bottom-nav__icon:hover,
+.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav__icon:hover {
+  background: transparent;
+  color: rgba(255, 255, 255, 0.92);
+  box-shadow: none;
+}
+
+.fetch-home-booking-sheet__shell-footer .fetch-home-intent-bottom-nav__icon:active,
+.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav__icon:active {
+  background: transparent;
+  color: #ffffff;
+}
+
+.fetch-home-booking-sheet__shell-footer .fetch-home-intent-bottom-nav__icon--active,
+.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav__icon--active {
+  background: transparent;
+  color: #ffffff;
+  box-shadow: none;
+}
+
+.fetch-home-booking-sheet__shell-footer .fetch-home-intent-bottom-nav__icon--active:hover,
+.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav__icon--active:hover {
+  background: transparent;
+  color: #ffffff;
+}
+
+.fetch-home-booking-sheet__shell-footer .fetch-home-intent-bottom-nav__icon:focus-visible,
+.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav__icon:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.55);
+  outline-offset: 2px;
+}
+
+/* Slightly raise tab row vs sheet edge (less vertical padding under icons). */
+.fetch-home-booking-sheet__shell-footer .fetch-home-intent-bottom-nav--compact,
+.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav--compact {
+  padding-top: 0;
+  padding-bottom: max(0.06rem, env(safe-area-inset-bottom, 0px));
+  margin-top: -0.2rem;
+}
+
+/*
+ * Compact tab bar — height aligned with Drops footer; icons larger than prior 1.7rem generation.
+ */
 .fetch-home-intent-bottom-nav--compact {
-  min-height: calc(2.4rem + env(safe-area-inset-bottom, 0px));
-  padding: 0.2rem max(0.4rem, env(safe-area-inset-left, 0px))
-    max(0.22rem, env(safe-area-inset-bottom, 0px)) max(0.4rem, env(safe-area-inset-right, 0px));
+  min-height: calc(3.55rem + env(safe-area-inset-bottom, 0px));
+  padding: 0.2rem max(0.45rem, env(safe-area-inset-left, 0px))
+    max(0.22rem, env(safe-area-inset-bottom, 0px)) max(0.45rem, env(safe-area-inset-right, 0px));
 }
 
 .fetch-home-intent-bottom-nav--compact .fetch-home-intent-bottom-nav__icon {
-  min-height: 2.2rem;
-  padding: 0.16rem 0.28rem;
+  min-height: 3.05rem;
+  padding: 0.22rem 0.36rem;
   border-radius: 0.72rem;
 }
 
 .fetch-home-intent-bottom-nav--compact .fetch-home-intent-bottom-nav__icon svg {
-  width: 1.7rem;
-  height: 1.7rem;
+  width: 2.2rem;
+  height: 2.2rem;
 }
 
 .fetch-home-intent-bottom-nav--compact .fetch-home-intent-bottom-nav__icon--active svg {
-  width: 2.05rem;
-  height: 2.05rem;
+  width: 2.65rem;
+  height: 2.65rem;
 }
 
 .fetch-home-intent-bottom-nav--compact
   .fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active
   svg {
-  width: 3.85rem;
-  height: 3.85rem;
+  width: 4.55rem;
+  height: 4.55rem;
 }
 
 .fetch-home-intent-bottom-nav--compact:has(
     .fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active
   ) {
-  min-height: calc(3.15rem + env(safe-area-inset-bottom, 0px));
+  min-height: calc(3.95rem + env(safe-area-inset-bottom, 0px));
 }
 
-.fetch-home-booking-sheet[data-surface='intent'][data-snap='compact']
-  .fetch-home-intent-bottom-nav--compact {
-  min-height: calc(2.5rem + env(safe-area-inset-bottom, 0px));
-  padding-top: 0.22rem;
-  padding-bottom: max(0.28rem, env(safe-area-inset-bottom, 0px));
+/* Intent compact: dock cluster owns footer (not inside .fetch-home-booking-sheet panel) */
+.fetch-home-sheet-dock-cluster[data-shell-footer='true'][data-surface='intent'][data-snap='compact']
+  .fetch-home-booking-sheet__shell-footer {
+  padding-top: 0.08rem;
+  padding-bottom: max(0.08rem, env(safe-area-inset-bottom, 0px));
 }
 
-.fetch-home-booking-sheet[data-surface='intent'][data-snap='compact']
-  .fetch-home-intent-bottom-nav--compact
+.fetch-home-sheet-dock-cluster[data-shell-footer='true'][data-surface='intent'][data-snap='compact']
+  .fetch-home-intent-bottom-nav {
+  min-height: calc(3.55rem + env(safe-area-inset-bottom, 0px));
+  margin-top: -0.12rem;
+  padding-top: 0.12rem;
+  padding-bottom: max(0.12rem, env(safe-area-inset-bottom, 0px));
+}
+
+.fetch-home-sheet-dock-cluster[data-shell-footer='true'][data-surface='intent'][data-snap='compact']
   .fetch-home-intent-bottom-nav__icon {
-  min-height: 2.35rem;
-  padding: 0.18rem 0.32rem;
-}
-
-/* Intent compact: dock breathes at the sheet bottom; icon row gets a hair more inset */
-.fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-booking-sheet__shell-footer {
-  padding-top: 0.42rem;
-  padding-bottom: max(0.22rem, env(safe-area-inset-bottom, 0px));
-}
-
-.fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-intent-bottom-nav {
-  min-height: calc(2.95rem + env(safe-area-inset-bottom, 0px));
-  margin-top: 0.12rem;
-  padding-top: 0.32rem;
-  padding-bottom: max(0.38rem, env(safe-area-inset-bottom, 0px));
-}
-
-.fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-intent-bottom-nav__icon {
-  padding: 0.24rem 0.4rem;
-  min-height: 2.75rem;
-  border-radius: 0.9rem;
+  padding: 0.22rem 0.36rem;
+  min-height: 3.05rem;
+  border-radius: 0.75rem;
 }
 
 .fetch-home-orb-dock {
@@ -6855,11 +7062,12 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 }
 
 /* Services home: keep last service row clear of promo + bottom nav (same in-flow order as Maps body above dock) */
-.fetch-home-booking-sheet[data-shell-footer='true'][data-surface='intent'] .fetch-home-booking-sheet__scroll {
+.fetch-home-sheet-dock-cluster[data-shell-footer='true'] .fetch-home-booking-sheet[data-surface='intent']
+  .fetch-home-booking-sheet__scroll {
   padding-bottom: max(0.85rem, env(safe-area-inset-bottom, 0px));
 }
 
-.fetch-home-booking-sheet[data-shell-footer='true'][data-surface='intent'][data-snap='compact']
+.fetch-home-sheet-dock-cluster[data-shell-footer='true'] .fetch-home-booking-sheet[data-surface='intent'][data-snap='compact']
   .fetch-home-booking-sheet__scroll {
   padding-bottom: 0.42rem;
 }
@@ -6875,9 +7083,9 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 .fetch-home-booking-sheet[data-surface='intent'][data-snap='compact']
   .fetch-home-sheet-inner:not(:has(.fetch-home-booking-step--stack))::before {
   content: '';
-  flex: 0 0 10dvh;
-  min-height: 10dvh;
-  max-height: 10dvh;
+  flex: 0 0 4dvh;
+  min-height: 4dvh;
+  max-height: 4dvh;
   width: 100%;
   flex-shrink: 0;
   pointer-events: none;
@@ -6885,12 +7093,12 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 
 .fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-landing--intent-tight {
   width: 100%;
-  transform: translate(0, 1.05rem);
+  transform: translate(0, 0);
 }
 
 @media (min-width: 640px) {
   .fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-landing--intent-tight {
-    transform: translate(0, 1.12rem);
+    transform: translate(0, 0);
   }
 }
 
@@ -7479,7 +7687,7 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 
 .fetch-home-booking-step__footer {
   flex-shrink: 0;
-  padding-top: 0.75rem;
+  padding-top: 0.45rem;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -10073,6 +10281,46 @@ html[data-fetch-theme='dark'] .fetch-splash-eye__iris-dot {
   justify-content: center;
   transform-origin: 50% 60%;
   will-change: transform, opacity;
+}
+
+/* Minimal cold open: deep green + white eyes (SplashScreen) */
+.fetch-splash-root.fetch-splash-root--minimal-eyes.fetch-app-shell-bg {
+  background-color: #042f2e;
+}
+
+.fetch-splash-stage--minimal {
+  will-change: auto;
+}
+
+.fetch-splash-root--minimal-eyes .fetch-splash-eye__glow {
+  background: radial-gradient(
+    circle at 50% 38%,
+    rgba(255, 255, 255, 0.22) 0%,
+    rgba(255, 255, 255, 0.07) 40%,
+    transparent 70%
+  );
+}
+
+.fetch-splash-root--minimal-eyes .fetch-splash-eye__ball {
+  background: radial-gradient(circle at 32% 26%, #ffffff 0%, #f8fafc 28%, #e2e8f0 58%, #cbd5e1 100%);
+  box-shadow:
+    0 2px 14px rgba(0, 0, 0, 0.35),
+    0 0 0 1px rgba(255, 255, 255, 0.35),
+    inset 10px 12px 20px -6px rgba(255, 255, 255, 0.88),
+    inset -4px -6px 12px rgba(4, 47, 46, 0.14);
+}
+
+html[data-fetch-theme='dark'] .fetch-splash-root--minimal-eyes .fetch-splash-eye__ball {
+  background: radial-gradient(circle at 32% 26%, #ffffff 0%, #f1f5f9 35%, #e2e8f0 100%);
+  box-shadow:
+    0 2px 16px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.28),
+    inset 10px 12px 20px -6px rgba(255, 255, 255, 0.92),
+    inset -4px -6px 12px rgba(0, 0, 0, 0.1);
+}
+
+.fetch-splash-root--minimal-eyes .fetch-splash-eye__iris-dot::after {
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.42) 0%, transparent 72%);
 }
 
 @keyframes fetch-splash-hop-out {

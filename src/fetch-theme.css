@@ -30,6 +30,67 @@ html[data-fetch-theme='light'] {
   background-color: var(--fetch-chrome-bg);
 }
 
+/* Accounts / sign-in: brand dark green, content vertically centered (see AuthScreen layout) */
+.fetch-auth-screen {
+  background: linear-gradient(180deg, #065f46 0%, #042f2e 42%, #022c22 100%);
+  color: rgba(255, 255, 255, 0.96);
+}
+
+html[data-fetch-theme='light'] .fetch-auth-screen {
+  background: linear-gradient(180deg, #047857 0%, #065f46 38%, #042f2e 100%);
+  color: rgba(255, 255, 255, 0.96);
+}
+
+/* Keep light copy on green in light system theme (overrides generic auth light rules below) */
+html[data-fetch-theme='light'] .fetch-auth-screen .fetch-auth-heading {
+  color: rgba(255, 255, 255, 0.96) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-auth-screen .fetch-auth-lede {
+  color: rgba(255, 255, 255, 0.62) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-auth-screen .fetch-auth-back {
+  color: rgba(255, 255, 255, 0.72) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-auth-screen .fetch-auth-back:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  color: rgba(255, 255, 255, 0.95) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-auth-screen .fetch-auth-label {
+  color: rgba(255, 255, 255, 0.45) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-auth-screen .fetch-auth-label-note {
+  color: rgba(255, 255, 255, 0.38) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-auth-screen .fetch-auth-input {
+  border-color: rgba(255, 255, 255, 0.16) !important;
+  background: rgba(0, 0, 0, 0.22) !important;
+  color: rgba(255, 255, 255, 0.95) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-auth-screen .fetch-auth-input::placeholder {
+  color: rgba(255, 255, 255, 0.35) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-auth-screen .fetch-auth-tabs {
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  background: rgba(0, 0, 0, 0.2) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-auth-screen .fetch-auth-tab-inactive {
+  color: rgba(255, 255, 255, 0.42) !important;
+}
+
+html[data-fetch-theme='light'] .fetch-auth-screen .fetch-auth-tab-active {
+  background: rgba(0, 0, 0, 0.45) !important;
+  color: rgba(255, 255, 255, 0.96) !important;
+}
+
 /* Account: home-like soft gradient glow (cyan / mint, matches sheet accent energy) */
 .fetch-account-screen--home-glow.fetch-theme-chrome {
   background-color: transparent;
@@ -721,15 +782,12 @@ html[data-fetch-theme='light'] .fetch-home-service-segment-heading {
   color: rgba(71, 78, 90, 0.9);
 }
 
-/* Home bottom shell: soft white feather at top, solid toward safe area (Safari inset band unchanged). */
+/* Home bottom shell: solid dark emerald (flat white icons from index.css). */
 html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-booking-sheet__shell-footer {
   border: none;
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.35) 0%,
-    rgba(255, 255, 255, 0.88) 40%,
-    #ffffff 100%
-  );
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  background: #064e3b;
+  box-shadow: none;
 }
 
 html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-intent-bottom-nav {
@@ -739,32 +797,19 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-intent-bottom-nav 
   box-shadow: none;
 }
 
+html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-booking-sheet__shell-footer {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  background: #064e3b;
+  box-shadow: none;
+}
+
 html[data-fetch-theme='dark'] .fetch-home-service-segment-heading {
   color: rgba(203, 210, 220, 0.88);
 }
 
 html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-service-segment-icon {
   color: rgba(82, 82, 84, 0.76);
-}
-
-/* Light theme — day home orb: upper-left rim + soft white inner */
-.fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere[data-orb-appearance='day']::after {
-  box-shadow:
-    inset 6px 6px 16px -4px rgba(255, 255, 255, 0.52),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.38),
-    inset 0 -26px 50px rgba(241, 245, 249, 0.22),
-    inset 0 0 48px rgba(248, 250, 252, 0.12);
-}
-
-html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-orb-vision-halo[data-orb-idle='true'],
-html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-orb-vision-halo:not([data-orb-idle='true']) {
-  filter: none;
-  box-shadow:
-    0 18px 36px rgba(15, 23, 42, 0.2),
-    0 8px 18px rgba(15, 23, 42, 0.12),
-    0 3px 8px rgba(15, 23, 42, 0.08),
-    0 -6px 18px -4px rgba(255, 255, 255, 0.72),
-    0 -2px 8px -1px rgba(255, 255, 255, 0.95);
 }
 
 /* Speech bubble */

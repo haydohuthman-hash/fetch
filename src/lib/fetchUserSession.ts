@@ -1,6 +1,6 @@
 import type { User } from '@supabase/supabase-js'
 import { getSupabaseBrowserClient } from './supabase/client'
-import { ensureProfile, ensureUserProfile } from './supabase/profiles'
+import { ensureUserProfile, isProfileOnboardingComplete } from './supabase/profiles'
 
 /** True while URL still has OAuth/PKCE params (session may not be in storage yet). */
 function isBrowserOAuthRedirect(): boolean {
@@ -29,7 +29,7 @@ export function primaryEmailFromSupabaseUser(user: User): string {
 
 export const USER_REGISTRY_KEY = 'fetch.userRegistry'
 export const SESSION_EMAIL_KEY = 'fetch.sessionEmail'
-const SESSION_CACHE_KEY = 'fetch.sessionCache.v2'
+const SESSION_CACHE_KEY = 'fetch.sessionCache.v3'
 
 export type FetchUserRecord = {
   id?: string
@@ -38,6 +38,9 @@ export type FetchUserRecord = {
   username?: string
   phone: string
   createdAt: number
+  /** Mirrors `profiles.onboarding_complete` after refresh (undefined before first profile sync). */
+  onboardingComplete?: boolean
+  avatarUrl?: string | null
 }
 
 let refreshSessionInFlight: Promise<FetchUserRecord | null> | null = null
@@ -130,74 +133,61 @@ async function refreshSessionFromSupabaseBody(): Promise<FetchUserRecord | null>
   const t0 = Date.now()
   const sb = getSupabaseBrowserClient()
   if (!sb) {
-    // #region agent log
-    fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'fetchUserSession.ts:refreshBody',message:'no supabase client',data:{hypothesisId:'H2'},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
-    // #endregion
+    console.log('[AUTH] refreshSession: no Supabase client')
     return readSessionCache()
   }
 
   const { data: sessionData, error: sessionError } = await sb.auth.getSession()
-  console.log('[AUTH] initial session:', sessionData, sessionError)
+  console.log('[AUTH] getSession in refresh:', Boolean(sessionData.session?.user), sessionError?.message ?? '')
   const sess = sessionData.session
   const oauthRedir = isBrowserOAuthRedirect()
-  const cacheBefore = Boolean(readSessionCache()?.email)
-  // #region agent log
-  fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'fetchUserSession.ts:afterGetSession',message:'getSession result',data:{hasSession:Boolean(sess),oauthRedirect:oauthRedir,cacheHadEmail:cacheBefore,hypothesisId:'H1'},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-  // #endregion
   if (!sess) {
     // During OAuth return, `getSession()` can briefly be empty while PKCE finishes — don’t wipe cache.
     if (oauthRedir) {
-      console.info('[fetch:session] no session yet during OAuth redirect; keeping cache')
-      // #region agent log
-      fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'fetchUserSession.ts:noSessOAuth',message:'keeping cache oauth redirect',data:{hypothesisId:'H1'},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-      // #endregion
+      console.info('[AUTH] no session yet during OAuth redirect; keeping cache')
       return readSessionCache()
     }
-    // #region agent log
-    fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'fetchUserSession.ts:clearCache',message:'writeSessionCache null no session',data:{hypothesisId:'H1'},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-    // #endregion
     writeSessionCache(null)
     return null
   }
 
-  console.info('[fetch:session] access token present, loading user')
+  console.info('[AUTH] access token present, resolving user')
   const { data: userData, error: userErr } = await sb.auth.getUser()
   let user: User | null = userData.user ?? null
-  const getUserFailed = Boolean(userErr || !user?.id)
   if (userErr || !user?.id) {
     if (userErr) {
-      console.warn('[fetch:session] getUser failed, falling back to session user', userErr.message)
+      console.warn('[AUTH] getUser failed, falling back to session.user', userErr.message)
     }
     user = sess.user
   }
   if (!user?.id) {
-    console.warn('[fetch:session] no user id on session; keeping prior cache')
-    // #region agent log
-    fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'fetchUserSession.ts:noUserId',message:'keeping prior cache',data:{getUserFailed,hypothesisId:'H5'},timestamp:Date.now(),hypothesisId:'H5'})}).catch(()=>{});
-    // #endregion
+    console.warn('[AUTH] no user id on session; keeping prior cache')
     return readSessionCache()
   }
 
-  console.info('[fetch:session] user id', user.id)
+  console.info('[AUTH] refresh for user', user.id)
   const email = primaryEmailFromSupabaseUser(user)
+
+  let profileUsername: string | undefined =
+    typeof user.user_metadata?.username === 'string' ? user.user_metadata.username.trim() : undefined
+
+  let sp: Awaited<ReturnType<typeof ensureUserProfile>> = null
+  try {
+    sp = await ensureUserProfile(user)
+    if (sp?.username?.trim()) profileUsername = profileUsername ?? sp.username.trim()
+  } catch (e) {
+    console.error('[PROFILE] ensureUserProfile during refreshSessionFromSupabase failed', e)
+  }
+
   const displayName =
+    (sp?.full_name || '').trim() ||
     (typeof user.user_metadata?.display_name === 'string' && user.user_metadata.display_name.trim()) ||
     (typeof user.user_metadata?.full_name === 'string' && user.user_metadata.full_name.trim()) ||
     (typeof user.user_metadata?.name === 'string' && user.user_metadata.name.trim()) ||
     email.split('@')[0] ||
     'there'
 
-  let profileUsername: string | undefined =
-    typeof user.user_metadata?.username === 'string' ? user.user_metadata.username.trim() : undefined
-
-  try {
-    await ensureProfile(user)
-    const sp = await ensureUserProfile(user)
-    if (sp?.username?.trim()) profileUsername = profileUsername ?? sp.username.trim()
-  } catch (e) {
-    console.error('[fetch:profile] ensureUserProfile during refreshSessionFromSupabase failed', e)
-  }
-
+  const onboardingComplete = sp ? isProfileOnboardingComplete(sp) : undefined
   const row: FetchUserRecord = {
     id: user.id,
     email,
@@ -205,11 +195,15 @@ async function refreshSessionFromSupabaseBody(): Promise<FetchUserRecord | null>
     username: profileUsername,
     phone: '',
     createdAt: Date.now(),
+    onboardingComplete,
+    avatarUrl: sp?.avatar_url?.trim() || null,
   }
   writeSessionCache(row)
-  // #region agent log
-  fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'fetchUserSession.ts:refreshOk',message:'cache written',data:{ms:Date.now()-t0,emailLen:email.length,hasUsername:Boolean(profileUsername),hypothesisId:'H2'},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
-  // #endregion
+  console.log('[AUTH] session cache written', {
+    ms: Date.now() - t0,
+    onboardingComplete,
+    hasUsername: Boolean(profileUsername),
+  })
   return row
 }
 

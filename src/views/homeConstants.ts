@@ -63,7 +63,7 @@ export const INTENT_COMPACT_PILLS = [
     id: 'sell-for-you',
     label: 'Sell for you',
     kind: 'shell' as const,
-    shellTab: 'buySell' as const,
+    shellTab: 'marketplace' as const,
   },
   {
     id: 'categories',

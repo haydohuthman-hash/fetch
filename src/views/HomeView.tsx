@@ -9,7 +9,6 @@ import {
   type CSSProperties,
   type RefObject,
 } from 'react'
-import { createPortal } from 'react-dom'
 import {
   FetchHomeBookingSheet,
   type HomeBookingSheetSnap,
@@ -23,9 +22,6 @@ import type { LiveTrackingMapFit } from '../components/FetchHomeStepOne/BookingM
 import {
   BRISBANE_CENTER,
   PICKUP_DROPOFF_SHEET_FIT_PADDING,
-  fitKmOverviewFromCenter,
-  isLatLngInSeq,
-  SEQ_OUT_OF_REGION_MAP_HALF_SPAN_KM,
 } from '../components/FetchHomeStepOne/brisbaneMap'
 import {
   PlacesAddressAutocomplete,
@@ -41,17 +37,11 @@ import { AppleMapsNavRoutePanel } from '../components/AppleMapsNavRoutePanel'
 import { MysteryAdventurePanel } from '../components/MysteryAdventurePanel'
 import { FetchStreetViewOverlay } from '../components/FetchStreetViewOverlay'
 import { HomeServiceInfoSheet } from '../components/HomeServiceInfoSheet'
-import { HomeShellBuySellPage } from '../components/HomeShellBuySellPage'
 import { HomeShellChatHubPage } from '../components/HomeShellChatHubPage'
 import { HomeShellMarketplacePage } from '../components/HomeShellMarketplacePage'
 import type { BuySellDropsListingHandoff } from '../components/HomeShellBuySellPage'
 import type { MarketplaceDropsProductHandoff } from '../components/HomeShellMarketplacePage'
 import { HomeShellReelsPage } from '../components/HomeShellReelsPage'
-import { SeqRegionComingSoonPanel } from '../components/SeqRegionComingSoonPanel'
-import {
-  SEQ_LOCK_DEMO_MAP_PADDING,
-  useSeqLockMapDemo,
-} from '../lib/seqLockMapDemo'
 import type { DropsCommerceTarget } from '../lib/drops/types'
 import { BookingCompletionSummary } from '../components/booking/BookingCompletionSummary'
 import { TripSheetCard } from '../components/booking/TripSheetCard'
@@ -59,12 +49,11 @@ import { TripDriverStatusStrip } from '../components/booking/TripDriverStatusStr
 import { TripPriceEstimateStrip } from '../components/booking/TripPriceEstimateStrip'
 import {
   AccountNavIconFilled,
-  ChatNavIconFilled,
+  NotificationsNavIconFilled,
   FetchEyesHomeIcon,
   MarketplaceNavIconFilled,
   ReelsNavIconFilled,
 } from '../components/icons/HomeShellNavIcons'
-import { HomeServiceTypeIllustration } from '../components/icons/HomeServiceTypeIllustrations'
 import {
   postFetchAiChat,
   postFetchAiChatStream,
@@ -152,6 +141,7 @@ import {
   tripSheetPhaseSuppressesHomeOrb,
   type TripSheetPhase,
 } from '../lib/booking'
+import { computeIntentJunkRemovalEstimate } from '../lib/booking/intentScanEstimate'
 import { useFetchTheme } from '../theme/FetchThemeContext'
 import { syncCustomerSessionCookie } from '../lib/fetchServerSession'
 import { confirmDemoPaymentIntent, isStripePublishableConfigured } from '../lib/paymentCheckout'
@@ -220,17 +210,6 @@ const DRIVER_GPS_FRESH_MS = 45_000
 /** `VITE_BOOKING_MATCHING_MODE=sequential` sends timed offers to drivers; default is open pool. */
 const DEFAULT_BOOKING_DISPATCH_MATCHING: 'pool' | 'sequential' =
   import.meta.env.VITE_BOOKING_MATCHING_MODE === 'sequential' ? 'sequential' : 'pool'
-
-/**
- * Vite dev server or explicit localhost — skip SEQ-only geo gate so “Choose a service” cards
- * stay reachable when geofill is denied or the machine is outside SEQ.
- */
-function isFetchLocalSeqLockBypassed(): boolean {
-  if (import.meta.env.DEV) return true
-  if (typeof window === 'undefined') return false
-  const h = window.location.hostname.toLowerCase()
-  return h === 'localhost' || h === '127.0.0.1' || h === '::1'
-}
 
 function sessionCustomerEmailForBooking(): string | undefined {
   const e = loadSession()?.email?.trim().toLowerCase()
@@ -484,7 +463,7 @@ function HomeAddressWaypointRows({
 }
 
 export type HomeViewProps = {
-  /** Sheet account control — open auth or account in parent shell. */
+  /** Sheet account control — open auth or drops setup in parent shell. */
   onAccountNavigate?: () => void
   /** App shell: signal when Maps JS is ready (or no key) so bootstrap overlay can dismiss. */
   onMapsBootReady?: (ready: boolean) => void
@@ -563,7 +542,6 @@ export default function HomeView({
   /** Map-forward mode from the sheet maps control (traffic + optional follow) without chat directions. */
   const [homeMapExploreMode, setHomeMapExploreMode] = useState(false)
   const [homeShellTab, setHomeShellTab] = useState<HomeShellTab>('services')
-
   useEffect(() => {
     try {
       const rawListing = sessionStorage.getItem('fetch.pendingPeerListingHandoff')
@@ -573,21 +551,19 @@ export default function HomeView({
         if (typeof p?.listingId === 'string' && p.listingId.trim()) {
           const mode = p.mode === 'buyNow' || p.mode === 'bid' ? p.mode : 'sheet'
           setDropsListingHandoff({ listingId: p.listingId.trim(), mode })
-          setHomeShellTab('buySell')
+          setHomeShellTab('marketplace')
         }
         sessionStorage.removeItem('fetch.pendingHomeShellTab')
         return
       }
       const raw = sessionStorage.getItem('fetch.pendingHomeShellTab')
-      if (
-        raw === 'chat' ||
-        raw === 'buySell' ||
-        raw === 'services' ||
-        raw === 'marketplace' ||
-        raw === 'reels'
-      ) {
+      if (raw === 'chat' || raw === 'services' || raw === 'marketplace' || raw === 'reels') {
         sessionStorage.removeItem('fetch.pendingHomeShellTab')
         setHomeShellTab(raw as HomeShellTab)
+      }
+      if (raw === 'buySell') {
+        sessionStorage.removeItem('fetch.pendingHomeShellTab')
+        setHomeShellTab('marketplace')
       }
     } catch {
       /* ignore */
@@ -602,7 +578,6 @@ export default function HomeView({
   const shellShopOrChat =
     homeShellTab === 'reels' ||
     homeShellTab === 'marketplace' ||
-    homeShellTab === 'buySell' ||
     homeShellTab === 'chat'
   const [messagesUnread, setMessagesUnread] = useState({ listing: 0, support: 0, total: 0 })
   const [pendingChatThreadId, setPendingChatThreadId] = useState<string | null>(null)
@@ -685,7 +660,6 @@ export default function HomeView({
     paymentIntent: BookingPaymentIntent
     payAmount: number
   } | null>(null)
-  const [advancedServiceMenuOpen, setAdvancedServiceMenuOpen] = useState(false)
   const [driverMapTick, setDriverMapTick] = useState(0)
   const driverRouteStartedAtRef = useRef(0)
   const driverFlowTimersRef = useRef<number[]>([])
@@ -826,6 +800,10 @@ export default function HomeView({
   const idleReminderSpokenRef = useRef(false)
   const reminderLineSpeechHeardRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const intentCameraInputRef = useRef<HTMLInputElement>(null)
+  const intentGalleryInputRef = useRef<HTMLInputElement>(null)
+  const intentScanFileCountRef = useRef(0)
+  const prevIntentAiScannerOverlayRef = useRef(false)
   const mapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ?? ''
   const { resolved: themeResolved } = useFetchTheme()
 
@@ -841,24 +819,8 @@ export default function HomeView({
     lat: number
     lng: number
   } | null>(null)
-  /** After first geolocation outcome (success, error, denied, or no API). */
-  const [homeGeolocationSettled, setHomeGeolocationSettled] = useState(false)
   const userMapLocationRef = useRef(userMapLocation)
   userMapLocationRef.current = userMapLocation
-
-  /**
-   * Lock when we have no usable coordinates after geolocation settled (denied / blocked / timeout),
-   * or when coordinates place the user outside SEQ. While geolocation is still resolving, stay
-   * unlocked briefly so SEQ users are not flash-blocked.
-   */
-  const seqRegionLocked = useMemo(() => {
-    if (isFetchLocalSeqLockBypassed()) return false
-    if (!homeGeolocationSettled) return false
-    if (!userMapLocation) return true
-    return !isLatLngInSeq(userMapLocation.lat, userMapLocation.lng)
-  }, [homeGeolocationSettled, userMapLocation])
-
-  const seqMapFrost = seqRegionLocked && !chatNavRoute
 
   const [bookingRouteSteps, setBookingRouteSteps] = useState<DirectionsStepLite[]>([])
   const [chatNavLegSteps, setChatNavLegSteps] = useState<DirectionsStepLite[]>([])
@@ -940,13 +902,9 @@ export default function HomeView({
   useEffect(() => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
       setUserMapLocation(null)
-      setHomeGeolocationSettled(true)
       return
     }
     let cancelled = false
-    const settle = () => {
-      if (!cancelled) setHomeGeolocationSettled(true)
-    }
     const read = () => {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
@@ -955,12 +913,10 @@ export default function HomeView({
             lat: pos.coords.latitude,
             lng: pos.coords.longitude,
           })
-          settle()
         },
         () => {
           if (!cancelled) {
             setUserMapLocation(null)
-            settle()
           }
         },
         { enableHighAccuracy: false, maximumAge: 120_000, timeout: 12_000 },
@@ -977,12 +933,10 @@ export default function HomeView({
               if (status.state === 'granted') read()
               else if (status.state === 'denied') {
                 setUserMapLocation(null)
-                settle()
               }
             })
             if (status.state === 'denied') {
               setUserMapLocation(null)
-              settle()
             } else {
               read()
             }
@@ -2086,6 +2040,27 @@ export default function HomeView({
     [commitJobTypeSelection],
   )
 
+  const openIntentCameraPicker = useCallback(() => {
+    bumpInteraction()
+    requestAnimationFrame(() => intentCameraInputRef.current?.click())
+  }, [bumpInteraction])
+
+  const openIntentGalleryPicker = useCallback(() => {
+    bumpInteraction()
+    requestAnimationFrame(() => intentGalleryInputRef.current?.click())
+  }, [bumpInteraction])
+
+  const onIntentFetchIt = useCallback(() => {
+    bumpInteraction()
+    const junkOpt = LANDING_PRIMARY_SERVICES.find((o) => o.jobType === 'junkRemoval')
+    if (junkOpt) {
+      pendingServicePersonalityRef.current = junkOpt.fetchPersonalityExample
+      setServicePersonalityLine(junkOpt.fetchPersonalityExample)
+    }
+    commitJobTypeSelection('junkRemoval')
+    setSheetSnap('compact')
+  }, [bumpInteraction, commitJobTypeSelection])
+
   const onIntentSheetPullExpand = useCallback(() => {
     bumpInteraction()
     setSheetSnap((s) => {
@@ -2221,6 +2196,9 @@ export default function HomeView({
     setBookingTrafficDelaySeconds(null)
     setMapFollowUser(false)
     setBookingState(createInitialBookingState())
+    setScanFiles([])
+    setScanThumbs([])
+    intentScanFileCountRef.current = 0
     setMapAttention('none')
     setBookNowError(null)
     setBookNowBusy(false)
@@ -2234,48 +2212,6 @@ export default function HomeView({
     setChatBookingHintSource(null)
     bumpInteraction()
   }, [bumpInteraction, clearDriverFlowTimers])
-
-  const seqOutRegionMapFitKeyRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (!seqRegionLocked) {
-      seqOutRegionMapFitKeyRef.current = null
-      return
-    }
-    if (chatNavRoute || !mapsJsReady || homeBrainFlow != null) return
-    const map = homeMapRef.current
-    if (!map) return
-    const center = userMapLocation ?? BRISBANE_CENTER
-    const key = userMapLocation
-      ? `${userMapLocation.lat.toFixed(3)}_${userMapLocation.lng.toFixed(3)}`
-      : 'no_loc_brisbane'
-    if (seqOutRegionMapFitKeyRef.current === key) return
-    seqOutRegionMapFitKeyRef.current = key
-    requestAnimationFrame(() => {
-      try {
-        fitKmOverviewFromCenter(
-          map,
-          center.lat,
-          center.lng,
-          SEQ_OUT_OF_REGION_MAP_HALF_SPAN_KM,
-          20,
-        )
-      } catch {
-        /* optional */
-      }
-    })
-  }, [
-    seqRegionLocked,
-    chatNavRoute,
-    mapsJsReady,
-    userMapLocation,
-    homeBrainFlow,
-  ])
-
-  useEffect(() => {
-    if (!seqRegionLocked) return
-    if (!jobType) return
-    goBackToIntent()
-  }, [seqRegionLocked, jobType, goBackToIntent])
 
   /** Brain header back / Escape: leave neural chat and land on default service selector (booking reset + sheet). */
   const exitBrainChatToServiceSelector = useCallback(() => {
@@ -3030,9 +2966,11 @@ export default function HomeView({
     (tab: HomeShellTab) => {
       bumpInteraction()
       setHomeShellTab(tab)
-      if (tab !== 'marketplace') setDropsProductHandoff(null)
-      if (tab !== 'buySell') setDropsListingHandoff(null)
-      if (tab === 'reels' || tab === 'marketplace' || tab === 'buySell' || tab === 'chat') {
+      if (tab !== 'marketplace') {
+        setDropsProductHandoff(null)
+        setDropsListingHandoff(null)
+      }
+      if (tab === 'reels' || tab === 'marketplace' || tab === 'chat') {
         if (!chatNavRoute) setHomeMapExploreMode(false)
         setSheetSnap('closed')
       } else {
@@ -3041,15 +2979,6 @@ export default function HomeView({
       }
     },
     [bumpInteraction, chatNavRoute],
-  )
-
-  const onOpenPeerListingFromProfile = useCallback(
-    (listingId: string) => {
-      bumpInteraction()
-      setDropsListingHandoff({ listingId, mode: 'sheet' })
-      onHomeShellTabChange('buySell')
-    },
-    [bumpInteraction, onHomeShellTabChange],
   )
 
   const onDropsCommerceAction = useCallback(
@@ -3073,7 +3002,7 @@ export default function HomeView({
         onHomeShellTabChange('marketplace')
       } else if (commerce.kind === 'buy_sell_listing') {
         setDropsListingHandoff({ listingId: commerce.listingId, mode })
-        onHomeShellTabChange('buySell')
+        onHomeShellTabChange('marketplace')
       }
     },
     [appendHomeAlert, bumpInteraction, onHomeShellTabChange],
@@ -3100,15 +3029,8 @@ export default function HomeView({
     bumpInteraction()
     setHomeShellTab('services')
     setSheetSnap('half')
-    if (seqRegionLocked) {
-      void speakLine(
-        'On-demand Fetch jobs are live in SEQ first. Watch drops for launch news in your area.',
-        { debounceKey: 'seq_lock_chat_hub_field', debounceMs: 5000, withVoiceHold: true },
-      )
-      return
-    }
     setHomeBrainFlow('brain')
-  }, [bumpInteraction, seqRegionLocked, speakLine])
+  }, [bumpInteraction])
 
   const onChatFetchItListing = useCallback((listing: PeerListing) => {
     bumpInteraction()
@@ -3120,24 +3042,10 @@ export default function HomeView({
     bumpInteraction()
     setHomeShellTab('services')
     setSheetSnap('half')
-    if (seqRegionLocked) {
-      void speakLine(
-        'On-demand Fetch jobs are live in SEQ first. Watch drops for launch news in your area.',
-        { debounceKey: 'seq_lock_buy_sell_driver', debounceMs: 5000, withVoiceHold: true },
-      )
-    }
-  }, [bumpInteraction, seqRegionLocked, speakLine, setSheetSnap])
+  }, [bumpInteraction])
 
   useEffect(() => {
     if (!chatBrainHandoff || homeShellTab !== 'services') return
-    if (seqRegionLocked) {
-      setChatBrainHandoff(null)
-      void speakLine(
-        'On-demand Fetch jobs are live in SEQ first. Watch drops for launch news in your area.',
-        { debounceKey: 'seq_lock_chat_brain_handoff', debounceMs: 5000, withVoiceHold: true },
-      )
-      return
-    }
     setHomeBrainFlow('brain')
     setSheetSnap('half')
     const text = `Book a Fetch job for my marketplace item "${chatBrainHandoff.title}" (listing ${chatBrainHandoff.listingId}).`
@@ -3145,22 +3053,13 @@ export default function HomeView({
     saveBrainChatLines(brainConvRef.current)
     setBrainConvRevision((n) => n + 1)
     setChatBrainHandoff(null)
-  }, [chatBrainHandoff, homeShellTab, seqRegionLocked, speakLine])
+  }, [chatBrainHandoff, homeShellTab])
 
   /**
    * Opens Fetch Brain from a trip card Help control: closes the sheet for focus on chat/voice.
    * Structured steps (addresses, scan, payment) remain on the home sheet when the user returns.
    */
   const openBrainFromHome = useCallback(() => {
-    if (seqRegionLocked) {
-      bumpInteraction()
-      void speakLine(
-        'Fetch on-demand moves are live in South East Queensland first. Tap Watch drops in the sheet for launch news near you.',
-        { debounceKey: 'seq_lock_brain', debounceMs: 4000, withVoiceHold: true },
-      )
-      setSheetSnap('half')
-      return
-    }
     bumpInteraction()
     brainBookingVoiceActiveRef.current = true
     brainFieldPhotoPromptedRef.current = false
@@ -3179,7 +3078,7 @@ export default function HomeView({
     }
     setBrainSkipReveal(false)
     setHomeBrainFlow('tunnel')
-  }, [bumpInteraction, seqRegionLocked, speakLine, setSheetSnap])
+  }, [bumpInteraction, setSheetSnap])
 
   const onShowPlaceOnMap = useCallback((lat: number, lng: number) => {
     const m = homeMapRef.current
@@ -3388,15 +3287,6 @@ export default function HomeView({
 
   /** Map header search line — open neural chat with keyboard focus (no tunnel). */
   const openChatFromMapHeader = useCallback(() => {
-    if (seqRegionLocked) {
-      bumpInteraction()
-      void speakLine(
-        'Fetch on-demand moves are live in South East Queensland first. Tap Watch drops in the sheet for launch news near you.',
-        { debounceKey: 'seq_lock_map_header_chat', debounceMs: 4000, withVoiceHold: true },
-      )
-      setSheetSnap('half')
-      return
-    }
     bumpInteraction()
     if (shellShopOrChat) {
       setHomeShellTab('services')
@@ -3412,14 +3302,7 @@ export default function HomeView({
     setBrainSkipReveal(true)
     setHomeBrainFlow('brain')
     setBrainComposerFocusNonce((n) => n + 1)
-  }, [
-    bumpInteraction,
-    shellShopOrChat,
-    setHomeShellTab,
-    setSheetSnap,
-    seqRegionLocked,
-    speakLine,
-  ])
+  }, [bumpInteraction, shellShopOrChat, setHomeShellTab, setSheetSnap])
 
   const routePathFromState =
     bookingState.route?.path?.map((c) => ({ lat: c.lat, lng: c.lng })) ?? null
@@ -3923,29 +3806,28 @@ export default function HomeView({
   )
   const showIntent = !jobType || flowStep === 'intent'
 
-  const seqLockRealMapDemo = useMemo(
-    () =>
-      seqRegionLocked &&
-      Boolean(mapsApiKey) &&
-      !chatNavRoute &&
-      showIntent &&
-      homeShellTab === 'services' &&
-      homeBrainFlow == null,
-    [
-      seqRegionLocked,
-      mapsApiKey,
-      chatNavRoute,
-      showIntent,
-      homeShellTab,
-      homeBrainFlow,
-    ],
-  )
-  const seqLockMapDemo = useSeqLockMapDemo(seqLockRealMapDemo)
-
   const brainImmersive = useMemo(
     () => homeBrainFlow === 'clarity' || homeBrainFlow === 'brain',
     [homeBrainFlow],
   )
+
+  const intentAiScannerMapOverlay = useMemo(
+    () =>
+      Boolean(
+        showIntent &&
+          homeShellTab === 'services' &&
+          !chatNavRoute &&
+          cardVisible &&
+          homeBrainFlow == null &&
+          !brainImmersive,
+      ),
+    [showIntent, homeShellTab, chatNavRoute, cardVisible, homeBrainFlow, brainImmersive],
+  )
+
+  const intentJunkEstimate = useMemo(() => {
+    if (!intentAiScannerMapOverlay || !bookingState.scan.result) return null
+    return computeIntentJunkRemovalEstimate(bookingState)
+  }, [intentAiScannerMapOverlay, bookingState])
 
   /** Services-tab booking after job pick: map-first sheet, minimal chrome. */
   const bookingSheetFocusMode = useMemo(
@@ -4070,7 +3952,7 @@ export default function HomeView({
     if (homeBrainFlow != null) return null
     if (showPickup || showDropoff || showDualAddresses) return null
     if (chatNavRoute) return null
-    if (seqRegionLocked) return null
+    if (intentAiScannerMapOverlay) return null
 
     const pu =
       bookingState.pickupAddressText?.trim() ||
@@ -4115,7 +3997,7 @@ export default function HomeView({
     bookingState.dropoffPlace?.formattedAddress,
     jobType,
     openChatFromMapHeader,
-    seqRegionLocked,
+    intentAiScannerMapOverlay,
   ])
 
   const orbExpression: FetchOrbExpression = useMemo(() => {
@@ -4216,7 +4098,7 @@ export default function HomeView({
     return mapStageForTripSheetPhase(tripSheetPhase, bookingState.mode)
   }, [jobType, tripSheetPhase, bookingState.mode])
 
-  const mapStageForHomeStep = seqLockMapDemo ? seqLockMapDemo.mapStage : mapStage
+  const mapStageForHomeStep = mapStage
 
   const pickupDropoffScannerFitPadding = useMemo((): google.maps.Padding | null => {
     if (!uberTripCard || !bookingSheetFocusMode || !showScanner) return null
@@ -4327,24 +4209,6 @@ export default function HomeView({
   useEffect(() => {
     if (!showPickup) setServicePersonalityLine(null)
   }, [showPickup])
-
-  useEffect(() => {
-    if (!showIntent) setAdvancedServiceMenuOpen(false)
-  }, [showIntent])
-
-  useEffect(() => {
-    if (!advancedServiceMenuOpen) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setAdvancedServiceMenuOpen(false)
-    }
-    window.addEventListener('keydown', onKey)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      window.removeEventListener('keydown', onKey)
-      document.body.style.overflow = prev
-    }
-  }, [advancedServiceMenuOpen])
 
   /** Jobs without dropoff (e.g. junk): advance to scanner as soon as address+route checkpoint is met. */
   useLayoutEffect(() => {
@@ -4609,7 +4473,7 @@ export default function HomeView({
     if (homeOrbBottomPx != null) {
       return `calc(${homeOrbBottomPx}px + ${orbH} + 0.85rem)`
     }
-    return `calc(max(1.1rem, env(safe-area-inset-bottom)) + min(calc(21.75rem + 10dvh), 38dvh, 23.5rem) + 8px + ${orbHalf} + 0.85rem)`
+    return `calc(max(1.1rem, env(safe-area-inset-bottom)) + min(calc((8.625rem + 3.5dvh) * 1.4), calc(16dvh * 1.4), calc(10rem * 1.4)) + 8px + ${orbHalf} + 0.85rem)`
   }, [homeOrbBottomPx, orbTopLeftOnNavMap])
 
   useEffect(() => {
@@ -4687,32 +4551,8 @@ export default function HomeView({
     () => (
       <nav
         className="fetch-home-intent-bottom-nav fetch-home-intent-bottom-nav--compact"
-        aria-label="Fetch shop, home, drops, messages, and account"
+        aria-label="Home, marketplace, drops, notifications, and account"
       >
-        <button
-          type="button"
-          className={[
-            'fetch-home-intent-bottom-nav__icon',
-            homeShellTab === 'marketplace' || homeShellTab === 'buySell'
-              ? 'fetch-home-intent-bottom-nav__icon--active'
-              : '',
-          ]
-            .filter(Boolean)
-            .join(' ')}
-          aria-label="Fetch shop — buy & sell and supplies"
-          aria-current={
-            homeShellTab === 'marketplace' || homeShellTab === 'buySell' ? 'page' : undefined
-          }
-          onClick={() => {
-            bumpInteraction()
-            onHomeShellTabChange('buySell')
-          }}
-        >
-          <MarketplaceNavIconFilled
-            className="block"
-            active={homeShellTab === 'marketplace' || homeShellTab === 'buySell'}
-          />
-        </button>
         <button
           type="button"
           className={[
@@ -4729,6 +4569,28 @@ export default function HomeView({
           }}
         >
           <FetchEyesHomeIcon className="block" active={homeShellTab === 'services'} />
+        </button>
+        <button
+          type="button"
+          className={[
+            'fetch-home-intent-bottom-nav__icon',
+            homeShellTab === 'marketplace'
+              ? 'fetch-home-intent-bottom-nav__icon--active'
+              : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
+          aria-label="Fetch marketplace"
+          aria-current={homeShellTab === 'marketplace' ? 'page' : undefined}
+          onClick={() => {
+            bumpInteraction()
+            onHomeShellTabChange('marketplace')
+          }}
+        >
+          <MarketplaceNavIconFilled
+            className="block"
+            active={homeShellTab === 'marketplace'}
+          />
         </button>
         <button
           type="button"
@@ -4759,14 +4621,14 @@ export default function HomeView({
           ]
             .filter(Boolean)
             .join(' ')}
-          aria-label="Messages"
+          aria-label="Notifications"
           aria-current={homeShellTab === 'chat' ? 'page' : undefined}
           onClick={() => {
             bumpInteraction()
             onHomeShellTabChange('chat')
           }}
         >
-          <ChatNavIconFilled className="block" active={homeShellTab === 'chat'} />
+          <NotificationsNavIconFilled className="block" active={homeShellTab === 'chat'} />
           {messagesUnread.total > 0 ? (
             <span className="pointer-events-none absolute right-[18%] top-[10%] flex h-[11px] min-w-[11px] rounded-full bg-red-500 ring-2 ring-white" />
           ) : null}
@@ -4885,6 +4747,26 @@ export default function HomeView({
       setScanning(false)
     }
   }, [scanFiles, scanning, serviceHint, speakLine, playUiEvent])
+
+  useEffect(() => {
+    if (!intentAiScannerMapOverlay) {
+      prevIntentAiScannerOverlayRef.current = false
+      return
+    }
+    if (!prevIntentAiScannerOverlayRef.current) {
+      intentScanFileCountRef.current = scanFiles.length
+    }
+    prevIntentAiScannerOverlayRef.current = true
+  }, [intentAiScannerMapOverlay, scanFiles.length])
+
+  useEffect(() => {
+    if (!intentAiScannerMapOverlay || scanning) return
+    const n = scanFiles.length
+    if (n > intentScanFileCountRef.current) {
+      intentScanFileCountRef.current = n
+      void handleScan()
+    }
+  }, [intentAiScannerMapOverlay, scanFiles.length, scanning, handleScan])
 
   const runBrainPhotoScan = useCallback(
     async (file: File) => {
@@ -5061,42 +4943,18 @@ export default function HomeView({
 
   useEffect(() => {
     if (sheetGestureActive) return
-    if (
-      seqRegionLocked &&
-      homeShellTab === 'services' &&
-      !chatNavRoute &&
-      showIntent
-    ) {
-      if (sheetSnap === 'closed' || sheetSnap === 'compact') {
-        setSheetSnap('half')
-      }
-      return
-    }
     if (showIntent) setSheetSnap('compact')
     if (showPickup || showDropoff || showDualAddresses) {
       setSheetSnap('half')
     }
   }, [
     sheetGestureActive,
-    homeShellTab,
     sheetSnap,
     showIntent,
     showPickup,
     showDropoff,
     showDualAddresses,
-    seqRegionLocked,
-    chatNavRoute,
   ])
-
-  /**
-   * Region lock: always show coming-soon content — never leave the sheet stuck `closed`.
-   * (Main snap effect bails while `sheetGestureActive`; this effect does not.)
-   */
-  useEffect(() => {
-    if (!seqRegionLocked || !showIntent || homeShellTab !== 'services' || chatNavRoute) return
-    if (sheetSnap !== 'closed') return
-    setSheetSnap('half')
-  }, [seqRegionLocked, showIntent, homeShellTab, chatNavRoute, sheetSnap])
 
   const prevHomeShellTabRef = useRef<HomeShellTab>(homeShellTab)
   useEffect(() => {
@@ -5113,23 +4971,18 @@ export default function HomeView({
       return
     }
     if (homeShellTab === 'marketplace') {
-      void speakLine('Fetch supplies marketplace is open — browse categories anytime.', {
-        debounceKey: 'marketplace_tab_ready_line',
-        debounceMs: 0,
-        withVoiceHold: true,
-      })
-      return
-    }
-    if (homeShellTab === 'buySell') {
-      void speakLine('Buy and sell is open — local listings are on the way.', {
-        debounceKey: 'buysell_tab_ready_line',
-        debounceMs: 0,
-        withVoiceHold: true,
-      })
+      void speakLine(
+        'Fetch marketplace is open — browse store items and local peer listings in one place.',
+        {
+          debounceKey: 'marketplace_tab_ready_line',
+          debounceMs: 0,
+          withVoiceHold: true,
+        },
+      )
       return
     }
     if (homeShellTab === 'chat') {
-      void speakLine('Messages — marketplace chats and support are here.', {
+      void speakLine('Notifications — marketplace chats and support are here.', {
         debounceKey: 'chat_tab_ready_line',
         debounceMs: 0,
         withVoiceHold: true,
@@ -5172,67 +5025,47 @@ export default function HomeView({
           onMapInstance={handleHomeMapInstance}
           chatBookingHintLabel={chatBookingHintLabel}
           pickup={
-            chatNavRoute
-              ? 'Your location'
-              : seqLockMapDemo
-                ? seqLockMapDemo.pickupLabel
-                : bookingState.pickupAddressText
+            chatNavRoute ? 'Your location' : bookingState.pickupAddressText
           }
           dropoff={
-            chatNavRoute
-              ? chatNavRoute.destinationLabel
-              : seqLockMapDemo
-                ? seqLockMapDemo.dropoffLabel
-                : bookingState.dropoffAddressText
+            chatNavRoute ? chatNavRoute.destinationLabel : bookingState.dropoffAddressText
           }
           pickupCoords={
             chatNavRoute
               ? { lat: chatNavRoute.originLat, lng: chatNavRoute.originLng }
-              : seqLockMapDemo
-                ? seqLockMapDemo.pickupCoords
-                : bookingState.pickupCoords
+              : bookingState.pickupCoords
           }
           dropoffCoords={
             chatNavRoute
               ? { lat: chatNavRoute.destLat, lng: chatNavRoute.destLng }
-              : seqLockMapDemo
-                ? seqLockMapDemo.dropoffCoords
-                : bookingState.dropoffCoords
+              : bookingState.dropoffCoords
           }
-          routePath={seqLockMapDemo ? seqLockMapDemo.routePath : mapRoutePath}
+          routePath={mapRoutePath}
           bookingRouteProvisional={bookingRouteProvisional}
-          pickupDropoffMapFitPadding={
-            seqLockMapDemo ? SEQ_LOCK_DEMO_MAP_PADDING : pickupDropoffScannerFitPadding
-          }
+          pickupDropoffMapFitPadding={pickupDropoffScannerFitPadding}
           mapStage={mapStageForHomeStep}
           mapAccentRgb={orbGlowColor}
-          userLocationCoords={chatNavRoute ? userMapLocation : seqLockMapDemo ? null : userMapLocation}
+          userLocationCoords={userMapLocation}
           mapNavStrip={mapNavStrip}
-          driverToPickupPath={
-            seqLockMapDemo ? seqLockMapDemo.driverToPickupPath : liveTripDirections.path
-          }
-          driverLivePosition={
-            seqLockMapDemo ? seqLockMapDemo.driverLivePosition : driverMapLivePosition
-          }
+          driverToPickupPath={liveTripDirections.path}
+          driverLivePosition={driverMapLivePosition}
           mapFollowUser={mapFollowUser}
           onMapFollowUserChange={setMapFollowUser}
           suppressTrafficLayer={!!chatNavRoute || homeMapExploreMode}
           explorePois={homeMapExploreMode ? explorePois : []}
-          navigationRouteActive={Boolean(chatNavRoute || seqLockMapDemo)}
+          navigationRouteActive={Boolean(chatNavRoute)}
           droppedPinCoords={homeMapExploreMode ? userDroppedPin : null}
           onHomeMapMenuAccount={onAccountNavigate}
           homeMapHardwareCatalog={HARDWARE_PRODUCTS}
-          liveTrackingFit={
-            chatNavRoute ? null : seqLockMapDemo ? null : homeLiveTrackingFit
-          }
+          liveTrackingFit={chatNavRoute ? null : homeLiveTrackingFit}
           pickupLockInCelebrateKey={pickupLockInCelebrateKey}
           mapHeaderAddressEntry={mapHeaderAddressEntry}
           mapExploreMinimalChrome={mapExploreMinimalChrome}
           mapBookingTopMinimal={bookingSheetFocusMode}
           mapBackBubble={mapBackBubbleProps}
           squareMapTopCorners={false}
-          mapRegionLockedShowcase={seqMapFrost && !mapsApiKey}
-          mapRegionLockedStatusLine={seqLockMapDemo?.statusLine ?? null}
+          mapRegionLockedShowcase={false}
+          mapRegionLockedStatusLine={null}
         />
         </>
         ) : null
@@ -5593,101 +5426,69 @@ export default function HomeView({
           ) : null}
 
           {showIntent ? (
-            <div className="fetch-home-landing fetch-home-landing--intent-tight flex flex-col">
-              <section className="fetch-home-landing-section fetch-home-landing-section--intent shrink-0">
-                {seqRegionLocked ? (
-                  <div className="rounded-2xl bg-zinc-50/70 p-1.5 shadow-[0_8px_32px_rgba(15,23,42,0.06)]">
-                    <SeqRegionComingSoonPanel
-                      locationUnavailable={seqRegionLocked && !userMapLocation}
-                      onWatchDrops={() => {
-                        bumpInteraction()
-                        setHomeShellTab('reels')
-                        setSheetSnap('half')
-                      }}
+            <div className="fetch-home-landing fetch-home-landing--intent-tight flex flex-col gap-2 px-0.5">
+              <section className="fetch-home-landing-section fetch-home-landing-section--intent shrink-0 -mt-1">
+                  <div className="flex flex-col gap-3">
+                    <input
+                      ref={intentCameraInputRef}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      multiple
+                      onChange={handlePhotoAdd}
+                      className="hidden"
                     />
-                  </div>
-                ) : (
-                  <div className="fetch-home-service-rail-row">
-                    <div className="fetch-home-service-rail-headline-row">
-                      <h2 className="fetch-home-service-rail-headline fetch-home-service-rail-headline--choose">
-                        Choose a service
-                      </h2>
-                      <button
-                        type="button"
-                        className="fetch-home-service-advanced-trigger"
-                        aria-label="More service options"
-                        onClick={() => {
-                          bumpInteraction()
-                          setAdvancedServiceMenuOpen(true)
-                        }}
-                      >
-                        <svg
-                          width="22"
-                          height="22"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2.25"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden
-                        >
-                          <path d="m9 18 6-6-6-6" />
-                        </svg>
-                      </button>
-                    </div>
-                    <div className="fetch-home-intent-carousel-stack">
-                      <div
-                        className="fetch-home-service-carousel-clip"
-                        role="presentation"
-                      >
-                        <div
-                          className="fetch-home-service-carousel"
-                          role="group"
-                          aria-label="Services"
-                        >
-                          <div className="fetch-home-service-carousel-track">
-                            {LANDING_PRIMARY_SERVICES.map((opt) => (
-                              <button
-                                key={opt.id}
-                                type="button"
-                                data-tone={opt.tone}
-                                aria-label={opt.cardHeading}
-                                onClick={() => {
-                                  setServiceInfoLandingId(null)
-                                  pendingServicePersonalityRef.current =
-                                    opt.fetchPersonalityExample
-                                  setServicePersonalityLine(
-                                    opt.fetchPersonalityExample,
-                                  )
-                                  commitJobTypeSelection(opt.jobType)
-                                  setSheetSnap('compact')
-                                }}
-                                className={[
-                                  'fetch-home-service-segment',
-                                  jobType === opt.jobType
-                                    ? 'fetch-home-service-segment--selected'
-                                    : '',
-                                ]
-                                  .filter(Boolean)
-                                  .join(' ')}
-                              >
-                                <HomeServiceTypeIllustration
-                                  jobType={opt.jobType}
-                                  className="fetch-home-service-segment-icon"
-                                />
-                                <span className="fetch-home-service-segment-heading">
-                                  {opt.cardHeading}
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
+                    <input
+                      ref={intentGalleryInputRef}
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handlePhotoAdd}
+                      className="hidden"
+                    />
+                    <button
+                      type="button"
+                      disabled={scanning}
+                      onClick={openIntentCameraPicker}
+                      className="w-full min-h-[3.15rem] rounded-full border-2 border-zinc-300 bg-white py-3.5 text-center text-[15px] font-bold uppercase tracking-[0.08em] text-zinc-900 shadow-sm transition-transform hover:bg-zinc-50 active:scale-[0.99] disabled:opacity-55 dark:border-zinc-500 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
+                    >
+                      FETCH IT
+                    </button>
+                    <button
+                      type="button"
+                      disabled={scanning}
+                      onClick={openIntentGalleryPicker}
+                      className="w-full min-h-[3.15rem] rounded-full bg-emerald-800 py-3.5 text-center text-[15px] font-bold uppercase tracking-[0.08em] text-white shadow-[0_1px_0_#065f46,0_4px_14px_rgba(6,95,70,0.35)] transition-transform hover:bg-emerald-700 active:scale-[0.99] disabled:opacity-55 dark:bg-emerald-900 dark:hover:bg-emerald-800"
+                    >
+                      LIST IT
+                    </button>
+                    {scanning ? (
+                      <div className="flex items-center justify-center gap-2 py-1">
+                        <div className="fetch-stage-spinner h-4 w-4 shrink-0 animate-spin rounded-full" aria-hidden />
+                        <span className="text-[12px] font-medium text-fetch-muted">
+                          Scanning for prices…
+                        </span>
                       </div>
-                    </div>
+                    ) : null}
+                    {intentJunkEstimate ? (
+                      <div className="mt-1 flex flex-col gap-2.5 rounded-2xl border border-zinc-200/80 bg-white/90 px-4 py-3.5 dark:border-zinc-600 dark:bg-zinc-900/85">
+                        <p className="text-[11px] font-medium uppercase tracking-wide text-fetch-muted">
+                          Est. junk removal (AUD)
+                        </p>
+                        <p className="text-[1.65rem] font-bold leading-tight tracking-tight text-zinc-950 dark:text-zinc-50">
+                          ${intentJunkEstimate.minPrice} – ${intentJunkEstimate.maxPrice}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={onIntentFetchIt}
+                          className="w-full min-h-[3.15rem] rounded-full bg-zinc-900 py-3.5 text-center text-[15px] font-bold uppercase tracking-[0.06em] text-white transition-transform active:scale-[0.98] dark:bg-zinc-100 dark:text-zinc-950"
+                        >
+                          Start junk removal
+                        </button>
+                      </div>
+                    ) : null}
                     <div className="fetch-home-intent-sheet-pull-strip" aria-hidden />
                   </div>
-                )}
               </section>
             </div>
           ) : null}
@@ -6991,9 +6792,12 @@ export default function HomeView({
           bottomNav={showHomeShellChrome ? homeShellFooterNav : null}
           hardwareProducts={HARDWARE_PRODUCTS}
           onMenuAccount={onAccountNavigate}
-          onRequestHomeShellTab={onHomeShellTabChange}
           dropsProductHandoff={dropsProductHandoff}
           onDropsProductHandoffConsumed={clearDropsProductHandoff}
+          onOpenListingChat={openListingChatHandoff}
+          onBookDriver={onBuySellBookDriver}
+          dropsListingHandoff={dropsListingHandoff}
+          onDropsListingHandoffConsumed={clearDropsListingHandoff}
         />
       ) : null}
 
@@ -7005,24 +6809,7 @@ export default function HomeView({
           bottomNav={showHomeShellChrome ? homeShellFooterNav : null}
           onMenuAccount={onAccountNavigate}
           onCommerceAction={onDropsCommerceAction}
-          onRequestHomeShellTab={onHomeShellTabChange}
-          onOpenPeerListingFromProfile={onOpenPeerListingFromProfile}
           dropsNavRepeatTick={dropsNavRepeatTick}
-        />
-      ) : null}
-
-      {!brainImmersive &&
-      homeShellTab === 'buySell' &&
-      cardVisible &&
-      homeBrainFlow == null ? (
-        <HomeShellBuySellPage
-          bottomNav={showHomeShellChrome ? homeShellFooterNav : null}
-          onMenuAccount={onAccountNavigate}
-          onOpenListingChat={openListingChatHandoff}
-          onRequestHomeShellTab={onHomeShellTabChange}
-          onBookDriver={onBuySellBookDriver}
-          dropsListingHandoff={dropsListingHandoff}
-          onDropsListingHandoffConsumed={clearDropsListingHandoff}
         />
       ) : null}
 
@@ -7107,7 +6894,7 @@ export default function HomeView({
                   bottom:
                     homeOrbBottomPx != null
                       ? `${homeOrbBottomPx}px`
-                      : 'calc(max(1.1rem, env(safe-area-inset-bottom)) + min(calc(21.75rem + 10dvh), 38dvh, 23.5rem) + 8px - 6.5rem * 0.5 + 12px)',
+                      : 'calc(max(1.1rem, env(safe-area-inset-bottom)) + min(calc((8.625rem + 3.5dvh) * 1.4), calc(16dvh * 1.4), calc(10rem * 1.4)) + 8px - 6.5rem * 0.5 + 12px)',
                 }
           }
         >
@@ -7349,77 +7136,6 @@ export default function HomeView({
           onClose={() => setStreetViewPosition(null)}
         />
       ) : null}
-
-      {typeof document !== 'undefined' &&
-      advancedServiceMenuOpen &&
-      createPortal(
-        <div className="fetch-home-advanced-service-root">
-          <button
-            type="button"
-            className="fetch-home-advanced-service-backdrop"
-            aria-label="Close menu"
-            onClick={() => setAdvancedServiceMenuOpen(false)}
-          />
-          <div
-            id="fetch-home-advanced-service-menu"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="fetch-home-advanced-service-title"
-            className="fetch-home-advanced-service-panel"
-          >
-            <div className="fetch-home-advanced-service-panel__header">
-              <h2 id="fetch-home-advanced-service-title" className="fetch-home-advanced-service-title">
-                All services
-              </h2>
-              <button
-                type="button"
-                className="fetch-home-advanced-service-close"
-                aria-label="Close"
-                onClick={() => setAdvancedServiceMenuOpen(false)}
-              >
-                Done
-              </button>
-            </div>
-            <ul className="fetch-home-advanced-service-list" role="list">
-              {ADVANCED_SERVICE_MENU_OPTIONS.map((opt) => (
-                <li key={opt.id}>
-                  <button
-                    type="button"
-                    className="fetch-home-advanced-service-row"
-                    onClick={() => {
-                      pendingServicePersonalityRef.current = opt.personalityLine
-                      setServicePersonalityLine(opt.personalityLine)
-                      commitJobTypeSelection(opt.jobType)
-                      setAdvancedServiceMenuOpen(false)
-                    }}
-                  >
-                    <HomeServiceTypeIllustration
-                      jobType={opt.jobType}
-                      className="fetch-home-advanced-service-row__icon"
-                    />
-                    <span className="fetch-home-advanced-service-row__label">{opt.label}</span>
-                    <svg
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="fetch-home-advanced-service-row__chev"
-                      aria-hidden
-                    >
-                      <path d="m9 18 6-6-6-6" />
-                    </svg>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>,
-        document.body,
-      )}
 
     </div>
     </div>

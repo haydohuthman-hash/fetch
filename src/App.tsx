@@ -8,30 +8,27 @@ import {
   type Dispatch,
   type SetStateAction,
 } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import {
   setDropsCreatorReturnTarget,
   needsDropsCreatorOnboarding,
 } from './lib/drops/fetchDropsCreatorOnboarding'
 import { computePostAuthAppPhase } from './lib/fetchPostAuthRouting'
-import {
-  consumeOnboardingReturnTarget,
-  needsPlatformOnboarding,
-  setOnboardingReturnTarget,
-} from './lib/fetchPlatformIdentity'
+import { handlePostAuthUser } from './lib/fetchHandlePostAuth'
+import { FETCH_APP_PATH, FETCH_AUTH_PATH, FETCH_PROFILE_PATH } from './lib/fetchRoutes'
+import { tryDevAutoSignIn } from './lib/fetchDevAutoSignIn'
+import { applyFetchDevDemoLocalBootstrap, isFetchDevDemoSession } from './lib/fetchDevDemo'
 import {
   loadSession,
   refreshSessionFromSupabase,
   seedSessionCacheFromSupabaseUser,
 } from './lib/fetchUserSession'
-import { isAutomaticDefaultUsername } from './lib/supabase/profiles'
 import { getSupabaseBrowserClient } from './lib/supabase/client'
 import { cleanupSupabaseOAuthUrl } from './lib/supabase/oauthSession'
 import { setAuthState } from './lib/authState'
 import { FetchVoiceProvider } from './voice/FetchVoiceContext'
 import { FetchBootstrappingProvider } from './boot/FetchBootstrappingContext'
 import { FetchBootstrapOverlay } from './components/FetchBootstrapOverlay'
-import { FetchAppAuthDebugPanel } from './components/FetchAppAuthDebugPanel'
-import { FetchAppErrorBoundary } from './components/FetchAppErrorBoundary'
 import { FetchAppShellSuspenseFallback } from './components/FetchAppShellSuspenseFallback'
 import SplashScreen from './views/SplashScreen'
 
@@ -41,23 +38,14 @@ const HomeView = lazy(homeChunk)
 const authChunk = () => import('./views/AuthScreen')
 const AuthScreen = lazy(authChunk)
 
-const dropsProfileAccountChunk = () =>
-  import('./components/UserScreens/DropsProfileAccountScreen').then((m) => ({
-    default: m.DropsProfileAccountScreen,
-  }))
-const DropsProfileAccountScreen = lazy(dropsProfileAccountChunk)
-
 const driverChunk = () => import('./views/DriverDashboardView')
 const DriverDashboardView = lazy(driverChunk)
-
-const onboardingChunk = () => import('./views/AccountOnboardingView')
-const AccountOnboardingView = lazy(onboardingChunk)
 
 const dropsCreatorSetupChunk = () => import('./views/DropsCreatorSetupView')
 const DropsCreatorSetupView = lazy(dropsCreatorSetupChunk)
 
-type AppPhase = 'boot' | 'splash' | 'home' | 'auth' | 'onboarding' | 'dropsSetup' | 'account' | 'driver'
-type PostAuthTarget = 'auth' | 'home' | 'onboarding' | 'dropsSetup'
+type AppPhase = 'splash' | 'home' | 'auth' | 'dropsSetup' | 'driver'
+type PostAuthTarget = 'auth' | 'home' | 'dropsSetup'
 type PostAuthTrace = {
   source: 'auth-success' | 'auth-event'
   startedAtMs: number
@@ -79,11 +67,11 @@ function hasDriverQuery() {
 }
 
 function initialAppPhase(): AppPhase {
-  if (typeof window === 'undefined') return 'boot'
+  if (typeof window === 'undefined') return 'splash'
   if (hasDriverQuery()) return 'driver'
   if (fetchAppSplashHandoffDone) return 'home'
-  /** Hydrate auth before splash so logged-in users never see the splash animation. */
-  return 'boot'
+  /** Guests see the short splash; authed users jump to home as soon as `getSession` resolves. */
+  return 'splash'
 }
 
 /** After splash, show bootstrap until map ready + min time, unless overlay already finished this load. */
@@ -94,8 +82,8 @@ function initialHomeBootstrapOpen(): boolean {
 }
 
 const SPLASH_SESSION_WAIT_MS = 4500
-/** Never block the boot screen on `getSession()` (offline / wedged client). */
-const BOOT_GET_SESSION_TIMEOUT_MS = 10_000
+/** Do not block forever on `getSession()` (offline / wedged client). */
+const GET_SESSION_TIMEOUT_MS = 10_000
 
 function nowMs(): number {
   if (typeof performance !== 'undefined' && typeof performance.now === 'function') return performance.now()
@@ -104,43 +92,42 @@ function nowMs(): number {
 
 function likelyPostAuthTargetFromHints(): PostAuthTarget {
   const s = loadSession()
-  const u = s?.username?.trim()
-  if (!u || isAutomaticDefaultUsername(u, s?.id)) return 'auth'
-  if (needsPlatformOnboarding()) return 'onboarding'
+  if (!s?.email?.trim()) return 'auth'
   if (needsDropsCreatorOnboarding()) return 'dropsSetup'
   return 'home'
 }
 
 function applyPostAuthRouteIfNeeded(
+  navigate: (path: string, opts?: { replace?: boolean }) => void,
   setDropsHome: () => void,
   setPhase: Dispatch<SetStateAction<AppPhase>>,
 ): void {
   const target = computePostAuthAppPhase()
-  console.log('[AUTH] applyPostAuthRouteIfNeeded target:', target)
-  // #region agent log
-  fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'App.tsx:applyPostAuth',message:'applyPostAuth target',data:{target,hypothesisId:'H4'},timestamp:Date.now(),hypothesisId:'H4'})}).catch(()=>{});
-  // #endregion
+  console.log('[ROUTE] applyPostAuthRouteIfNeeded target:', target)
   if (!target) return
   if (target === 'dropsSetup') setDropsHome()
+  if (target === 'home' || target === 'dropsSetup') {
+    navigate(FETCH_APP_PATH, { replace: true })
+  }
   setPhase((cur) => {
-    if (cur === 'account' || cur === 'driver') return cur
-    if (cur === 'onboarding' || cur === 'dropsSetup') return cur
-    if (cur === 'boot' || cur === 'splash' || cur === 'home' || cur === 'auth') return target
+    if (cur === 'driver') return cur
+    if (cur === 'dropsSetup') return cur
+    if (cur === 'splash' || cur === 'home' || cur === 'auth') return target
     return cur
   })
 }
 
 function App() {
-  const pathname = typeof window !== 'undefined' ? window.location.pathname : ''
+  const navigate = useNavigate()
+  const location = useLocation()
+  const pathname = location.pathname
 
   const [phase, setPhase] = useState<AppPhase>(initialAppPhase)
   /** First `getSession` + `refreshSessionFromSupabase` pass completed (non-blocking; used for routing + logs). */
   const [shellHydrateDone, setShellHydrateDone] = useState(false)
   const [authSessionUserId, setAuthSessionUserId] = useState<string | null>(null)
-  const [profileSyncPending, setProfileSyncPending] = useState(false)
   const [homeBootstrapOpen, setHomeBootstrapOpen] = useState(initialHomeBootstrapOpen)
   const [homeMapBootReady, setHomeMapBootReady] = useState(false)
-  const [onboardingAllowDismiss, setOnboardingAllowDismiss] = useState(false)
   /**
    * When false, ignore post-auth phase jumps from onAuthStateChange so splash can finish and session cache can hydrate.
    * Seed from module splash flag so React Strict Mode remounts after handoff don’t stay “locked” on home.
@@ -149,6 +136,18 @@ function App() {
   const shellHydrateDoneRef = useRef(false)
   const phaseRef = useRef<AppPhase>(phase)
   const postAuthTraceRef = useRef<PostAuthTrace | null>(null)
+  const lastPostAuthRouteRef = useRef<string | null>(null)
+
+  const runPostAuth = useCallback(
+    async (user: import('@supabase/supabase-js').User) => {
+      await handlePostAuthUser(user, {
+        navigate,
+        lastRouteKeyRef: lastPostAuthRouteRef,
+        setAppPhase: (p) => setPhase(p),
+      })
+    },
+    [navigate],
+  )
 
   console.log('[AUTH] app render start', {
     phase,
@@ -159,13 +158,27 @@ function App() {
   })
   if (authSessionUserId) {
     console.log('[AUTH] rendering authenticated shell', { phase })
-  } else if (phase !== 'boot' && phase !== 'splash') {
+  } else if (phase !== 'splash') {
     console.log('[AUTH] rendering unauthenticated shell', { phase })
   }
 
   useEffect(() => {
     phaseRef.current = phase
   }, [phase])
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    if (!authSessionUserId) return
+    const s = loadSession()
+    if (!isFetchDevDemoSession(s)) return
+    applyFetchDevDemoLocalBootstrap()
+  }, [authSessionUserId])
+
+  /** Legacy `/profile` URL → `/app`. */
+  useEffect(() => {
+    if (pathname !== FETCH_PROFILE_PATH) return
+    navigate(FETCH_APP_PATH, { replace: true })
+  }, [navigate, pathname])
 
   const finalizePostAuthTrace = useCallback((reason: string) => {
     const t = postAuthTraceRef.current
@@ -179,7 +192,6 @@ function App() {
       sequence: seq,
       elapsedMs,
       authToHome: seq === 'auth -> home',
-      authToHomeToOnboarding: seq === 'auth -> home -> onboarding',
       authToHomeToDropsSetup: seq === 'auth -> home -> dropsSetup',
     })
     postAuthTraceRef.current = null
@@ -213,16 +225,14 @@ function App() {
       phase,
       elapsedMs: Math.round(nowMs() - t.startedAtMs),
     })
-    const done = phase === 'home' || phase === 'onboarding' || phase === 'dropsSetup'
+    const done = phase === 'home' || phase === 'dropsSetup'
     if (done && t.sequence.length >= 2) finalizePostAuthTrace('terminal')
   }, [phase, finalizePostAuthTrace])
 
   useEffect(() => {
     void homeChunk()
     void authChunk()
-    void dropsProfileAccountChunk()
     void driverChunk()
-    void onboardingChunk()
     void dropsCreatorSetupChunk()
   }, [])
 
@@ -231,7 +241,6 @@ function App() {
     if (phase === 'auth') void homeChunk()
     if (phase === 'auth') {
       const hinted = likelyPostAuthTargetFromHints()
-      if (hinted === 'onboarding') void onboardingChunk()
       if (hinted === 'dropsSetup') void dropsCreatorSetupChunk()
     }
   }, [phase])
@@ -244,26 +253,12 @@ function App() {
     [],
   )
 
-  // Absolute guard: never remain on boot forever.
-  useEffect(() => {
-    if (phase !== 'boot') return
-    const t = window.setTimeout(() => {
-      if (phaseRef.current !== 'boot') return
-      console.warn('[AUTH] boot hard-timeout guard triggered; forcing splash')
-      shellHydrateDoneRef.current = true
-      setShellHydrateDone(true)
-      setPhase((p) => (p === 'boot' ? 'splash' : p))
-    }, 2200)
-    return () => window.clearTimeout(t)
-  }, [phase])
-
   useEffect(() => {
     const sb = getSupabaseBrowserClient()
     if (!sb) {
       setAuthState({ loading: false, sessionUserId: null })
       shellHydrateDoneRef.current = true
       setShellHydrateDone(true)
-      setPhase((p) => (p === 'boot' ? 'splash' : p))
       return
     }
     void (async () => {
@@ -271,11 +266,11 @@ function App() {
         sb.auth.getSession(),
         new Promise<{ data: { session: null } }>((resolve) =>
           window.setTimeout(() => {
-            console.warn('[AUTH] getSession timeout — leaving boot without session', {
-              ms: BOOT_GET_SESSION_TIMEOUT_MS,
+            console.warn('[AUTH] getSession timeout — continuing without session', {
+              ms: GET_SESSION_TIMEOUT_MS,
             })
             resolve({ data: { session: null } })
-          }, BOOT_GET_SESSION_TIMEOUT_MS),
+          }, GET_SESSION_TIMEOUT_MS),
         ),
       ])
       const { data, error } = sessionResult as Awaited<ReturnType<typeof sb.auth.getSession>>
@@ -289,18 +284,19 @@ function App() {
 
       const authedUser = data.session?.user ?? null
       setAuthSessionUserId(authedUser?.id ?? null)
-      if (authedUser) seedSessionCacheFromSupabaseUser(authedUser)
+      if (authedUser) {
+        seedSessionCacheFromSupabaseUser(authedUser)
+        if (import.meta.env.DEV) {
+          const s = loadSession()
+          if (isFetchDevDemoSession(s)) applyFetchDevDemoLocalBootstrap()
+        }
+      }
       setAuthState({ sessionUserId: authedUser?.id ?? null, loading: false })
-      setProfileSyncPending(
-        Boolean(authedUser?.id) && !Boolean(loadSession()?.username?.trim()),
-      )
       shellHydrateDoneRef.current = true
       setShellHydrateDone(true)
 
       if (authedUser) {
-        console.log('[AUTH] boot: leaving boot → authenticated shell (before profile refresh)')
-        console.log('[AUTH] splash removed — authenticated cold start → main shell')
-        console.log('[AUTH] skip splash: authenticated session on cold start')
+        console.log('[AUTH] authenticated cold start → runPostAuth')
         if (!fetchAppSplashHandoffDone) {
           fetchAppSplashHandoffDone = true
           fetchAppBootstrapExitDone = false
@@ -308,42 +304,29 @@ function App() {
           setHomeBootstrapOpen(true)
         }
         postAuthRouteUnlockedRef.current = true
-        console.log('[AUTH] computePostAuthAppPhase start (cold start)')
-        const postAuth = computePostAuthAppPhase()
-        console.log('[AUTH] computePostAuthAppPhase result (cold start target):', postAuth)
-        if (postAuth === 'dropsSetup') setDropsCreatorReturnTarget('home')
-        setPhase((p) => (p === 'boot' || p === 'splash' ? (postAuth ?? 'home') : p))
+        void runPostAuth(authedUser).catch((e) =>
+          console.warn('[AUTH] runPostAuth failed (cold start)', e),
+        )
 
         const reconcile = () => {
           void refreshSessionFromSupabase().then(() => {
-            applyPostAuthRouteIfNeeded(() => setDropsCreatorReturnTarget('home'), setPhase)
+            applyPostAuthRouteIfNeeded(navigate, () => setDropsCreatorReturnTarget('home'), setPhase)
           })
         }
-        console.log('[AUTH] profile fetch start (background cold start)')
-        void refreshSessionFromSupabase()
-          .then(() => {
-            const prof = loadSession()?.username?.trim()
-            if (prof) console.log('[AUTH] profile fetch success (session cache)')
-            else
-              console.log(
-                '[AUTH] profile fetch missing (session cache username empty — may still be valid)',
-              )
-            setProfileSyncPending(
-              Boolean(authedUser.id) && !Boolean(loadSession()?.username?.trim()),
-            )
-          })
-          .catch((e) => console.warn('[AUTH] profile refresh failed (cold start)', e))
+        console.log('[AUTH] profile reconcile (cold start follow-up)')
+        void refreshSessionFromSupabase().catch((e) =>
+          console.warn('[AUTH] profile refresh failed (cold start)', e),
+        )
         reconcile()
         window.setTimeout(reconcile, 700)
         window.setTimeout(reconcile, 2200)
       } else {
-        console.log('[AUTH] boot: leaving boot → splash (guest / no session)')
-        console.log('[AUTH] guest cold start: show splash after boot')
-        setPhase((p) => (p === 'boot' ? 'splash' : p))
+        console.log('[AUTH] guest cold start: splash until handoff')
         console.log('[AUTH] profile fetch start (background guest cold start)')
         void refreshSessionFromSupabase().catch((e) =>
           console.warn('[AUTH] profile refresh skipped or failed (guest cold start)', e),
         )
+        void tryDevAutoSignIn().catch((e) => console.warn('[AUTH] dev auto sign-in error', e))
       }
     })()
   }, [])
@@ -355,159 +338,79 @@ function App() {
       data: { subscription },
     } = sb.auth.onAuthStateChange(async (event, session) => {
       console.log('[AUTH] auth state changed:', event, session?.user?.id)
-      console.log('[AUTH] route pathname:', typeof window !== 'undefined' ? window.location.pathname : '')
-      // #region agent log
-      fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'App.tsx:onAuthStateChange',message:'auth event',data:{event,hasUser:Boolean(session?.user),unlocked:postAuthRouteUnlockedRef.current,hypothesisId:'H3'},timestamp:Date.now(),hypothesisId:'H3'})}).catch(()=>{});
-      // #endregion
+      console.log('[ROUTE] pathname:', pathname)
       setAuthSessionUserId(session?.user?.id ?? null)
       setAuthState({ sessionUserId: session?.user?.id ?? null })
       if (session?.user) {
         seedSessionCacheFromSupabaseUser(session.user)
-        if (event === 'SIGNED_IN') {
-          startPostAuthTrace('auth-event')
-          postAuthRouteUnlockedRef.current = true
-          const hinted = likelyPostAuthTargetFromHints()
-          console.log('[AUTH] post-auth hint before refresh', { hinted })
-          if (shellHydrateDoneRef.current) {
-            if (hinted === 'home') {
-              console.log('[AUTH] post-auth fast route (pre-refresh)', { event, hinted })
-              applyPostAuthRouteIfNeeded(() => setDropsCreatorReturnTarget('home'), setPhase)
-            } else {
-              console.log('[AUTH] post-auth direct setup route (pre-refresh)', { event, hinted })
-              if (hinted === 'dropsSetup') setDropsCreatorReturnTarget('home')
-              setPhase(hinted)
-            }
-          }
+        if (import.meta.env.DEV) {
+          const s = loadSession()
+          if (isFetchDevDemoSession(s)) applyFetchDevDemoLocalBootstrap()
         }
-        await refreshSessionFromSupabase()
-        setProfileSyncPending(!Boolean(loadSession()?.username?.trim()))
+        /**
+         * OAuth/PKCE often delivers the first session as `INITIAL_SESSION`, not `SIGNED_IN`.
+         * Only running `runPostAuth` on `SIGNED_IN` left some returns stuck until a full refresh.
+         */
+        if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+          postAuthRouteUnlockedRef.current = true
+          if (event === 'SIGNED_IN') {
+            startPostAuthTrace('auth-event')
+            console.log('[AUTH] SIGNED_IN → handlePostAuthUser')
+          } else {
+            console.log('[AUTH] INITIAL_SESSION → handlePostAuthUser')
+          }
+          try {
+            await runPostAuth(session.user)
+          } catch (e) {
+            console.warn('[AUTH] runPostAuth failed', e)
+          }
+        } else {
+          await refreshSessionFromSupabase()
+        }
         cleanupSupabaseOAuthUrl()
         setAuthState({ loading: false })
       } else if (event === 'SIGNED_OUT') {
+        lastPostAuthRouteRef.current = null
         await refreshSessionFromSupabase()
-        setProfileSyncPending(false)
         cleanupSupabaseOAuthUrl()
         setAuthState({ loading: false, sessionUserId: null })
-        setPhase((cur) => (cur === 'auth' || cur === 'splash' || cur === 'boot' ? cur : 'home'))
+        navigate(FETCH_APP_PATH, { replace: true })
+        setPhase((cur) => (cur === 'auth' || cur === 'splash' ? cur : 'home'))
       }
 
-      if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
-        if (!shellHydrateDoneRef.current) {
-          console.log('[AUTH] protected route waiting for hydration')
-        } else if (session?.user && postAuthRouteUnlockedRef.current) {
-          console.log('[AUTH] redirect allowed: post-auth route', event, session.user.id)
-          applyPostAuthRouteIfNeeded(() => setDropsCreatorReturnTarget('home'), setPhase)
-        } else {
-          console.log('[AUTH] redirect blocked:', {
-            hasUser: Boolean(session?.user),
-            unlocked: postAuthRouteUnlockedRef.current,
-          })
-        }
+      if (event === 'TOKEN_REFRESHED' && session?.user && shellHydrateDoneRef.current) {
+        void refreshSessionFromSupabase().then(() => {
+          applyPostAuthRouteIfNeeded(navigate, () => setDropsCreatorReturnTarget('home'), setPhase)
+        })
       }
     })
     return () => subscription.unsubscribe()
-  }, [])
-
-  useEffect(() => {
-    if (!authSessionUserId || !profileSyncPending) return
-    console.log('[AUTH] profile fallback render')
-    let cancelled = false
-    let attempt = 0
-    const tick = () => {
-      if (cancelled) return
-      attempt += 1
-      console.log('[AUTH] profile fetch start')
-      void refreshSessionFromSupabase()
-        .then(() => {
-          const hasProfile = Boolean(loadSession()?.username?.trim())
-          if (hasProfile) {
-            console.log('[AUTH] profile fetch success')
-            setProfileSyncPending(false)
-            return
-          }
-          console.log('[AUTH] profile fetch missing')
-          if (attempt < 5) window.setTimeout(tick, 1200)
-        })
-        .catch(() => {
-          console.log('[AUTH] profile fetch missing')
-          if (attempt < 5) window.setTimeout(tick, 1200)
-        })
-    }
-    tick()
-    return () => {
-      cancelled = true
-    }
-  }, [authSessionUserId, profileSyncPending])
+  }, [navigate, pathname, runPostAuth, startPostAuthTrace])
 
   const goAccountFromHome = useCallback(() => {
-    if (!loadSession()) {
-      console.log('[AUTH] redirect blocked: no cached session, opening auth')
+    if (!loadSession()?.email?.trim()) {
+      console.log('[ROUTE] open auth (no session cache)')
+      navigate(FETCH_AUTH_PATH, { replace: true })
       setPhase('auth')
-      return
-    }
-    if (needsPlatformOnboarding()) {
-      setOnboardingAllowDismiss(false)
-      setPhase('onboarding')
       return
     }
     if (needsDropsCreatorOnboarding()) {
       setDropsCreatorReturnTarget('account')
+      navigate(FETCH_APP_PATH, { replace: true })
       setPhase('dropsSetup')
       return
     }
-    setPhase('account')
-  }, [])
+    navigate(FETCH_APP_PATH, { replace: true })
+    setPhase('home')
+  }, [navigate])
 
   const leaveDriverDashboard = useCallback(() => {
     const url = new URL(window.location.href)
     url.searchParams.delete('driver')
     window.history.replaceState({}, '', `${url.pathname}${url.search}`)
+    navigate(FETCH_APP_PATH, { replace: true })
     setPhase('home')
-  }, [])
-
-  const openDriverDashboard = useCallback(() => {
-    const url = new URL(window.location.href)
-    url.searchParams.set('driver', '1')
-    window.history.replaceState({}, '', `${url.pathname}${url.search}`)
-    setPhase('driver')
-  }, [])
-
-  const finishOnboarding = useCallback(
-    (picked: 'fetcher' | 'partner') => {
-      const ret = consumeOnboardingReturnTarget()
-      setOnboardingAllowDismiss(false)
-      if (ret === 'account') {
-        if (picked === 'fetcher' && needsDropsCreatorOnboarding()) {
-          setDropsCreatorReturnTarget('account')
-          setPhase('dropsSetup')
-        } else {
-          setPhase('account')
-        }
-        return
-      }
-      if (picked === 'partner') {
-        openDriverDashboard()
-      } else if (needsDropsCreatorOnboarding()) {
-        setDropsCreatorReturnTarget('home')
-        setPhase('dropsSetup')
-      } else {
-        setPhase('home')
-      }
-    },
-    [openDriverDashboard],
-  )
-
-  const openOnboardingFromAccount = useCallback(() => {
-    setOnboardingReturnTarget('account')
-    setOnboardingAllowDismiss(true)
-    setPhase('onboarding')
-  }, [])
-
-  const dismissOnboardingToAccount = useCallback(() => {
-    setOnboardingReturnTarget(null)
-    setOnboardingAllowDismiss(false)
-    setPhase('account')
-  }, [])
+  }, [navigate])
 
   const handleSplashComplete = useCallback(() => {
     void (async () => {
@@ -526,26 +429,41 @@ function App() {
         /* session refresh must not trap the app on splash */
       }
       postAuthRouteUnlockedRef.current = true
-      const postAuth = computePostAuthAppPhase()
-      // #region agent log
-      fetch('http://127.0.0.1:7777/ingest/3e862786-2e70-43d9-82dd-0763e7cc410e',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'8e74d6'},body:JSON.stringify({sessionId:'8e74d6',location:'App.tsx:splashComplete',message:'splash handoff postAuth',data:{postAuth,fallbackHome:!postAuth,hypothesisId:'H4'},timestamp:Date.now(),hypothesisId:'H4'})}).catch(()=>{});
-      // #endregion
-      if (postAuth === 'dropsSetup') setDropsCreatorReturnTarget('home')
-      setPhase((p) => (p === 'splash' || p === 'boot' ? (postAuth ?? 'home') : p))
+      const sb = getSupabaseBrowserClient()
+      const {
+        data: { session },
+      } = (await sb?.auth.getSession()) ?? { data: { session: null } }
+      if (session?.user) {
+        console.log('[AUTH] splash handoff → runPostAuth')
+        try {
+          await runPostAuth(session.user)
+        } catch (e) {
+          console.warn('[AUTH] runPostAuth failed (splash)', e)
+        }
+      } else {
+        const postAuth = computePostAuthAppPhase()
+        console.log('[ROUTE] splash guest handoff', { postAuth })
+        if (postAuth === 'dropsSetup') setDropsCreatorReturnTarget('home')
+        navigate(FETCH_APP_PATH, { replace: true })
+        setPhase((p) => (p === 'splash' ? (postAuth ?? 'home') : p))
+      }
 
       const reconcile = () => {
         void refreshSessionFromSupabase().then(() => {
-          applyPostAuthRouteIfNeeded(() => setDropsCreatorReturnTarget('home'), setPhase)
+          applyPostAuthRouteIfNeeded(navigate, () => setDropsCreatorReturnTarget('home'), setPhase)
         })
       }
       reconcile()
       window.setTimeout(reconcile, 700)
       window.setTimeout(reconcile, 2200)
     })()
-  }, [])
+  }, [navigate, runPostAuth])
 
+  const prevPhaseForBootstrapRef = useRef<AppPhase | null>(null)
   useEffect(() => {
-    if (phase !== 'home') {
+    const prev = prevPhaseForBootstrapRef.current
+    prevPhaseForBootstrapRef.current = phase
+    if (prev === 'home' && phase !== 'home') {
       setHomeBootstrapOpen(false)
       setHomeMapBootReady(false)
     }
@@ -560,42 +478,17 @@ function App() {
     setHomeBootstrapOpen(false)
   }, [])
 
-  const onAuthSuccess = useCallback(() => {
-    console.log('[AUTH] redirect landed')
-    startPostAuthTrace('auth-success')
-    postAuthRouteUnlockedRef.current = true
-    setOnboardingAllowDismiss(false)
-    console.log('[AUTH] computePostAuthAppPhase start (onSuccess)')
-    const target = computePostAuthAppPhase()
-    console.log('[AUTH] computePostAuthAppPhase result (onSuccess):', target)
-    if (!target) {
-      console.log('[AUTH] rendering authenticated shell (onSuccess: no route target → home)')
-      setPhase('home')
-      return
-    }
-    if (target === 'dropsSetup') {
-      setDropsCreatorReturnTarget('home')
-      setPhase('dropsSetup')
-      return
-    }
-    if (target === 'onboarding') {
-      setPhase('onboarding')
-      return
-    }
-    console.log('[AUTH] rendering authenticated shell → home')
-    setPhase('home')
-  }, [])
+  const onSignedIn = useCallback(
+    async (user: import('@supabase/supabase-js').User) => {
+      console.log('[AUTH] email/OAuth sign-in completed → handlePostAuthUser')
+      startPostAuthTrace('auth-success')
+      postAuthRouteUnlockedRef.current = true
+      await runPostAuth(user)
+    },
+    [runPostAuth, startPostAuthTrace],
+  )
 
-  const profileLoaded = Boolean(loadSession()?.username?.trim())
   const phaseBody = (() => {
-    if (phase === 'boot') {
-      return (
-        <FetchAppShellSuspenseFallback
-          title="Starting Fetch…"
-          subtitle="Hang tight — this usually takes just a moment."
-        />
-      )
-    }
     if (phase === 'splash') {
       return <SplashScreen onComplete={handleSplashComplete} />
     }
@@ -647,25 +540,13 @@ function App() {
             />
           }
         >
-          <AuthScreen initialTab="signup" onBack={() => setPhase('home')} onSuccess={onAuthSuccess} />
-        </Suspense>
-      )
-    }
-    if (phase === 'onboarding') {
-      return (
-        <Suspense
-          fallback={
-            <FetchAppShellSuspenseFallback
-              title="Setting up your profile…"
-              subtitle="A few quick choices to personalize Fetch."
-            />
-          }
-        >
-          <AccountOnboardingView
-            onDoneFetcher={() => finishOnboarding('fetcher')}
-            onDonePartner={() => finishOnboarding('partner')}
-            allowDismissToAccount={onboardingAllowDismiss}
-            onDismissToAccount={dismissOnboardingToAccount}
+          <AuthScreen
+            initialTab="signup"
+            onBack={() => {
+              navigate(FETCH_APP_PATH, { replace: true })
+              setPhase('home')
+            }}
+            onSignedIn={onSignedIn}
           />
         </Suspense>
       )
@@ -681,26 +562,10 @@ function App() {
           }
         >
           <DropsCreatorSetupView
-            onDone={(dest) => setPhase(dest === 'account' ? 'account' : 'home')}
-          />
-        </Suspense>
-      )
-    }
-    if (phase === 'account') {
-      return (
-        <Suspense
-          fallback={
-            <FetchAppShellSuspenseFallback
-              title="Opening your account…"
-              subtitle="Loading preferences and profile."
-            />
-          }
-        >
-          <DropsProfileAccountScreen
-            onBack={() => setPhase('home')}
-            onSignOut={() => setPhase('home')}
-            onOpenDriver={openDriverDashboard}
-            onOpenOnboarding={openOnboardingFromAccount}
+            onDone={() => {
+              navigate(FETCH_APP_PATH, { replace: true })
+              setPhase('home')
+            }}
           />
         </Suspense>
       )
@@ -716,30 +581,11 @@ function App() {
 
   return (
     <FetchVoiceProvider>
-      <FetchAppErrorBoundary>
-        <div className="fetch-app-shell-bg relative flex min-h-dvh min-h-[100dvh] w-full justify-center">
-          <div className="fetch-app-shell-inner relative z-[1] mx-auto min-h-dvh min-h-[100dvh] w-full max-w-[1024px] overflow-x-clip overflow-y-visible">
-            <FetchAppAuthDebugPanel
-              phase={phase}
-              pathname={pathname}
-              authLoading={!shellHydrateDone}
-              sessionUserId={authSessionUserId}
-              profileLoaded={profileLoaded}
-              fallbackActive={phase === 'boot'}
-            />
-            {profileSyncPending ? (
-              <div
-                className="pointer-events-none absolute left-1/2 top-[max(0.5rem,env(safe-area-inset-top))] z-[120] -translate-x-1/2 rounded-full border border-white/12 bg-black/72 px-3 py-1.5 text-[11px] font-medium text-white/92 shadow-lg shadow-black/25 ring-1 ring-white/10 backdrop-blur-md transition-opacity duration-200 motion-reduce:transition-none"
-                role="status"
-                aria-live="polite"
-              >
-                Finishing your profile…
-              </div>
-            ) : null}
-            {phaseBody}
-          </div>
+      <div className="fetch-app-shell-bg relative flex min-h-dvh min-h-[100dvh] w-full justify-center">
+        <div className="fetch-app-shell-inner relative z-[1] mx-auto min-h-dvh min-h-[100dvh] w-full max-w-[1024px] overflow-x-clip overflow-y-visible">
+          {phaseBody}
         </div>
-      </FetchAppErrorBoundary>
+      </div>
     </FetchVoiceProvider>
   )
 }

@@ -47,6 +47,14 @@ interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL?: string
   /** Supabase anon / public key (browser only — not service_role). */
   readonly VITE_SUPABASE_ANON_KEY?: string
+  /** Dev only (localhost + `import.meta.env.DEV`): email/password auto sign-in when session is empty. */
+  readonly VITE_DEV_AUTO_SIGNIN_EMAIL?: string
+  readonly VITE_DEV_AUTO_SIGNIN_PASSWORD?: string
+  /**
+   * Local demo account email for synthetic marketplace listings + Drops feed clips (defaults to
+   * `VITE_DEV_AUTO_SIGNIN_EMAIL` or `demo@fetch.local`). Server: set `FETCH_DEV_DEMO_USER_EMAIL` to match.
+   */
+  readonly VITE_DEV_DEMO_USER_EMAIL?: string
   /** Optional bucket for uploaded profile photos (falls back to drop bucket / `drops`). */
   readonly VITE_SUPABASE_PROFILE_BUCKET?: string
   /** Optional Drops media bucket name used by upload flows. */

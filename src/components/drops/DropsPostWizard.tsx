@@ -37,8 +37,8 @@ export type DropsPublishActivityEvent =
 type Props = {
   open: boolean
   onClose: () => void
-  /** After successful server publish */
-  onPublished: (serverId?: string) => void
+  /** After successful server publish; `publicDrop` is the serialized row from `POST /api/publish` when available. */
+  onPublished: (serverId?: string, publicDrop?: Record<string, unknown> | null) => void
   authorId: string
   sellerDisplay: string
   tryServerPublish: boolean
@@ -280,7 +280,7 @@ export function DropsPostWizard({
           console.log('[publish] local step 3: after onLocalPublish')
           onPublishActivity?.({ type: 'idle' })
           console.log('[publish] local step 4: onPublished')
-          onPublished(undefined)
+          onPublished(undefined, null)
         } catch (e) {
           console.error('[publish] local failed', e)
           onPublishActivity?.({
@@ -330,12 +330,13 @@ export function DropsPostWizard({
         reset()
 
         console.log('[publish] step 4: before upload')
+        const uploadMs = snapshot.hasVideo ? 180_000 : 60_000
         const media = await withTimeout(
           uploadDropsMediaForPublish({
             video: snapshot.video,
             images: snapshot.images,
           }),
-          30_000,
+          uploadMs,
           'Upload',
         )
         console.log('[publish] step 5: after upload', media)
@@ -375,13 +376,22 @@ export function DropsPostWizard({
               ...(media.videoUrl ? { videoUrl: media.videoUrl } : { imageUrls: media.imageUrls ?? [] }),
             }),
           }),
-          15_000,
+          30_000,
           'Create drop',
         )
         console.log('[publish] step 7: after createDrop response', { ok: res.ok, status: res.status })
-        const payload = (await res.json().catch(() => ({}))) as { id?: string; error?: string }
+        const payload = (await res.json().catch(() => ({}))) as {
+          id?: string
+          drop?: Record<string, unknown> | null
+          error?: string
+        }
         console.log('[publish] step 8: after createDrop json', payload)
         if (!res.ok) {
+          console.error('[publish] createDrop failed', {
+            status: res.status,
+            statusText: res.statusText,
+            payload,
+          })
           onPublishActivity?.({
             type: 'error',
             message: dropsPublishApiErrorMessage(payload.error, res.status),
@@ -398,9 +408,12 @@ export function DropsPostWizard({
           setBoostTierForReel(id, snapshot.boostTier)
         }
 
-        console.log('[publish] step 9: onPublished', { id })
+        console.log('[publish] step 9: onPublished', { id, hasDrop: Boolean(payload.drop) })
+        if (!payload.drop) {
+          console.warn('[publish] response missing drop payload; feed may lag until refresh', { id })
+        }
         onPublishActivity?.({ type: 'idle' })
-        onPublished(id)
+        onPublished(id, payload.drop ?? null)
       } catch (e) {
         console.error('[publish] failed', e)
         if (e instanceof UploadDropMediaError) {

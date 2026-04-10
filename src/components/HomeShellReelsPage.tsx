@@ -34,6 +34,7 @@ import type {
   DropsCommerceTarget,
 } from '../lib/drops/types'
 import { addWatchMsForReel } from '../lib/drops/watchStore'
+import { mapApiDropToReel } from '../lib/drops/mapApiReel'
 import { mergeFeedReels } from '../lib/drops/mergeFeedReels'
 import { consumePendingDropsPostWizard } from '../lib/drops/fetchDropsCreatorOnboarding'
 import {
@@ -44,10 +45,6 @@ import {
 import { UploadDropMediaError, uploadDropMedia } from '../lib/drops/uploadDropMedia'
 import { useDropsApiFeed } from '../lib/drops/useDropsApiFeed'
 import { syncCustomerSessionCookie } from '../lib/fetchServerSession'
-import {
-  FETCH_OPEN_PUBLIC_PROFILE,
-  takePendingOpenPublicProfile,
-} from '../lib/fetchProfile/openPublicProfileEvent'
 import { isFollowingAuthor, toggleFollowAuthor } from '../lib/fetchProfile/followGraphStore'
 import { getFetchApiBaseUrl } from '../lib/fetchApiBase'
 import { HARDWARE_PRODUCTS } from '../lib/hardwareCatalog'
@@ -61,11 +58,6 @@ import {
   type DropsLocalPublishPayload,
   type DropsPublishActivityEvent,
 } from './drops/DropsPostWizard'
-import {
-  FetchProfileSheet,
-  type HomeShellTabRequest,
-} from './profile/FetchProfileSheet'
-
 export type { DropsCommerceActionMeta, DropsCommerceTarget } from '../lib/drops/types'
 
 type ReelsTopTab = 'drops' | 'local' | 'live'
@@ -124,9 +116,6 @@ export type HomeShellReelsPageProps = {
     action: 'fetch_it' | 'buy_now' | 'place_bid',
     meta?: DropsCommerceActionMeta,
   ) => void
-  onRequestHomeShellTab?: (tab: HomeShellTabRequest) => void
-  /** Profile sheet Items tab → open this listing on Buy & sell */
-  onOpenPeerListingFromProfile?: (listingId: string) => void
   /** Home shell: user tapped Drops again while on Drops — open menu for upload / go live. */
   dropsNavRepeatTick?: number
 }
@@ -202,16 +191,15 @@ function HomeShellReelsPageInner({
   bottomNav,
   onMenuAccount,
   onCommerceAction,
-  onRequestHomeShellTab,
-  onOpenPeerListingFromProfile,
   dropsNavRepeatTick = 0,
 }: HomeShellReelsPageProps) {
   const { reels: apiFeedReels, database: dropsDb, refresh: refreshApiDropsFeed } = useDropsApiFeed()
+  /** Newly published drop until ranked feed includes it (avoids “missing” right after publish). */
+  const [publishedOverlayReels, setPublishedOverlayReels] = useState<DropReel[]>([])
   const [userReels, setUserReels] = useState<DropReel[]>([])
   const [topTab, setTopTab] = useState<ReelsTopTab>('drops')
   /** >0 = shuffle within buckets (Drops mix) or within tab list (Local / Live). */
   const [feedShuffleNonce, setFeedShuffleNonce] = useState(0)
-  const [profileTick, setProfileTick] = useState(0)
   const [, setFollowTick] = useState(0)
   const [watchTick, setWatchTick] = useState(0)
   const [activeId, setActiveId] = useState<string>('')
@@ -236,11 +224,6 @@ function HomeShellReelsPageInner({
     title: string
   } | null>(null)
   const [dropsBidDraft, setDropsBidDraft] = useState('')
-  const [profileSheet, setProfileSheet] = useState<{
-    authorId: string
-    sellerDisplay: string
-    isSelf: boolean
-  } | null>(null)
   const [postErr, setPostErr] = useState<string | null>(null)
   const [liveTitle, setLiveTitle] = useState('')
   const [liveBusy, setLiveBusy] = useState(false)
@@ -264,7 +247,7 @@ function HomeShellReelsPageInner({
   const watchLastRef = useRef<number>(0)
   const sessionWatchFlushRef = useRef<Record<string, number>>({})
 
-  const myProfile = useMemo(() => getMyDropProfile() ?? null, [profileTick])
+  const myProfile = useMemo(() => getMyDropProfile() ?? null, [userReels, apiFeedReels])
   const viewerAuthorId = myProfile?.id ?? ''
 
   const liveShowcaseCount = useMemo(() => {
@@ -292,11 +275,16 @@ function HomeShellReelsPageInner({
     const m = new Map<string, DropCreatorProfile>()
     for (const p of Object.values(s.byId)) m.set(p.id, p)
     return m
-  }, [profileTick])
+  }, [userReels, apiFeedReels])
+
+  useEffect(() => {
+    const apiIds = new Set(apiFeedReels.map((r) => r.id))
+    setPublishedOverlayReels((prev) => prev.filter((r) => !apiIds.has(r.id)))
+  }, [apiFeedReels])
 
   const pool = useMemo(
-    () => mergeFeedReels(userReels, apiFeedReels, CURATED_DROP_REELS),
-    [userReels, apiFeedReels],
+    () => mergeFeedReels([...publishedOverlayReels, ...userReels], apiFeedReels, CURATED_DROP_REELS),
+    [publishedOverlayReels, userReels, apiFeedReels],
   )
 
   const giftSheetReel = useMemo(
@@ -528,78 +516,7 @@ function HomeShellReelsPageInner({
     setCommentDraft('')
   }, [commentDraft, commentsOpenId])
 
-  const openMyProfileSheet = useCallback(() => {
-    const me = getMyDropProfile()
-    setProfileSheet({
-      authorId: me?.id ?? '__self__',
-      sellerDisplay: me ? formatDropHandle(me.displayName) : '@you',
-      isSelf: true,
-    })
-  }, [])
-
-  const openAuthorSheet = useCallback((authorId: string, sellerDisplay: string) => {
-    const me = getMyDropProfile()
-    setProfileSheet({
-      authorId,
-      sellerDisplay,
-      isSelf: Boolean(me && me.id === authorId),
-    })
-  }, [])
-
-  useEffect(() => {
-    const onOpenPublicProfile = (ev: Event) => {
-      takePendingOpenPublicProfile()
-      const ce = ev as CustomEvent<{ authorId?: string; sellerDisplay?: string }>
-      const authorId = ce.detail?.authorId?.trim()
-      if (!authorId) return
-      const sellerDisplay = ce.detail?.sellerDisplay?.trim() || '@seller'
-      openAuthorSheet(authorId, sellerDisplay)
-    }
-    window.addEventListener(FETCH_OPEN_PUBLIC_PROFILE, onOpenPublicProfile)
-    return () => window.removeEventListener(FETCH_OPEN_PUBLIC_PROFILE, onOpenPublicProfile)
-  }, [openAuthorSheet])
-
-  useEffect(() => {
-    const p = takePendingOpenPublicProfile()
-    if (p?.authorId?.trim()) {
-      openAuthorSheet(p.authorId.trim(), p.sellerDisplay?.trim() || '@seller')
-    }
-  }, [openAuthorSheet])
-
-  const requestHomeTab = useCallback(
-    (tab: HomeShellTabRequest) => {
-      onRequestHomeShellTab?.(tab)
-    },
-    [onRequestHomeShellTab],
-  )
-
-  const onProfileSavedFromSheet = useCallback(() => {
-    setProfileTick((x) => x + 1)
-    setProfileSheet((prev) => {
-      const me = getMyDropProfile()
-      if (prev?.isSelf && me) {
-        return {
-          ...prev,
-          authorId: me.id,
-          sellerDisplay: formatDropHandle(me.displayName),
-        }
-      }
-      return prev
-    })
-  }, [])
-
-  const onOpenReelFromSheet = useCallback((reelId: string) => {
-    setActiveId(reelId)
-    setTopTab('drops')
-    setFeedShuffleNonce(0)
-    queueMicrotask(() => {
-      const root = scrollRef.current
-      const el = root?.querySelector(`[data-reel-id="${reelId}"]`)
-      el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    })
-  }, [])
-
-  /** Returning from standalone profile (App account phase) with a reel handoff. */
+  /** Drops with a reel handoff (`fetch.pendingDropsReelId`). */
   useEffect(() => {
     try {
       const id = sessionStorage.getItem('fetch.pendingDropsReelId')?.trim()
@@ -622,8 +539,7 @@ function HomeShellReelsPageInner({
   const handleWizardLocalPublish = useCallback(async (p: DropsLocalPublishPayload) => {
     const me = getMyDropProfile()
     if (!me) {
-      setPostErr('Set up your Fetch profile first — Menu → Your profile.')
-      openMyProfileSheet()
+      setPostErr('Set up your Fetch profile first — use Account on the home bar, then try again.')
       throw new Error('profile_required')
     }
     let uploaded
@@ -684,14 +600,13 @@ function HomeShellReelsPageInner({
   const openPostWizard = useCallback(() => {
     const me = getMyDropProfile()
     if (!me) {
-      setPostErr('Set up your Fetch profile first — Menu → Your profile.')
-      openMyProfileSheet()
+      setPostErr('Set up your Fetch profile first — use Account on the home bar, then try again.')
       return
     }
     setReelsMenuOpen(false)
     setWizardMountKey((k) => k + 1)
     setWizardOpen(true)
-  }, [openMyProfileSheet])
+  }, [])
 
   /** Bottom nav Drops tap while already on Drops: open post wizard on step 1 (pick media). */
   useEffect(() => {
@@ -776,7 +691,7 @@ function HomeShellReelsPageInner({
         <button
           type="button"
           onClick={openReelsMenu}
-          className="shrink-0 rounded-xl px-2.5 py-2 text-[13px] font-semibold text-white/85 ring-1 ring-white/20 transition-colors active:bg-white/10"
+          className="shrink-0 rounded-xl bg-white/88 px-3 py-2 text-[13px] font-semibold text-zinc-900 shadow-sm backdrop-blur-md transition-colors active:bg-white/75"
         >
           Menu
         </button>
@@ -922,11 +837,7 @@ function HomeShellReelsPageInner({
 
               <div className="pointer-events-none relative z-[1] flex min-h-[100dvh] flex-1 flex-col justify-end pb-[calc(5.5rem+env(safe-area-inset-bottom,0px))] pl-4 pr-[5.25rem] pt-[4.75rem]">
                 <div className="pointer-events-auto flex min-w-0 max-w-full items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => openAuthorSheet(r.authorId, r.seller)}
-                    className="flex min-w-0 flex-1 items-center gap-2 rounded-xl py-1 pr-1 text-left transition-colors active:bg-white/10"
-                  >
+                  <div className="flex min-w-0 flex-1 items-center gap-2 py-1 pr-1 text-left">
                     <span
                       className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/20 text-lg ring-1 ring-white/30"
                       aria-hidden
@@ -934,7 +845,7 @@ function HomeShellReelsPageInner({
                       {isFetchOfficialAuthor(r.authorId) ? '✓' : avatarChar}
                     </span>
                     <p className="min-w-0 truncate text-[13px] font-bold text-white/95">{r.seller}</p>
-                  </button>
+                  </div>
                   {viewerAuthorId && viewerAuthorId !== r.authorId ? (
                     <button
                       type="button"
@@ -1029,16 +940,14 @@ function HomeShellReelsPageInner({
               </div>
 
               <div className="pointer-events-auto absolute bottom-[calc(5.75rem+env(safe-area-inset-bottom,0px))] right-3 z-[2] flex flex-col items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => openAuthorSheet(r.authorId, r.seller)}
-                  className="mb-1 flex flex-col items-center rounded-full active:opacity-90"
-                  aria-label={`${r.seller} profile`}
+                <div
+                  className="mb-1 flex flex-col items-center rounded-full"
+                  aria-hidden
                 >
                   <span className="flex h-[3.25rem] w-[3.25rem] items-center justify-center rounded-full border-[2.5px] border-white bg-zinc-900/55 text-[1.35rem] shadow-[0_4px_16px_rgba(0,0,0,0.5)] backdrop-blur-sm">
                     {isFetchOfficialAuthor(r.authorId) ? '✓' : avatarChar}
                   </span>
-                </button>
+                </div>
                 <ReelActionButton
                   label={liked[r.id] ? 'Unlike' : 'Like'}
                   active={liked[r.id]}
@@ -1146,7 +1055,7 @@ function HomeShellReelsPageInner({
 
       {bottomNav ? (
         <div
-          className="fetch-home-reels-shell-footer shrink-0 border-t border-white/12 bg-zinc-950/90 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur-xl"
+          className="fetch-home-reels-shell-footer shrink-0 border-t border-white/20 bg-white/22 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur-xl"
           data-fetch-drops-upload-flow={reelsMenuOpen || liveSheetOpen ? 'true' : undefined}
         >
           {bottomNav}
@@ -1345,22 +1254,6 @@ function HomeShellReelsPageInner({
         </div>
       ) : null}
 
-      {profileSheet ? (
-        <FetchProfileSheet
-          open
-          onClose={() => setProfileSheet(null)}
-          authorId={profileSheet.authorId}
-          sellerDisplay={profileSheet.sellerDisplay}
-          pool={pool}
-          isSelf={profileSheet.isSelf}
-          profileRevision={profileTick}
-          onProfileSaved={onProfileSavedFromSheet}
-          onRequestTab={requestHomeTab}
-          onOpenReel={onOpenReelFromSheet}
-          onOpenPeerListing={onOpenPeerListingFromProfile}
-        />
-      ) : null}
-
       {reelsMenuOpen ? (
         <div className="fixed inset-0 z-[88] flex flex-col justify-end" role="presentation">
           <button
@@ -1399,28 +1292,20 @@ function HomeShellReelsPageInner({
             >
               Go live
             </button>
-            <p className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-white/40">Profile</p>
-            <button
-              type="button"
-              className="w-full rounded-xl border border-white/15 bg-white/8 py-3 text-left text-[15px] font-semibold text-white px-4"
-              onClick={() => {
-                setReelsMenuOpen(false)
-                openMyProfileSheet()
-              }}
-            >
-              Your profile
-            </button>
             {onMenuAccount ? (
-              <button
-                type="button"
-                className="w-full rounded-xl border border-white/15 bg-white/8 py-3 text-left text-[15px] font-semibold text-white px-4"
-                onClick={() => {
-                  setReelsMenuOpen(false)
-                  onMenuAccount()
-                }}
-              >
-                Profile (full screen)
-              </button>
+              <>
+                <p className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-white/40">Account</p>
+                <button
+                  type="button"
+                  className="w-full rounded-xl border border-white/15 bg-white/8 py-3 text-left text-[15px] font-semibold text-white px-4"
+                  onClick={() => {
+                    setReelsMenuOpen(false)
+                    onMenuAccount()
+                  }}
+                >
+                  Account
+                </button>
+              </>
             ) : null}
             <p className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-white/40">Feed order</p>
             <button
@@ -1707,7 +1592,18 @@ function HomeShellReelsPageInner({
           key={wizardMountKey}
           open={wizardOpen}
           onClose={() => setWizardOpen(false)}
-          onPublished={() => {
+          onPublished={(serverId, publicDrop) => {
+            if (serverId && publicDrop && typeof publicDrop === 'object') {
+              const reel = mapApiDropToReel(publicDrop as Record<string, unknown>)
+              if (reel) {
+                setPublishedOverlayReels((prev) => {
+                  if (prev.some((r) => r.id === serverId)) return prev
+                  return [reel, ...prev]
+                })
+              } else {
+                console.warn('[drops] publish response drop did not map to reel', { serverId, publicDrop })
+              }
+            }
             refreshApiDropsFeed()
             setTopTab('drops')
             setFeedShuffleNonce(0)

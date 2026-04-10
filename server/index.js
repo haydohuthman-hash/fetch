@@ -80,6 +80,13 @@ import {
   normalizeEmail,
   resolveMarketplaceActor,
 } from './lib/fetch-marketplace-auth.js'
+import {
+  buildDevDemoPeerListings,
+  getDevDemoPeerListing,
+  isDevDemoListingId,
+  isDevDemoMarketplaceActor,
+  patchDevDemoPeerListing,
+} from './lib/dev-demo-peer-listings.js'
 import { signFetchSessionCookie, FETCH_SESSION_COOKIE_NAME } from './lib/fetch-session-cookie.js'
 import { marketplaceLog } from './lib/marketplace-log.js'
 import pg from 'pg'
@@ -3473,6 +3480,11 @@ app.get('/api/listings/mine', async (req, res) => {
   const sk = peerListingSellerKey(req)
   if (!sk) return res.status(401).json({ error: 'auth_required' })
   const listings = await peerListingsStore.listListingsBySeller(sk)
+  const actor = resolveMarketplaceActor(req)
+  if (isDevDemoMarketplaceActor(actor)) {
+    const demo = buildDevDemoPeerListings(actor)
+    return res.json({ listings: [...demo, ...listings] })
+  }
   return res.json({ listings })
 })
 
@@ -3626,6 +3638,11 @@ Return exactly this shape:
 
 app.get('/api/listings/:listingId', async (req, res) => {
   const sk = peerListingSellerKey(req)
+  const actor = resolveMarketplaceActor(req)
+  if (isDevDemoListingId(req.params.listingId) && isDevDemoMarketplaceActor(actor)) {
+    const d = getDevDemoPeerListing(actor, req.params.listingId)
+    if (d) return res.json({ listing: d })
+  }
   const l = await peerListingsStore.getListingVisible(req.params.listingId, sk)
   if (!l) return res.status(404).json({ error: 'listing_not_found' })
   return res.json({ listing: l })
@@ -3684,6 +3701,12 @@ app.post('/api/listings', async (req, res) => {
 app.patch('/api/listings/:listingId', async (req, res) => {
   const sk = peerListingSellerKey(req)
   if (!sk) return res.status(401).json({ error: 'auth_required' })
+  const actor = resolveMarketplaceActor(req)
+  if (isDevDemoListingId(req.params.listingId) && isDevDemoMarketplaceActor(actor)) {
+    const listing = patchDevDemoPeerListing(actor, req.params.listingId, req.body ?? {})
+    if (!listing) return res.status(404).json({ error: 'listing_not_found' })
+    return res.json({ listing })
+  }
   const out = await peerListingsStore.patchListing(req.params.listingId, sk, req.body ?? {})
   if (!out) return res.status(404).json({ error: 'listing_not_found' })
   if (out.error) return res.status(403).json({ error: out.error })
@@ -3693,6 +3716,12 @@ app.patch('/api/listings/:listingId', async (req, res) => {
 app.post('/api/listings/:listingId/publish', async (req, res) => {
   const sk = peerListingSellerKey(req)
   if (!sk) return res.status(401).json({ error: 'auth_required' })
+  const actor = resolveMarketplaceActor(req)
+  if (isDevDemoListingId(req.params.listingId) && isDevDemoMarketplaceActor(actor)) {
+    const listing = patchDevDemoPeerListing(actor, req.params.listingId, { status: 'published' })
+    if (!listing) return res.status(404).json({ error: 'listing_not_found' })
+    return res.json({ listing })
+  }
   const out = await peerListingsStore.setListingStatus(req.params.listingId, sk, 'published')
   if (!out) return res.status(404).json({ error: 'listing_not_found' })
   if (out.error) return res.status(403).json({ error: out.error })
