@@ -15,7 +15,15 @@ import {
 } from './lib/drops/fetchDropsCreatorOnboarding'
 import { computePostAuthAppPhase } from './lib/fetchPostAuthRouting'
 import { handlePostAuthUser } from './lib/fetchHandlePostAuth'
-import { FETCH_APP_PATH, FETCH_AUTH_PATH, FETCH_PROFILE_PATH } from './lib/fetchRoutes'
+import {
+  FETCH_APP_PATH,
+  FETCH_AUTH_PATH,
+  FETCH_MARKETPLACE_LIST_PATH,
+  FETCH_PROFILE_EDIT_PATH,
+  FETCH_PROFILE_PATH,
+  FETCH_WALLET_ADD_CREDITS_PATH,
+  FETCH_WALLET_CASH_OUT_PATH,
+} from './lib/fetchRoutes'
 import { tryDevAutoSignIn } from './lib/fetchDevAutoSignIn'
 import { applyFetchDevDemoLocalBootstrap, isFetchDevDemoSession } from './lib/fetchDevDemo'
 import {
@@ -43,6 +51,15 @@ const DriverDashboardView = lazy(driverChunk)
 
 const dropsCreatorSetupChunk = () => import('./views/DropsCreatorSetupView')
 const DropsCreatorSetupView = lazy(dropsCreatorSetupChunk)
+
+const fetchProfilePageChunk = () => import('./views/FetchProfilePage')
+const FetchProfilePage = lazy(fetchProfilePageChunk)
+const fetchProfileEditChunk = () => import('./views/FetchProfileEditView')
+const FetchProfileEditView = lazy(fetchProfileEditChunk)
+const fetchMarketplaceListingCreateChunk = () => import('./views/FetchMarketplaceListingCreateView')
+const FetchMarketplaceListingCreateView = lazy(fetchMarketplaceListingCreateChunk)
+const fetchWalletPlaceholderChunk = () => import('./views/FetchWalletPlaceholderView')
+const FetchWalletPlaceholderView = lazy(fetchWalletPlaceholderChunk)
 
 type AppPhase = 'splash' | 'home' | 'auth' | 'dropsSetup' | 'driver'
 type PostAuthTarget = 'auth' | 'home' | 'dropsSetup'
@@ -106,8 +123,10 @@ function applyPostAuthRouteIfNeeded(
   console.log('[ROUTE] applyPostAuthRouteIfNeeded target:', target)
   if (!target) return
   if (target === 'dropsSetup') setDropsHome()
-  if (target === 'home' || target === 'dropsSetup') {
+  if (target === 'dropsSetup') {
     navigate(FETCH_APP_PATH, { replace: true })
+  } else if (target === 'home') {
+    navigate(FETCH_PROFILE_PATH, { replace: true })
   }
   setPhase((cur) => {
     if (cur === 'driver') return cur
@@ -174,11 +193,25 @@ function App() {
     applyFetchDevDemoLocalBootstrap()
   }, [authSessionUserId])
 
-  /** Legacy `/profile` URL → `/app`. */
+  /** Require auth for profile / sell / wallet surfaces. */
   useEffect(() => {
-    if (pathname !== FETCH_PROFILE_PATH) return
-    navigate(FETCH_APP_PATH, { replace: true })
-  }, [navigate, pathname])
+    if (!shellHydrateDone) return
+    const gated =
+      pathname === FETCH_PROFILE_PATH ||
+      pathname === FETCH_PROFILE_EDIT_PATH ||
+      pathname === FETCH_MARKETPLACE_LIST_PATH ||
+      pathname === FETCH_WALLET_CASH_OUT_PATH ||
+      pathname === FETCH_WALLET_ADD_CREDITS_PATH
+    if (gated && !authSessionUserId) {
+      navigate(FETCH_AUTH_PATH, { replace: true })
+      queueMicrotask(() => setPhase('auth'))
+    }
+  }, [
+    shellHydrateDone,
+    authSessionUserId,
+    pathname,
+    navigate,
+  ])
 
   const finalizePostAuthTrace = useCallback((reason: string) => {
     const t = postAuthTraceRef.current
@@ -256,9 +289,11 @@ function App() {
   useEffect(() => {
     const sb = getSupabaseBrowserClient()
     if (!sb) {
-      setAuthState({ loading: false, sessionUserId: null })
-      shellHydrateDoneRef.current = true
-      setShellHydrateDone(true)
+      queueMicrotask(() => {
+        setAuthState({ loading: false, sessionUserId: null })
+        shellHydrateDoneRef.current = true
+        setShellHydrateDone(true)
+      })
       return
     }
     void (async () => {
@@ -291,17 +326,21 @@ function App() {
           if (isFetchDevDemoSession(s)) applyFetchDevDemoLocalBootstrap()
         }
       }
-      setAuthState({ sessionUserId: authedUser?.id ?? null, loading: false })
-      shellHydrateDoneRef.current = true
-      setShellHydrateDone(true)
+      queueMicrotask(() => {
+        setAuthState({ sessionUserId: authedUser?.id ?? null, loading: false })
+        shellHydrateDoneRef.current = true
+        setShellHydrateDone(true)
+      })
 
       if (authedUser) {
         console.log('[AUTH] authenticated cold start → runPostAuth')
         if (!fetchAppSplashHandoffDone) {
           fetchAppSplashHandoffDone = true
           fetchAppBootstrapExitDone = false
-          setHomeMapBootReady(false)
-          setHomeBootstrapOpen(true)
+          queueMicrotask(() => {
+            setHomeMapBootReady(false)
+            setHomeBootstrapOpen(true)
+          })
         }
         postAuthRouteUnlockedRef.current = true
         void runPostAuth(authedUser).catch((e) =>
@@ -400,7 +439,7 @@ function App() {
       setPhase('dropsSetup')
       return
     }
-    navigate(FETCH_APP_PATH, { replace: true })
+    navigate(FETCH_PROFILE_PATH, { replace: true })
     setPhase('home')
   }, [navigate])
 
@@ -464,8 +503,10 @@ function App() {
     const prev = prevPhaseForBootstrapRef.current
     prevPhaseForBootstrapRef.current = phase
     if (prev === 'home' && phase !== 'home') {
-      setHomeBootstrapOpen(false)
-      setHomeMapBootReady(false)
+      queueMicrotask(() => {
+        setHomeBootstrapOpen(false)
+        setHomeMapBootReady(false)
+      })
     }
   }, [phase])
 
@@ -507,6 +548,46 @@ function App() {
       )
     }
     if (phase === 'home') {
+      const isProfileSurface =
+        Boolean(authSessionUserId) &&
+        (pathname === FETCH_PROFILE_PATH ||
+          pathname === FETCH_PROFILE_EDIT_PATH ||
+          pathname === FETCH_MARKETPLACE_LIST_PATH ||
+          pathname === FETCH_WALLET_CASH_OUT_PATH ||
+          pathname === FETCH_WALLET_ADD_CREDITS_PATH)
+
+      if (isProfileSurface) {
+        return (
+          <Suspense
+            fallback={
+              <FetchAppShellSuspenseFallback title="Loading…" subtitle="Preparing your marketplace profile." />
+            }
+          >
+            {pathname === FETCH_PROFILE_PATH ? (
+              <FetchProfilePage
+                onOpenApp={() => navigate(FETCH_APP_PATH)}
+                onEditProfile={() => navigate(FETCH_PROFILE_EDIT_PATH)}
+                onListItem={() => navigate(FETCH_MARKETPLACE_LIST_PATH)}
+                onEditListing={(listingId) =>
+                  navigate(`${FETCH_MARKETPLACE_LIST_PATH}?edit=${encodeURIComponent(listingId)}`)
+                }
+                onCashOut={() => navigate(FETCH_WALLET_CASH_OUT_PATH)}
+                onAddCredits={() => navigate(FETCH_WALLET_ADD_CREDITS_PATH)}
+              />
+            ) : pathname === FETCH_PROFILE_EDIT_PATH ? (
+              <FetchProfileEditView onDone={() => navigate(FETCH_PROFILE_PATH)} />
+            ) : pathname === FETCH_MARKETPLACE_LIST_PATH ? (
+              <FetchMarketplaceListingCreateView onDone={() => navigate(FETCH_PROFILE_PATH)} />
+            ) : (
+              <FetchWalletPlaceholderView
+                variant={pathname === FETCH_WALLET_CASH_OUT_PATH ? 'cashOut' : 'credits'}
+                onBack={() => navigate(FETCH_PROFILE_PATH)}
+              />
+            )}
+          </Suspense>
+        )
+      }
+
       return (
         <FetchBootstrappingProvider value={homeBootstrapOpen}>
           <Suspense
@@ -563,7 +644,7 @@ function App() {
         >
           <DropsCreatorSetupView
             onDone={() => {
-              navigate(FETCH_APP_PATH, { replace: true })
+              navigate(FETCH_PROFILE_PATH, { replace: true })
               setPhase('home')
             }}
           />

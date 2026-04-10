@@ -1,6 +1,6 @@
 import type { SupabaseClient, User } from '@supabase/supabase-js'
 import { needsDropsCreatorOnboarding } from './drops/fetchDropsCreatorOnboarding'
-import { FETCH_APP_PATH } from './fetchRoutes'
+import { FETCH_APP_PATH, FETCH_PROFILE_PATH } from './fetchRoutes'
 import { refreshSessionFromSupabase, seedSessionCacheFromSupabaseUser } from './fetchUserSession'
 import { getSupabaseBrowserClient } from './supabase/client'
 import { ensureUserProfile } from './supabase/profiles'
@@ -45,8 +45,11 @@ export async function handlePostAuthUser(authUser: User, ctx: HandlePostAuthCont
 
   seedSessionCacheFromSupabaseUser(authUser)
 
-  let path: string = FETCH_APP_PATH
+  console.log('[PROFILE] handlePostAuthUser: ensureUserProfile (before route)')
+  await ensureUserProfile(authUser)
+
   const drops = needsDropsCreatorOnboarding()
+  const path: string = drops ? FETCH_APP_PATH : FETCH_PROFILE_PATH
 
   const routeKey = `${authUser.id}|${path}|${drops ? 'drops' : 'main'}`
   if (ctx.lastRouteKeyRef.current !== routeKey) {
@@ -62,9 +65,6 @@ export async function handlePostAuthUser(authUser: User, ctx: HandlePostAuthCont
   void (async () => {
     await waitForSessionHydration(sb, authUser.id)
     seedSessionCacheFromSupabaseUser(authUser)
-    console.log('[PROFILE] handlePostAuthUser: ensureUserProfile (background)')
-    const profile = await ensureUserProfile(authUser)
-    if (!profile) console.error('[PROFILE] handlePostAuthUser: profile missing after ensure')
     console.log('[AUTH] handlePostAuthUser: refreshSessionFromSupabase (background)')
     await refreshSessionFromSupabase()
   })().catch((e) => console.warn('[AUTH] handlePostAuthUser background failed', e))

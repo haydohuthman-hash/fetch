@@ -207,15 +207,17 @@ async function refreshSessionFromSupabaseBody(): Promise<FetchUserRecord | null>
   return row
 }
 
-export function signUpUser(_input: {
+export function signUpUser(input: {
   email: string
   displayName: string
   phone?: string
 }): { ok: true } | { ok: false; error: string } {
+  void input
   return { ok: false, error: 'Use Supabase auth sign-up flow.' }
 }
 
-export function signInUser(_emailRaw: string): { ok: true } | { ok: false; error: string } {
+export function signInUser(emailRaw: string): { ok: true } | { ok: false; error: string } {
+  void emailRaw
   return { ok: false, error: 'Use Supabase auth sign-in flow.' }
 }
 

@@ -102,7 +102,8 @@ export function PlacesAddressAutocomplete({
   const [focused, setFocused] = useState(false)
   const [predictions, setPredictions] = useState<google.maps.places.AutocompletePrediction[]>([])
   const [activeIndex, setActiveIndex] = useState(-1)
-  const [, setPortalTick] = useState(0)
+  const [portalTick, setPortalTick] = useState(0)
+  const [portalHostEl, setPortalHostEl] = useState<HTMLElement | null>(null)
 
   useEffect(() => {
     onResolvedRef.current = onResolved
@@ -150,6 +151,17 @@ export function PlacesAddressAutocomplete({
   useLayoutEffect(() => {
     if (predictions.length > 0 && focused) bumpPortal()
   }, [predictions.length, focused, bumpPortal])
+
+  const suggestionsOpen = focused && predictions.length > 0 && !disabled
+
+  useLayoutEffect(() => {
+    if (!suggestionsOpen) {
+      queueMicrotask(() => setPortalHostEl(null))
+      return
+    }
+    const el = suggestionsMountRef?.current ?? null
+    queueMicrotask(() => setPortalHostEl(el))
+  }, [suggestionsOpen, suggestionsMountRef, portalTick])
 
   const flushPredictions = useCallback((raw: string) => {
     const line = raw.trim()
@@ -242,8 +254,6 @@ export function PlacesAddressAutocomplete({
     [field, newSessionToken],
   )
 
-  const suggestionsOpen = focused && predictions.length > 0 && !disabled
-
   useEffect(() => {
     onSuggestionsOpenChangeRef.current?.(suggestionsOpen)
   }, [suggestionsOpen])
@@ -295,44 +305,40 @@ export function PlacesAddressAutocomplete({
     [predictions, activeIndex, applyPrediction],
   )
 
-  const mountEl = suggestionsMountRef?.current ?? null
-  const portalContent =
-    mountEl && suggestionsOpen ? (
-      <div
-        className="fetch-places-suggestions"
-        role="listbox"
-        aria-label="Address suggestions"
-      >
-        {predictions.map((p, i) => {
-          const sec = secondaryLine(p)
-          const active = i === activeIndex
-          return (
-            <button
-              key={p.place_id}
-              type="button"
-              role="option"
-              aria-selected={active}
-              id={`fetch-addr-sug-${field}-${i}`}
-              className={[
-                'fetch-places-suggestions__item',
-                active ? 'fetch-places-suggestions__item--active' : '',
-              ]
-                .filter(Boolean)
-                .join(' ')}
-              onMouseDown={(ev) => ev.preventDefault()}
-              onClick={() => applyPrediction(p)}
-            >
-              <span className="fetch-places-suggestions__main">
-                {p.structured_formatting.main_text}
-              </span>
-              {sec ? (
-                <span className="fetch-places-suggestions__secondary">{sec}</span>
-              ) : null}
-            </button>
-          )
-        })}
-      </div>
-    ) : null
+  const portalInner = suggestionsOpen ? (
+    <div
+      className="fetch-places-suggestions"
+      role="listbox"
+      aria-label="Address suggestions"
+    >
+      {predictions.map((p, i) => {
+        const sec = secondaryLine(p)
+        const active = i === activeIndex
+        return (
+          <button
+            key={p.place_id}
+            type="button"
+            role="option"
+            aria-selected={active}
+            id={`fetch-addr-sug-${field}-${i}`}
+            className={[
+              'fetch-places-suggestions__item',
+              active ? 'fetch-places-suggestions__item--active' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
+            onMouseDown={(ev) => ev.preventDefault()}
+            onClick={() => applyPrediction(p)}
+          >
+            <span className="fetch-places-suggestions__main">
+              {p.structured_formatting.main_text}
+            </span>
+            {sec ? <span className="fetch-places-suggestions__secondary">{sec}</span> : null}
+          </button>
+        )
+      })}
+    </div>
+  ) : null
 
   const input = (
     <>
@@ -358,7 +364,7 @@ export function PlacesAddressAutocomplete({
         onChange={onInputChange}
         onKeyDown={onInputKeyDown}
       />
-      {mountEl && portalContent ? createPortal(portalContent, mountEl) : null}
+      {portalHostEl && portalInner ? createPortal(portalInner, portalHostEl) : null}
     </>
   )
 

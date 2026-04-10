@@ -53,11 +53,11 @@ export default function DropsCreatorSetupView({ onDone }: DropsCreatorSetupViewP
 
   useEffect(() => {
     if (!avatarFile) {
-      setAvatarPreviewUrl('')
+      queueMicrotask(() => setAvatarPreviewUrl(''))
       return
     }
     const blob = URL.createObjectURL(avatarFile)
-    setAvatarPreviewUrl(blob)
+    queueMicrotask(() => setAvatarPreviewUrl(blob))
     return () => URL.revokeObjectURL(blob)
   }, [avatarFile])
 

@@ -6,6 +6,9 @@ const LOG = '[PROFILE]'
 const PROFILE_SELECT =
   'id,username,avatar_url,created_at,email,full_name,onboarding_complete' as const
 
+const PROFILE_SELECT_EXTENDED =
+  'id,username,avatar_url,created_at,email,full_name,onboarding_complete,bio,location_label,phone,seller_rating,followers_count,following_count,credits_balance_cents' as const
+
 export type SupabaseProfile = {
   id: string
   username: string | null
@@ -15,6 +18,13 @@ export type SupabaseProfile = {
   full_name?: string | null
   /** When missing (legacy DB), treated as complete so existing users are not blocked. */
   onboarding_complete?: boolean | null
+  bio?: string | null
+  location_label?: string | null
+  phone?: string | null
+  seller_rating?: number | null
+  followers_count?: number | null
+  following_count?: number | null
+  credits_balance_cents?: number | null
 }
 
 function normEmail(email: string): string {
@@ -221,15 +231,19 @@ export async function ensureProfile(user: User | null | undefined): Promise<void
 }
 
 async function fetchProfileRow(sb: SupabaseClient, uid: string): Promise<SupabaseProfile | null> {
-  const { data, error } = await sb.from('profiles').select(PROFILE_SELECT).eq('id', uid).maybeSingle()
+  const { data, error } = await sb.from('profiles').select(PROFILE_SELECT_EXTENDED).eq('id', uid).maybeSingle()
   if (error) {
-    const { data: legacy, error: e2 } = await sb
-      .from('profiles')
-      .select('id,username,avatar_url,created_at')
-      .eq('id', uid)
-      .maybeSingle()
-    if (e2) throw error
-    return legacy as SupabaseProfile | null
+    const { data: mid, error: e2 } = await sb.from('profiles').select(PROFILE_SELECT).eq('id', uid).maybeSingle()
+    if (e2) {
+      const { data: legacy, error: e3 } = await sb
+        .from('profiles')
+        .select('id,username,avatar_url,created_at')
+        .eq('id', uid)
+        .maybeSingle()
+      if (e3) throw error
+      return legacy as SupabaseProfile | null
+    }
+    return mid as SupabaseProfile | null
   }
   return data as SupabaseProfile | null
 }
@@ -270,6 +284,13 @@ export async function ensureUserProfile(user: User | null | undefined): Promise<
       email: email || null,
       full_name: autoDisplayName,
       onboarding_complete: true,
+      bio: null as string | null,
+      location_label: null as string | null,
+      phone: null as string | null,
+      seller_rating: 5,
+      followers_count: 0,
+      following_count: 0,
+      credits_balance_cents: 0,
     }
     console.log('[PROFILE] inserting profile row', { userId: uid })
     let insErr = (await sb.from('profiles').insert(rich as never)).error
@@ -305,7 +326,7 @@ export async function ensureUserProfile(user: User | null | undefined): Promise<
       .from('profiles')
       .update(body as never)
       .eq('id', uid)
-      .select(PROFILE_SELECT)
+      .select(PROFILE_SELECT_EXTENDED)
       .single()
     if (!fixErr && fixed) {
       row = fixed as SupabaseProfile
@@ -333,7 +354,7 @@ export async function ensureUserProfile(user: User | null | undefined): Promise<
       .from('profiles')
       .update(patch as never)
       .eq('id', uid)
-      .select(PROFILE_SELECT)
+      .select(PROFILE_SELECT_EXTENDED)
       .single()
     if (!upErr && updated) {
       row = updated as SupabaseProfile
@@ -377,7 +398,7 @@ export async function completeFetchProfileOnboarding(input: {
     .from('profiles')
     .update(body as never)
     .eq('id', uid)
-    .select(PROFILE_SELECT)
+    .select(PROFILE_SELECT_EXTENDED)
     .single()
   let data: SupabaseProfile | null = (full.data as SupabaseProfile | null) ?? null
   if (full.error) {
@@ -486,6 +507,9 @@ export async function updateMySupabaseProfile(patch: {
   username?: string
   avatar_url?: string | null
   full_name?: string | null
+  bio?: string | null
+  location_label?: string | null
+  phone?: string | null
 }): Promise<SupabaseProfile> {
   const sb = requireSupabaseBrowserClient()
   const user = await resolveAuthUser(sb)
@@ -495,14 +519,23 @@ export async function updateMySupabaseProfile(patch: {
   await ensureUserProfile(user)
 
   const next: Record<string, string | null> = {}
-  if (patch.username !== undefined) next.username = patch.username.trim()
+  if (patch.username !== undefined) {
+    const u = patch.username.trim()
+    const verr = validateUsername(u)
+    if (verr) throw new Error(verr)
+    next.username = u
+  }
   if (patch.avatar_url !== undefined) next.avatar_url = patch.avatar_url
   if (patch.full_name !== undefined) next.full_name = patch.full_name?.trim() || null
+  if (patch.bio !== undefined) next.bio = patch.bio?.trim() ? patch.bio.trim().slice(0, 500) : null
+  if (patch.location_label !== undefined)
+    next.location_label = patch.location_label?.trim() ? patch.location_label.trim().slice(0, 120) : null
+  if (patch.phone !== undefined) next.phone = patch.phone?.trim() ? patch.phone.trim().slice(0, 32) : null
   const { data, error } = await sb
     .from('profiles')
     .update(next)
     .eq('id', uid)
-    .select(PROFILE_SELECT)
+    .select(PROFILE_SELECT_EXTENDED)
     .single()
   if (error) {
     const { data: d2, error: e2 } = await sb
