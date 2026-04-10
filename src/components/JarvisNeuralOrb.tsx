@@ -1038,19 +1038,6 @@ export function JarvisNeuralOrb({
           ctx.arc(cx, cy, R * 0.9, 0, Math.PI * 2)
           ctx.fill()
           ctx.globalCompositeOperation = 'source-over'
-
-          /* Flatlay: hard-edged interior shadow — bottom, biased to the right */
-          ctx.save()
-          ctx.beginPath()
-          ctx.moveTo(cx - R * 0.42, cy + R * 0.36)
-          ctx.lineTo(cx + R * 0.88, cy + R * 0.2)
-          ctx.lineTo(cx + R * 0.99, cy + R * 0.97)
-          ctx.lineTo(cx - R * 0.91, cy + R * 0.99)
-          ctx.closePath()
-          ctx.fillStyle = 'rgba(48, 34, 24, 0.36)'
-          ctx.globalCompositeOperation = 'multiply'
-          ctx.fill()
-          ctx.restore()
         } else {
           /* Deep matte sphere — dark center, slightly lighter edges for depth */
           const core = ctx.createRadialGradient(
@@ -1090,19 +1077,6 @@ export function JarvisNeuralOrb({
           ctx.arc(cx, cy, R * 0.88, 0, Math.PI * 2)
           ctx.fill()
           ctx.globalCompositeOperation = 'source-over'
-
-          /* Night: subtle flatlay interior shadow (same bias as day, lower contrast) */
-          ctx.save()
-          ctx.beginPath()
-          ctx.moveTo(cx - R * 0.42, cy + R * 0.38)
-          ctx.lineTo(cx + R * 0.85, cy + R * 0.24)
-          ctx.lineTo(cx + R * 0.98, cy + R * 0.96)
-          ctx.lineTo(cx - R * 0.9, cy + R * 0.98)
-          ctx.closePath()
-          ctx.fillStyle = 'rgba(0, 0, 0, 0.38)'
-          ctx.globalCompositeOperation = 'multiply'
-          ctx.fill()
-          ctx.restore()
         }
 
         if (homeMagicalDock) {

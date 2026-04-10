@@ -86,8 +86,6 @@ export type FetchHomeStepOneProps = {
   /** Services booking sheet: collapse top map inset + hide system header (see `mapBackBubble`). */
   mapBookingTopMinimal?: boolean
   mapBackBubble?: MapBackBubbleProps | null
-  /** Maps tab: square top edge on map viewport (no rounded card lip). */
-  squareMapTopCorners?: boolean
   /** Immersive SVG demo when region-locked and no Google Maps API key. */
   mapRegionLockedShowcase?: boolean
   /** Status pill on the real map during SEQ lock demo (requires Maps key). */
@@ -136,7 +134,6 @@ function FetchHomeStepOneInner({
   mapExploreMinimalChrome = false,
   mapBookingTopMinimal = false,
   mapBackBubble = null,
-  squareMapTopCorners = false,
   mapRegionLockedShowcase = false,
   mapRegionLockedStatusLine = null,
   mapViewportOverlay = null,
@@ -172,22 +169,30 @@ function FetchHomeStepOneInner({
 
   const lightMapShell = theme === 'light'
   const mapTopTreatAsMinimal = mapExploreMinimalChrome || mapBookingTopMinimal
-  const mapViewportSquareTop = mapTopTreatAsMinimal || squareMapTopCorners
   const showMapTimeWeatherOverlay =
     mapOverlayContext === 'driver' || !mapExploreMinimalChrome || mapBookingTopMinimal
-  const hideMapSystemHeader = mapOverlayContext === 'home' && mapBookingTopMinimal
+  const homeCustomerMap = mapOverlayContext === 'home'
+  /** Home map: hide fixed white bar (logo / menu / help); search stays as floating control. */
+  const hideMapSystemHeader = homeCustomerMap
 
-  const mapHeaderChromeH = mapTopTreatAsMinimal
-    ? 'env(safe-area-inset-top, 0px)'
-    : 'calc(env(safe-area-inset-top, 0px) + 3.5rem)'
+  const mapHeaderChromeH =
+    mapTopTreatAsMinimal || homeCustomerMap
+      ? 'env(safe-area-inset-top, 0px)'
+      : 'calc(env(safe-area-inset-top, 0px) + 3.5rem)'
   /** Nav / ETA strip: clears floating search when present (search sits on map below header). */
   const mapNavChromeTop = mapTopTreatAsMinimal
     ? 'max(0.375rem, env(safe-area-inset-top, 0px))'
-    : mapHeaderEntryActive
+    : homeCustomerMap && mapHeaderEntryActive
       ? mapHeaderEntryInline
-        ? 'calc(env(safe-area-inset-top, 0px) + 3.5rem + 0.4rem + 1.35rem + 0.35rem)'
-        : 'calc(env(safe-area-inset-top, 0px) + 3.5rem + 0.45rem + 2.875rem + 0.5rem)'
-      : 'calc(env(safe-area-inset-top, 0px) + 3.5rem + 0.375rem)'
+        ? 'calc(env(safe-area-inset-top, 0px) + 0.4rem + 1.35rem + 0.35rem)'
+        : 'calc(env(safe-area-inset-top, 0px) + 0.45rem + 2.875rem + 0.5rem)'
+      : mapHeaderEntryActive
+        ? mapHeaderEntryInline
+          ? 'calc(env(safe-area-inset-top, 0px) + 3.5rem + 0.4rem + 1.35rem + 0.35rem)'
+          : 'calc(env(safe-area-inset-top, 0px) + 3.5rem + 0.45rem + 2.875rem + 0.5rem)'
+        : homeCustomerMap
+          ? 'calc(env(safe-area-inset-top, 0px) + 0.375rem)'
+          : 'calc(env(safe-area-inset-top, 0px) + 3.5rem + 0.375rem)'
 
   return (
     <div
@@ -217,22 +222,17 @@ function FetchHomeStepOneInner({
       >
         <div
           className={[
-            'fetch-home-map-viewport relative z-0 mt-[var(--fetch-map-header-h)] min-h-0 flex-1',
-            mapViewportSquareTop
-              ? 'overflow-hidden rounded-t-none bg-white shadow-none ring-0'
-              : mapboxToken
-                ? lightMapShell
-                  ? 'overflow-hidden rounded-t-[1.375rem] bg-white shadow-[0_-4px_28px_rgba(15,23,42,0.05)] ring-1 ring-white'
-                  : 'overflow-hidden rounded-t-[1.375rem] bg-transparent shadow-none ring-0'
-                : 'overflow-hidden rounded-t-[1.375rem] bg-white shadow-[0_-4px_28px_rgba(15,23,42,0.05)] ring-1 ring-white',
+            'fetch-home-map-viewport relative z-0 mt-[var(--fetch-map-header-h)] min-h-0 flex-1 overflow-hidden rounded-t-none',
+            mapboxToken
+              ? lightMapShell
+                ? 'bg-white shadow-none ring-0'
+                : 'bg-transparent shadow-none ring-0'
+              : 'bg-white shadow-none ring-0',
           ].join(' ')}
           role="presentation"
         >
           <div
-            className={[
-              'absolute inset-0 z-0 min-h-full w-full overflow-hidden',
-              mapViewportSquareTop ? 'rounded-t-none' : 'rounded-t-[1.375rem]',
-            ].join(' ')}
+            className="absolute inset-0 z-0 min-h-full w-full overflow-hidden rounded-t-none"
             role="presentation"
             aria-label="Job map preview"
           >
@@ -330,16 +330,13 @@ function FetchHomeStepOneInner({
             />
           ) : null}
           {mapRegionLockedShowcase ? (
-            <SeqLockMapShowcase
-              variant={lightMapShell ? 'light' : 'dark'}
-              className={mapViewportSquareTop ? 'rounded-t-none' : 'rounded-t-[1.375rem]'}
-            />
+            <SeqLockMapShowcase variant={lightMapShell ? 'light' : 'dark'} className="rounded-t-none" />
           ) : null}
           {mapRegionLockedStatusLine ? (
             <SeqLockMapStatusHud
               line={mapRegionLockedStatusLine}
               variant={lightMapShell ? 'light' : 'dark'}
-              className={mapViewportSquareTop ? 'rounded-t-none' : 'rounded-t-[1.375rem]'}
+              className="rounded-t-none"
             />
           ) : null}
         </div>

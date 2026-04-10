@@ -45,9 +45,6 @@ export async function handlePostAuthUser(authUser: User, ctx: HandlePostAuthCont
 
   seedSessionCacheFromSupabaseUser(authUser)
 
-  console.log('[PROFILE] handlePostAuthUser: ensureUserProfile (before route)')
-  await ensureUserProfile(authUser)
-
   const drops = needsDropsCreatorOnboarding()
   const path: string = drops ? FETCH_APP_PATH : FETCH_PROFILE_PATH
 
@@ -63,6 +60,10 @@ export async function handlePostAuthUser(authUser: User, ctx: HandlePostAuthCont
   }
 
   void (async () => {
+    console.log('[PROFILE] handlePostAuthUser: ensureUserProfile (background)')
+    await ensureUserProfile(authUser).catch((e) =>
+      console.warn('[PROFILE] ensureUserProfile failed (background)', e),
+    )
     await waitForSessionHydration(sb, authUser.id)
     seedSessionCacheFromSupabaseUser(authUser)
     console.log('[AUTH] handlePostAuthUser: refreshSessionFromSupabase (background)')

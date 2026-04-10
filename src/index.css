@@ -7054,7 +7054,8 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 
 .fetch-home-vision .fetch-home-booking-sheet[data-surface='intent'] .fetch-home-booking-sheet__scroll {
   padding-bottom: 0.55rem;
-  scroll-padding-top: 0.5rem;
+  /* Keep FETCH IT / LIST IT clear of the sheet handle + top chrome on small viewports */
+  scroll-padding-top: max(0.85rem, env(safe-area-inset-top, 0px));
 }
 
 .fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-booking-sheet__scroll {
@@ -7083,9 +7084,9 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 .fetch-home-booking-sheet[data-surface='intent'][data-snap='compact']
   .fetch-home-sheet-inner:not(:has(.fetch-home-booking-step--stack))::before {
   content: '';
-  flex: 0 0 4dvh;
-  min-height: 4dvh;
-  max-height: 4dvh;
+  flex: 0 0 7dvh;
+  min-height: 7dvh;
+  max-height: 7dvh;
   width: 100%;
   flex-shrink: 0;
   pointer-events: none;
@@ -7107,7 +7108,7 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   display: flex;
   flex-direction: column;
   gap: 0.68rem;
-  padding-top: 0.06rem;
+  padding-top: max(0.45rem, env(safe-area-inset-top, 0px));
 }
 
 .fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-landing-section--intent {

@@ -9,6 +9,7 @@ import {
   type CSSProperties,
   type RefObject,
 } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   FetchHomeBookingSheet,
   type HomeBookingSheetSnap,
@@ -185,7 +186,8 @@ import { firstNameFromDisplay, loadSession } from '../lib/fetchUserSession'
 import { appendHomeActivity, appendHomeAlert } from '../lib/homeActivityFeed'
 import { HARDWARE_PRODUCTS } from '../lib/hardwareCatalog'
 import { createMessageThread, useMessagesUnreadPolling } from '../lib/messagesApi'
-import type { PeerListing } from '../lib/listingsApi'
+import { fetchListing, listingImageAbsoluteUrl, type PeerListing } from '../lib/listingsApi'
+import { FETCH_MARKETPLACE_LIST_PATH } from '../lib/fetchRoutes'
 import { loadSavedAddresses, type SavedAddress } from '../lib/savedAddresses'
 import {
   distancePointToPathMeters,
@@ -481,6 +483,7 @@ export default function HomeView({
     voiceHoldPulseNonce,
     stopAssistantPlayback,
   } = useFetchVoice()
+  const navigate = useNavigate()
   const [bookingState, setBookingState] = useState<BookingState>(createInitialBookingState)
   const [mapsJsReady, setMapsJsReady] = useState(false)
   const [orbAwakened, setOrbAwakened] = useState(false)
@@ -626,6 +629,13 @@ export default function HomeView({
   const [reminderLineEarsArmed, setReminderLineEarsArmed] = useState(false)
   const [wasSleepy, setWasSleepy] = useState(false)
   const [scanFiles, setScanFiles] = useState<File[]>([])
+  /** Drops reel → Fetch it (peer listing): in-sheet load + vision scan before address step. */
+  const [reelFetchItDelivery, setReelFetchItDelivery] = useState<{
+    listingId: string
+    phase: 'loading' | 'scanning' | 'done'
+    title?: string
+    imageUrl?: string
+  } | null>(null)
   const [scanThumbs, setScanThumbs] = useState<string[]>([])
   const [scanning, setScanning] = useState(false)
   type OrbChatTurn = { id: string; role: 'user' | 'assistant'; text: string }
@@ -801,7 +811,6 @@ export default function HomeView({
   const reminderLineSpeechHeardRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const intentCameraInputRef = useRef<HTMLInputElement>(null)
-  const intentGalleryInputRef = useRef<HTMLInputElement>(null)
   const intentScanFileCountRef = useRef(0)
   const prevIntentAiScannerOverlayRef = useRef(false)
   const mapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ?? ''
@@ -2045,11 +2054,6 @@ export default function HomeView({
     requestAnimationFrame(() => intentCameraInputRef.current?.click())
   }, [bumpInteraction])
 
-  const openIntentGalleryPicker = useCallback(() => {
-    bumpInteraction()
-    requestAnimationFrame(() => intentGalleryInputRef.current?.click())
-  }, [bumpInteraction])
-
   const onIntentFetchIt = useCallback(() => {
     bumpInteraction()
     const junkOpt = LANDING_PRIMARY_SERVICES.find((o) => o.jobType === 'junkRemoval')
@@ -2210,6 +2214,7 @@ export default function HomeView({
     setRatingSubmitError(null)
     lastJobCompletionSpokenBookingIdRef.current = null
     setChatBookingHintSource(null)
+    setReelFetchItDelivery(null)
     bumpInteraction()
   }, [bumpInteraction, clearDriverFlowTimers])
 
@@ -3001,11 +3006,20 @@ export default function HomeView({
         setDropsProductHandoff({ productId: commerce.productId, mode: mode === 'bid' ? 'sheet' : mode })
         onHomeShellTabChange('marketplace')
       } else if (commerce.kind === 'buy_sell_listing') {
+        if (action === 'fetch_it') {
+          bumpInteraction()
+          setHomeShellTab('services')
+          if (!chatNavRoute) setHomeMapExploreMode(false)
+          setSheetSnap('half')
+          setReelFetchItDelivery({ listingId: commerce.listingId, phase: 'loading' })
+          commitJobTypeSelection('junkRemoval')
+          return
+        }
         setDropsListingHandoff({ listingId: commerce.listingId, mode })
         onHomeShellTabChange('marketplace')
       }
     },
-    [appendHomeAlert, bumpInteraction, onHomeShellTabChange],
+    [appendHomeAlert, bumpInteraction, chatNavRoute, commitJobTypeSelection, onHomeShellTabChange],
   )
 
   const clearDropsProductHandoff = useCallback(() => setDropsProductHandoff(null), [])
@@ -4748,6 +4762,106 @@ export default function HomeView({
     }
   }, [scanFiles, scanning, serviceHint, speakLine, playUiEvent])
 
+  const reelFetchLoadGenRef = useRef(0)
+  const reelFetchScanGenRef = useRef(0)
+
+  useEffect(() => {
+    const job = reelFetchItDelivery
+    if (!job || job.phase !== 'loading') return
+    const gen = (reelFetchLoadGenRef.current += 1)
+    let cancelled = false
+    void (async () => {
+      try {
+        const listing = await fetchListing(job.listingId)
+        if (cancelled || gen !== reelFetchLoadGenRef.current) return
+        const raw = listing.images?.[0]?.url?.trim()
+        if (!raw) {
+          appendHomeAlert({
+            title: 'Fetch delivery',
+            body: 'This listing has no photo to scan. Enter pickup and drop-off below.',
+          })
+          setReelFetchItDelivery((p) => (p?.listingId === job.listingId ? { ...p, phase: 'done' } : p))
+          return
+        }
+        const abs = listingImageAbsoluteUrl(raw)
+        const res = await fetch(abs, { credentials: 'include', mode: 'cors' })
+        if (!res.ok) throw new Error(`Photo download failed (${res.status})`)
+        const blob = await res.blob()
+        if (cancelled || gen !== reelFetchLoadGenRef.current) return
+        const file = new File([blob], 'listing-photo.jpg', { type: blob.type || 'image/jpeg' })
+        setScanFiles([file])
+        setReelFetchItDelivery({
+          listingId: job.listingId,
+          phase: 'scanning',
+          title: listing.title,
+          imageUrl: abs,
+        })
+      } catch (e) {
+        if (cancelled || gen !== reelFetchLoadGenRef.current) return
+        appendHomeAlert({
+          title: 'Could not load listing',
+          body: e instanceof Error ? e.message : 'Try again from the reel.',
+        })
+        setReelFetchItDelivery((p) => (p?.listingId === job.listingId ? { ...p, phase: 'done' } : p))
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [reelFetchItDelivery])
+
+  useEffect(() => {
+    const job = reelFetchItDelivery
+    if (!job || job.phase !== 'scanning') return
+    if (scanFiles.length === 0) return
+    const gen = (reelFetchScanGenRef.current += 1)
+    let cancelled = false
+    void (async () => {
+      setScanning(true)
+      const perfRunId = fetchPerfIsEnabled() ? createPerfRunId('reel_fetch_scan') : undefined
+      if (perfRunId) fetchPerfMark(perfRunId, '2_step_visible', { surface: 'reel_listing_scan' })
+      try {
+        const result = await scanBookingPhotos(scanFiles, 'junk', { perfRunId })
+        if (cancelled || gen !== reelFetchScanGenRef.current) return
+        const summaryText = scannerSummaryLine(result.detectedItems)
+        const voiceLine = result.detailedDescription || summaryText
+        setBookingState((prev) => {
+          const withScan: BookingState = {
+            ...prev,
+            scan: { ...prev.scan, result, confidence: result.confidence },
+          }
+          return handleUserInput({ text: summaryText, source: 'scan' }, withScan).bookingState
+        })
+        playUiEvent('success')
+        void speakLine(voiceLine, {
+          debounceKey: 'reel_fetch_scan',
+          debounceMs: 0,
+          withVoiceHold: true,
+          perfRunId,
+        })
+        setReelFetchItDelivery((p) =>
+          p?.listingId === job.listingId && p.phase === 'scanning' ? { ...p, phase: 'done' } : p,
+        )
+      } catch {
+        if (cancelled || gen !== reelFetchScanGenRef.current) return
+        void speakLine("Couldn't scan the listing photo. You can still enter addresses below.", {
+          debounceKey: 'reel_fetch_scan_err',
+          debounceMs: 0,
+          withVoiceHold: true,
+          perfRunId,
+        })
+        setReelFetchItDelivery((p) =>
+          p?.listingId === job.listingId && p.phase === 'scanning' ? { ...p, phase: 'done' } : p,
+        )
+      } finally {
+        if (!cancelled && gen === reelFetchScanGenRef.current) setScanning(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [reelFetchItDelivery, scanFiles, playUiEvent, speakLine])
+
   useEffect(() => {
     if (!intentAiScannerMapOverlay) {
       prevIntentAiScannerOverlayRef.current = false
@@ -5063,7 +5177,6 @@ export default function HomeView({
           mapExploreMinimalChrome={mapExploreMinimalChrome}
           mapBookingTopMinimal={bookingSheetFocusMode}
           mapBackBubble={mapBackBubbleProps}
-          squareMapTopCorners={false}
           mapRegionLockedShowcase={false}
           mapRegionLockedStatusLine={null}
         />
@@ -5438,14 +5551,6 @@ export default function HomeView({
                       onChange={handlePhotoAdd}
                       className="hidden"
                     />
-                    <input
-                      ref={intentGalleryInputRef}
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      onChange={handlePhotoAdd}
-                      className="hidden"
-                    />
                     <button
                       type="button"
                       disabled={scanning}
@@ -5457,7 +5562,10 @@ export default function HomeView({
                     <button
                       type="button"
                       disabled={scanning}
-                      onClick={openIntentGalleryPicker}
+                      onClick={() => {
+                        bumpInteraction()
+                        navigate(FETCH_MARKETPLACE_LIST_PATH)
+                      }}
                       className="w-full min-h-[3.15rem] rounded-full bg-emerald-800 py-3.5 text-center text-[15px] font-bold uppercase tracking-[0.08em] text-white shadow-[0_1px_0_#065f46,0_4px_14px_rgba(6,95,70,0.35)] transition-transform hover:bg-emerald-700 active:scale-[0.99] disabled:opacity-55 dark:bg-emerald-900 dark:hover:bg-emerald-800"
                     >
                       LIST IT
@@ -5524,6 +5632,38 @@ export default function HomeView({
                   .filter(Boolean)
                   .join(' ')}
               >
+              {reelFetchItDelivery && reelFetchItDelivery.phase !== 'done' ? (
+                <div className="flex flex-col gap-3 px-0.5 py-1">
+                  {reelFetchItDelivery.imageUrl && reelFetchItDelivery.phase === 'scanning' ? (
+                    <div className="overflow-hidden rounded-2xl border border-zinc-200/90 bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900/60">
+                      <img
+                        src={reelFetchItDelivery.imageUrl}
+                        alt=""
+                        className="mx-auto max-h-[11rem] w-full object-contain"
+                      />
+                    </div>
+                  ) : null}
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-200/90 dark:bg-zinc-700/90">
+                    <div
+                      className="h-full rounded-full bg-violet-600 motion-safe:transition-[width] motion-safe:duration-700 motion-safe:ease-out dark:bg-violet-500"
+                      style={{
+                        width: reelFetchItDelivery.phase === 'loading' ? '36%' : '94%',
+                      }}
+                    />
+                  </div>
+                  <p className="text-center text-[13px] font-semibold text-zinc-800 dark:text-zinc-100">
+                    {reelFetchItDelivery.phase === 'loading'
+                      ? 'Loading listing…'
+                      : 'Scanning listing photo'}
+                  </p>
+                  {reelFetchItDelivery.title ? (
+                    <p className="text-center text-[12px] leading-snug text-fetch-muted line-clamp-2">
+                      {reelFetchItDelivery.title}
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <>
               {mapsApiKey ? (
                 tripSheetMapFirstHeader ? (
                   <>
@@ -5656,6 +5796,8 @@ export default function HomeView({
                     'Suggestions appear under the field as you type — or tap a saved place.'}
                 </p>
               ) : null}
+                </>
+              )}
               </section>
             </TripSheetCard>
           ) : null}

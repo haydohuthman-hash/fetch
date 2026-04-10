@@ -144,7 +144,7 @@ export function GoogleMapLayer({
 
   return (
     <GoogleMap
-      mapContainerClassName="absolute inset-0 h-full w-full overflow-hidden rounded-t-[1.375rem]"
+      mapContainerClassName="absolute inset-0 h-full w-full overflow-hidden rounded-t-none"
       center={BRISBANE_CENTER}
       zoom={11}
       onLoad={onLoad}

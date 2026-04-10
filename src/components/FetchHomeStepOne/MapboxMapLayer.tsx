@@ -258,7 +258,7 @@ export function MapboxMapLayer({
   return (
     <div
       ref={rootRef}
-      className="pointer-events-auto z-0 box-border min-h-[320px] min-w-0 overflow-hidden rounded-t-[1.375rem]"
+      className="pointer-events-auto z-0 box-border min-h-[320px] min-w-0 overflow-hidden rounded-t-none"
       style={{
         position: 'absolute',
         inset: 0,

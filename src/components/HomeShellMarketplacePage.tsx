@@ -1484,13 +1484,13 @@ function HomeShellMarketplacePageInner({
                     onClick={closePeerListingSheet}
                   />
                   <div
-                    className="relative z-[1] flex max-h-[min(92dvh,40rem)] flex-col rounded-t-[1.25rem] border border-zinc-200/90 bg-white shadow-[0_-8px_40px_rgba(15,23,42,0.12)]"
+                    className="relative z-[1] flex max-h-[min(92dvh,40rem)] min-h-0 flex-col rounded-t-[1.25rem] border border-zinc-200/90 bg-white shadow-[0_-8px_40px_rgba(15,23,42,0.12)]"
                     role="dialog"
                     aria-modal="true"
                     aria-labelledby="fetch-marketplace-peer-sheet-title"
                   >
                     <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-zinc-200" aria-hidden />
-                    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+                    <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-3 pt-3">
                       {selected.images && selected.images.length > 0 ? (
                         <div className="-mx-1 mb-3 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                           {[...selected.images]
@@ -1609,11 +1609,13 @@ function HomeShellMarketplacePageInner({
                           Message seller
                         </button>
                       ) : null}
+                    </div>
+                    <div className="shrink-0 border-t border-zinc-100 bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
                       {peerBuyErr ? (
-                        <p className="mt-2 text-[12px] text-red-600">{peerBuyErr}</p>
+                        <p className="mb-2 text-[12px] font-medium text-red-600">{peerBuyErr}</p>
                       ) : null}
                       {peerStripeBuy && import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY?.trim() ? (
-                        <div className="mt-4 rounded-xl border border-zinc-900 bg-zinc-950 p-3">
+                        <div className="rounded-xl border border-zinc-900 bg-zinc-950 p-3">
                           <FetchStripePaymentElement
                             publishableKey={import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY.trim()}
                             clientSecret={peerStripeBuy.clientSecret}
@@ -1644,7 +1646,7 @@ function HomeShellMarketplacePageInner({
                         <button
                           type="button"
                           disabled={peerCheckoutBusy || isViewerSeller}
-                          className="mt-4 w-full rounded-xl bg-zinc-900 py-3.5 text-[15px] font-semibold text-white disabled:opacity-50"
+                          className="w-full rounded-xl bg-zinc-900 py-3.5 text-[15px] font-semibold text-white disabled:opacity-50"
                           onClick={() => void startPeerBuy(selected)}
                         >
                           {peerCheckoutBusy ? '…' : 'Buy now'}

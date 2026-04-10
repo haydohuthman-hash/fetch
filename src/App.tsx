@@ -575,9 +575,9 @@ function App() {
                 onAddCredits={() => navigate(FETCH_WALLET_ADD_CREDITS_PATH)}
               />
             ) : pathname === FETCH_PROFILE_EDIT_PATH ? (
-              <FetchProfileEditView onDone={() => navigate(FETCH_PROFILE_PATH)} />
+              <FetchProfileEditView onDone={() => navigate(FETCH_PROFILE_PATH, { replace: true })} />
             ) : pathname === FETCH_MARKETPLACE_LIST_PATH ? (
-              <FetchMarketplaceListingCreateView onDone={() => navigate(FETCH_PROFILE_PATH)} />
+              <FetchMarketplaceListingCreateView onDone={() => navigate(FETCH_PROFILE_PATH, { replace: true })} />
             ) : (
               <FetchWalletPlaceholderView
                 variant={pathname === FETCH_WALLET_CASH_OUT_PATH ? 'cashOut' : 'credits'}

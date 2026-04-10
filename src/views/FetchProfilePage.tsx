@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { loadSession } from '../lib/fetchUserSession'
 import { getMySupabaseProfile } from '../lib/supabase/profiles'
 import { ensureDropProfileForSession, getMyDropProfile } from '../lib/drops/profileStore'
@@ -31,10 +32,14 @@ export default function FetchProfilePage({
   onCashOut,
   onAddCredits,
 }: FetchProfilePageProps) {
+  const location = useLocation()
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [listings, setListings] = useState<PeerListing[]>([])
   const [earnedNetCents, setEarnedNetCents] = useState(0)
+  const [todayNetCents, setTodayNetCents] = useState(0)
   const [creditsCents, setCreditsCents] = useState(0)
+  const [listingSheet, setListingSheet] = useState<PeerListing | null>(null)
   const [displayName, setDisplayName] = useState('')
   const [username, setUsername] = useState('')
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
@@ -46,13 +51,35 @@ export default function FetchProfilePage({
 
   const reload = useCallback(async () => {
     setLoading(true)
+    setLoadError(null)
     try {
       ensureDropProfileForSession()
       const drop = getMyDropProfile()
-      const [p, mine, earn] = await Promise.all([
-        getMySupabaseProfile(),
-        fetchMyListings().catch(() => [] as PeerListing[]),
-        fetchSellerEarnings().catch(() => null),
+      const dayStart = new Date()
+      dayStart.setHours(0, 0, 0, 0)
+      const dayEnd = new Date()
+      dayEnd.setHours(23, 59, 59, 999)
+      const fromMs = dayStart.getTime()
+      const toMs = dayEnd.getTime()
+
+      const [p, mine, earnAll, earnToday] = await Promise.all([
+        getMySupabaseProfile().catch((e) => {
+          console.error('[FetchProfilePage] getMySupabaseProfile failed', e)
+          return null
+        }),
+        fetchMyListings().catch((e) => {
+          console.error('[FetchProfilePage] fetchMyListings failed', e)
+          setLoadError('Could not load your listings. Pull to refresh or try again.')
+          return [] as PeerListing[]
+        }),
+        fetchSellerEarnings().catch((e) => {
+          console.warn('[FetchProfilePage] fetchSellerEarnings (all) failed', e)
+          return null
+        }),
+        fetchSellerEarnings({ from: fromMs, to: toMs }).catch((e) => {
+          console.warn('[FetchProfilePage] fetchSellerEarnings (today) failed', e)
+          return null
+        }),
       ])
       if (p) {
         setDisplayName(
@@ -72,7 +99,11 @@ export default function FetchProfilePage({
       }
       mine.sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt))
       setListings(mine)
-      setEarnedNetCents(earn?.summary?.netCents ?? 0)
+      setEarnedNetCents(earnAll?.summary?.netCents ?? 0)
+      setTodayNetCents(earnToday?.summary?.netCents ?? 0)
+    } catch (e) {
+      console.error('[FetchProfilePage] reload failed', e)
+      setLoadError('Something went wrong loading your profile.')
     } finally {
       setLoading(false)
     }
@@ -80,7 +111,7 @@ export default function FetchProfilePage({
 
   useEffect(() => {
     void reload()
-  }, [reload])
+  }, [reload, location.key])
 
   const initials = useMemo(() => {
     const s = displayName || username || '?'
@@ -174,7 +205,11 @@ export default function FetchProfilePage({
         <section className="mt-6 rounded-3xl border border-emerald-500/20 bg-gradient-to-br from-emerald-900/40 to-zinc-950 p-5 shadow-lg">
           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-200/55">Earnings</p>
           <p className="mt-2 text-3xl font-semibold tracking-tight text-white">{audFromCents(earnedNetCents)}</p>
-          <p className="mt-1 text-[12px] text-emerald-100/50">Total earned (after fees) · Today —</p>
+          <p className="mt-1 text-[12px] text-emerald-100/50">
+            Total earned (after fees)
+            <span className="text-emerald-100/40"> · </span>
+            Today <span className="font-medium text-emerald-100/75">{audFromCents(todayNetCents)}</span>
+          </p>
           <div className="mt-4 grid grid-cols-2 gap-3">
             <button
               type="button"
@@ -209,6 +244,12 @@ export default function FetchProfilePage({
           <span className="text-[12px] text-emerald-100/45">{listings.length} total</span>
         </div>
 
+        {loadError ? (
+          <p className="mt-3 rounded-xl border border-amber-500/25 bg-amber-950/30 px-3 py-2 text-center text-[12px] text-amber-100/90">
+            {loadError}
+          </p>
+        ) : null}
+
         {loading ? (
           <p className="mt-6 text-center text-[13px] text-emerald-100/50">Loading…</p>
         ) : listings.length === 0 ? (
@@ -233,7 +274,7 @@ export default function FetchProfilePage({
                 <li key={l.id}>
                   <button
                     type="button"
-                    onClick={() => onEditListing(l.id)}
+                    onClick={() => setListingSheet(l)}
                     className="flex w-full flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/30 text-left shadow-md active:scale-[0.99]"
                   >
                     <div
@@ -262,6 +303,69 @@ export default function FetchProfilePage({
           </ul>
         )}
       </div>
+
+      {listingSheet ? (
+        <div className="fixed inset-0 z-[60] flex flex-col justify-end" role="dialog" aria-modal="true">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
+            aria-label="Close listing"
+            onClick={() => setListingSheet(null)}
+          />
+          <div className="relative z-[1] max-h-[min(85dvh,32rem)] overflow-y-auto rounded-t-3xl border border-emerald-500/25 border-b-0 bg-gradient-to-b from-zinc-900 to-zinc-950 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5 shadow-[0_-12px_48px_rgba(0,0,0,0.5)]">
+            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-white/15" aria-hidden />
+            {(() => {
+              const img = listingSheet.images?.[0]?.url
+              const thumb = img ? listingImageAbsoluteUrl(img) : ''
+              return thumb ? (
+                <div
+                  className="mb-4 aspect-[16/10] w-full overflow-hidden rounded-2xl bg-zinc-800"
+                  style={{
+                    backgroundImage: `url(${thumb})`,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                  }}
+                />
+              ) : (
+                <div className="mb-4 flex aspect-[16/10] w-full items-center justify-center rounded-2xl bg-zinc-800 text-[12px] text-white/40">
+                  No photo
+                </div>
+              )
+            })()}
+            <h3 className="text-lg font-semibold leading-snug text-white">{listingSheet.title}</h3>
+            <p className="mt-1 text-xl font-bold text-emerald-300">{audFromCents(listingSheet.priceCents)}</p>
+            <p className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-100/45">
+              {listingSheet.status || 'draft'}
+              {listingSheet.locationLabel ? ` · ${listingSheet.locationLabel}` : ''}
+            </p>
+            {listingSheet.description ? (
+              <p className="mt-3 line-clamp-4 text-[13px] leading-relaxed text-emerald-50/75">
+                {listingSheet.description}
+              </p>
+            ) : null}
+            <div className="mt-6 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const id = listingSheet.id
+                  setListingSheet(null)
+                  onEditListing(id)
+                }}
+                className="w-full rounded-2xl bg-emerald-500 py-3.5 text-[14px] font-bold text-emerald-950"
+              >
+                Edit listing
+              </button>
+              <button
+                type="button"
+                onClick={() => setListingSheet(null)}
+                className="w-full rounded-2xl border border-white/12 py-3 text-[14px] font-semibold text-white/85"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

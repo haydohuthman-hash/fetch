@@ -442,7 +442,7 @@ function MapTimeWeatherOverlayInner({
       </div>
       ) : null}
 
-      {mapHeaderAddressEntry && overlayContext === 'home' && !hideSystemHeader ? (
+      {mapHeaderAddressEntry && overlayContext === 'home' ? (
         <div
           className="pointer-events-none fixed left-0 right-0 z-[44] px-4"
           style={{ top: 'calc(var(--fetch-map-header-h) + 0.45rem)' }}

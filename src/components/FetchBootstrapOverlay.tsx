@@ -4,8 +4,8 @@ const MIN_SKELETON_MS = 880
 const MAX_WAIT_MS = 5600
 const EXIT_MS = 420
 
-/** Matches home map header with wordmark + address row (`FetchHomeStepOne`). */
-const MAP_HEADER_H = 'calc(env(safe-area-inset-top, 0px) + 7.5rem)'
+/** Matches home map: safe area + floating search strip only (no wordmark bar). */
+const MAP_HEADER_H = 'calc(env(safe-area-inset-top, 0px) + 3.35rem)'
 
 type FetchBootstrapOverlayProps = {
   open: boolean
@@ -14,7 +14,7 @@ type FetchBootstrapOverlayProps = {
 }
 
 /**
- * Mirrors the home shell (map header + viewport + booking sheet) with staggered
+ * Mirrors the home shell (floating map search + viewport + booking sheet) with staggered
  * skeletons only — no dock orb; the live `HomeView` orb appears after bootstrap.
  */
 export function FetchBootstrapOverlay({
@@ -80,19 +80,14 @@ export function FetchBootstrapOverlay({
     >
       <div className="fetch-bootstrap-home-mirror relative flex min-h-dvh min-h-[100dvh] w-full flex-col">
         <div className="fetch-bootstrap-map-shell flex min-h-0 flex-1 flex-col">
-          <header className="fetch-bootstrap-skel-system-header pointer-events-none fixed left-0 right-0 top-0 z-[46] flex h-[var(--fetch-map-header-h)] flex-col justify-start bg-white pt-[env(safe-area-inset-top,0px)]">
-            <div className="fetch-bootstrap-skel-stagger mx-auto grid min-h-[2.875rem] w-full max-w-[min(100%,36rem)] shrink-0 grid-cols-3 items-center gap-2 px-4 pt-1.5 pb-0.5">
-              <div className="fetch-bootstrap-skel-chip justify-self-start rounded-full" />
-              <div className="fetch-bootstrap-skel-brand justify-self-center rounded-md" />
-              <div className="fetch-bootstrap-skel-chip-wide justify-self-end rounded-full" />
+          <div className="fetch-bootstrap-skel-map-search-only pointer-events-none fixed left-0 right-0 top-0 z-[46] flex flex-col bg-transparent pt-[calc(env(safe-area-inset-top,0px)+0.45rem)]">
+            <div className="fetch-bootstrap-skel-stagger mx-auto w-full max-w-[min(100%,36rem)] shrink-0 px-4">
+              <div className="fetch-bootstrap-skel-map-header-search h-11 w-full rounded-full" />
             </div>
-            <div className="fetch-bootstrap-skel-stagger mx-auto w-full max-w-[min(100%,36rem)] shrink-0 px-4 pb-6 pt-1">
-              <div className="fetch-bootstrap-skel-map-header-search h-11 w-full rounded-[0.875rem]" />
-            </div>
-          </header>
+          </div>
 
-          <div className="fetch-bootstrap-skel-map-viewport pointer-events-none relative mt-[var(--fetch-map-header-h)] min-h-0 flex-1 overflow-hidden rounded-t-[1.375rem] bg-white shadow-[0_-4px_28px_rgba(15,23,42,0.05)] ring-1 ring-white">
-            <div className="fetch-bootstrap-skel-map absolute inset-0 rounded-t-[1.375rem]" />
+          <div className="fetch-bootstrap-skel-map-viewport pointer-events-none relative mt-[var(--fetch-map-header-h)] min-h-0 flex-1 overflow-hidden rounded-t-none bg-white shadow-none ring-0">
+            <div className="fetch-bootstrap-skel-map absolute inset-0 rounded-t-none" />
           </div>
         </div>
 

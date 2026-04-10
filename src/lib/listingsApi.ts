@@ -253,11 +253,19 @@ export async function fetchSellerMe(): Promise<{ seller: { stripeAccountId?: str
   return listingsJson('/api/sellers/me')
 }
 
-export async function fetchSellerEarnings(): Promise<{
+export async function fetchSellerEarnings(params?: {
+  /** Inclusive range on ledger `createdAt` (ms), server-side filter. */
+  from?: number
+  to?: number
+}): Promise<{
   ledger: unknown[]
   summary: { grossCents: number; feeCents: number; netCents: number; currency: string }
 }> {
-  return listingsJson('/api/sellers/me/earnings')
+  const qs = new URLSearchParams()
+  if (params?.from != null && Number.isFinite(params.from)) qs.set('from', String(Math.floor(params.from)))
+  if (params?.to != null && Number.isFinite(params.to)) qs.set('to', String(Math.floor(params.to)))
+  const suffix = qs.toString()
+  return listingsJson(`/api/sellers/me/earnings${suffix ? `?${suffix}` : ''}`)
 }
 
 export function listingImageAbsoluteUrl(relativeOrAbsolute: string): string {

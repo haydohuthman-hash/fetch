@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { waitForPaymentIntentServerConfirmed } from '../lib/booking/api'
 import {
   analyzeListingPhotosForSell,
@@ -18,6 +19,7 @@ import {
 } from '../lib/listingsApi'
 import { formatDropHandle, getMyDropProfile } from '../lib/drops/profileStore'
 import { syncCustomerSessionCookie } from '../lib/fetchServerSession'
+import { FETCH_MARKETPLACE_LIST_PATH } from '../lib/fetchRoutes'
 import { loadSession } from '../lib/fetchUserSession'
 import { confirmDemoPaymentIntent, isStripePublishableConfigured } from '../lib/paymentCheckout'
 import {
@@ -259,6 +261,7 @@ function HomeShellBuySellPageInner({
   overlayMode = false,
   onOverlayClose,
 }: HomeShellBuySellPageProps) {
+  const navigate = useNavigate()
   const mapsApiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim() ?? ''
   const [panel, setPanel] = useState<Panel>('feed')
   const prevPanelRef = useRef<Panel>('feed')
@@ -893,6 +896,10 @@ function HomeShellBuySellPageInner({
 
   const menuNavigate = (to: Panel) => {
     setMenuOpen(false)
+    if (to === 'create') {
+      navigate(FETCH_MARKETPLACE_LIST_PATH)
+      return
+    }
     setPanel(to)
   }
 
@@ -994,7 +1001,7 @@ function HomeShellBuySellPageInner({
             onClick={() => {
               setForYouActive(false)
               setEditingListing(null)
-              setPanel('create')
+              navigate(FETCH_MARKETPLACE_LIST_PATH)
             }}
             className="rounded-full border border-zinc-200 bg-zinc-50/90 px-2.5 py-1 text-[11px] font-semibold text-zinc-900 transition-colors hover:bg-zinc-100 active:scale-[0.98]"
           >
@@ -1370,7 +1377,7 @@ function HomeShellBuySellPageInner({
                 ) : null}
                 <button
                   type="button"
-                  onClick={() => setPanel('create')}
+                  onClick={() => navigate(FETCH_MARKETPLACE_LIST_PATH)}
                   className="w-full rounded-xl bg-zinc-900 py-3 text-[15px] font-semibold text-white active:opacity-90"
                 >
                   List an item
