@@ -1,7 +1,12 @@
 @import 'tailwindcss';
 
-/* Fallback when --orb-glow is not set on a parent (e.g. shared input styles). */
+/* Bottom dock (home / marketplace / chat / reels) — Safari theme-color + root bg */
 :root {
+  /* User accent (overridden by FetchAccentProvider + boot script in index.html). */
+  --fetch-accent: #064e3b;
+  --fetch-accent-rgb: 6, 78, 59;
+  --fetch-bottom-nav-chrome: #064e3b;
+  /* Fallback when --orb-glow is not set on a parent (e.g. shared input styles). */
   --orb-glow: 244, 246, 250;
   /* Centered phone column + bottom sheet geometry (shared with TS where noted). */
   --fetch-home-frame-max-w: 430px;
@@ -16,6 +21,18 @@
   --fetch-home-sheet-sand-muted: #efe6db;
   --fetch-home-sheet-sand-shadow: #e8ded2;
   --fetch-home-sheet-sand-deep: #e3d9cc;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  background-color: var(--fetch-bottom-nav-chrome);
+}
+
+body {
+  overscroll-behavior: none;
 }
 
 /* Desktop / wide preview: letterboxed stage; fixed UI inside frame uses this as containing block. */
@@ -57,6 +74,13 @@ html[data-fetch-theme='dark'] .fetch-home-phone-stage {
     box-shadow:
       0 0 0 1px rgba(255, 255, 255, 0.06),
       0 20px 64px rgba(0, 0, 0, 0.45);
+  }
+}
+
+/* Safari iOS: keep home column tied to the visible viewport (dynamic toolbars + dvh lag vs sheet snap math). */
+@supports (-webkit-touch-callout: none) {
+  .fetch-home-vision.fetch-home-phone-frame {
+    min-height: -webkit-fill-available;
   }
 }
 
@@ -1698,14 +1722,14 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
   filter: none;
   box-shadow:
     0 0 0 2px #000000,
-    0 5px 0 rgba(0, 0, 0, 0.22);
+    0 10px 0 rgba(0, 0, 0, 0.22);
 }
 
 .fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere::before {
   content: '';
   position: absolute;
   left: 50%;
-  bottom: -0.18rem;
+  bottom: -0.3rem;
   z-index: 0;
   width: 58%;
   height: 0.5rem;
@@ -1720,7 +1744,7 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 .fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere[data-orb-size='homeDockCompact']::before {
   width: 52%;
   height: 0.42rem;
-  bottom: -0.14rem;
+  bottom: -0.24rem;
   transform: translateX(-50%) scaleY(0.3);
   opacity: 0.38;
 }
@@ -1728,19 +1752,19 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-fetch-speech-glow-wave-
 .fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere[data-fetch-orb-expression='excited'] {
   box-shadow:
     0 0 0 2px #000000,
-    0 6px 0 rgba(0, 0, 0, 0.26);
+    0 12px 0 rgba(0, 0, 0, 0.26);
 }
 
 .fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere[data-fetch-orb-expression='speaking'] {
   box-shadow:
     0 0 0 2px #000000,
-    0 6px 0 rgba(0, 0, 0, 0.28);
+    0 12px 0 rgba(0, 0, 0, 0.28);
 }
 
 .fetch-home-vision .fetch-assistant-face-orb.fetch-jarvis-neural-sphere[data-fetch-orb-expression='happy'] {
   box-shadow:
     0 0 0 2px #000000,
-    0 5px 0 rgba(0, 0, 0, 0.24);
+    0 10px 0 rgba(0, 0, 0, 0.24);
 }
 
 /* Fullscreen assistant: canvas face only (no dark orb shell) */
@@ -4029,6 +4053,13 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input.fetch
 }
 
 /* Sheet top handle: stronger grab bar + chevrons imply “pull up” when not at full snap */
+/* Handle + peek sit above header brand row (z-1) but below corner chrome (z-25+) */
+.fetch-home-booking-sheet__handle-rail,
+.fetch-home-booking-sheet__peek {
+  position: relative;
+  z-index: 4;
+}
+
 .fetch-home-booking-sheet__handle-bar {
   display: block;
   width: 2.75rem;
@@ -4101,8 +4132,10 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input.fetch
   scroll-padding-top: 2rem;
 }
 
-/* Sheet body: scrollbar hidden when scroll is enabled (non–content-fit full snap) */
+/* Sheet body scroll stays under absolute header chrome + corner buttons */
 .fetch-home-booking-sheet__scroll {
+  position: relative;
+  z-index: 0;
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
@@ -4466,7 +4499,7 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
     transparent 100%
   );
   pointer-events: none;
-  z-index: 3;
+  z-index: 0;
 }
 
 /* Soft cyan / sky glow behind sheet top while Fetch speaks (sits under panel z-index) */
@@ -4711,7 +4744,7 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
   padding-right: env(safe-area-inset-right, 0px);
   border: none;
   border-top: 1px solid rgba(255, 255, 255, 0.07);
-  background: #064e3b;
+  background: var(--fetch-bottom-nav-chrome);
   box-shadow: none;
 }
 
@@ -4729,7 +4762,7 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
     right: 0;
     bottom: 0;
     height: env(safe-area-inset-bottom, 0px);
-    background-color: #064e3b;
+    background-color: var(--fetch-bottom-nav-chrome);
     pointer-events: none;
     z-index: 0;
   }
@@ -4751,11 +4784,18 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
 }
 
 /*
- * Home shell: pin tab bar to the bottom of the phone column (transform ancestor is
- * `.fetch-home-phone-frame`). Reserve space in the sheet column so the card does not sit under the bar.
+ * Home shell: dock cluster is the positioning context so the tab bar tracks the sheet outer when
+ * `bottom: var(--fetch-vv-keyboard)` lifts for the keyboard. `position: fixed` used the phone frame
+ * (transform ancestor) and stayed at y=0 while the sheet moved — Safari showed overlap / wrong height.
  */
+.fetch-home-vision .fetch-home-sheet-dock-cluster[data-shell-footer='true'] {
+  position: relative;
+}
+
 .fetch-home-vision .fetch-home-sheet-dock-panel--with-shell-nav {
   padding-bottom: calc(3.95rem + env(safe-area-inset-bottom, 0px));
+  /* Inherit into `.fetch-home-booking-sheet` Tailwind rounded-b-[var(--fetch-home-sheet-bottom-radius)] */
+  --fetch-home-sheet-bottom-radius: 1rem;
 }
 
 .fetch-home-vision
@@ -4767,7 +4807,7 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
 }
 
 .fetch-home-vision .fetch-home-sheet-dock-cluster[data-shell-footer='true'] .fetch-home-booking-sheet__shell-footer-stack {
-  position: fixed;
+  position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
@@ -4781,9 +4821,11 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
   margin-top: 0;
 }
 
-/* Avoid a second band of inset padding below the fixed tab bar (safe area lives in the bar). */
+/* Safe area lives in the nav; cap height to the phone frame so dvh-based sheet snaps cannot spill past Safari’s column. */
 .fetch-home-vision .fetch-home-booking-sheet-outer.fetch-home-booking-sheet-outer--edge:has([data-shell-footer='true']) {
   padding-bottom: 0;
+  max-height: 100%;
+  min-height: 0;
 }
 
 .fetch-home-sheet-dock-cluster[data-shell-footer='true'] .fetch-home-booking-sheet__shell-footer-stack {
@@ -4797,21 +4839,20 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
   --sheet-bg-bottom: var(--fetch-home-sheet-sand-shadow);
 }
 
-/* Services (etc.) closed peek — glass over map; maps tab uses nav chrome below */
+/* Services (etc.) closed peek — solid fill (no glass) */
 .fetch-home-vision .fetch-home-booking-sheet[data-snap='closed']:not([data-nav-map-chrome='true']) {
-  background-color: rgba(252, 246, 236, 0.38);
+  background-color: var(--fetch-home-sheet-sand-shadow);
   background-image: linear-gradient(
     180deg,
-    rgba(255, 252, 245, 0.78) 0%,
-    rgba(248, 240, 228, 0.48) 42%,
-    rgba(238, 228, 214, 0.36) 100%
+    var(--fetch-home-sheet-sand-top) 0%,
+    var(--fetch-home-sheet-sand-muted) 100%
   );
   box-shadow:
     0 -12px 44px rgba(15, 23, 42, 0.07),
     inset 0 1px 0 rgba(255, 255, 255, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.55);
-  backdrop-filter: blur(28px) saturate(1.25);
-  -webkit-backdrop-filter: blur(28px) saturate(1.25);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .fetch-home-vision .fetch-home-booking-sheet[data-snap='closed']:not([data-nav-map-chrome='true'])::before {
@@ -5207,13 +5248,13 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
   box-shadow: 0 4px 16px rgba(14, 165, 233, 0.12);
 }
 
-/* Maps nav: Apple Maps–style chrome (see `data-maps-apple-chrome` on booking sheet) */
+/* Maps nav: Apple Maps–style chrome — solid, no glass */
 .fetch-home-vision .fetch-home-booking-sheet[data-maps-apple-chrome='true'] {
-  background-color: rgba(255, 255, 255, 0.88);
+  background-color: #faf8f4;
   background-image: none;
   border-color: rgba(0, 0, 0, 0.1);
-  backdrop-filter: blur(40px) saturate(1.65);
-  -webkit-backdrop-filter: blur(40px) saturate(1.65);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   box-shadow:
     0 -12px 40px rgba(0, 0, 0, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.85);
@@ -5239,11 +5280,11 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
 .fetch-home-vision .fetch-home-booking-sheet[data-maps-apple-chrome='true'] .fetch-home-sheet-chrome-btn,
 .fetch-home-vision .fetch-home-booking-sheet[data-maps-apple-chrome='true'] .fetch-home-sheet-peek-map,
 .fetch-home-vision .fetch-home-booking-sheet[data-maps-apple-chrome='true'] .fetch-home-booking-sheet__account-btn {
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.92);
   border-color: rgba(0, 0, 0, 0.1);
   color: rgba(60, 60, 67, 0.92);
-  backdrop-filter: blur(16px) saturate(1.2);
-  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   box-shadow:
     0 2px 10px rgba(0, 0, 0, 0.06),
     inset 0 1px 0 rgba(255, 255, 255, 0.95);
@@ -5378,10 +5419,10 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
   justify-content: center;
   border-radius: 9999px;
   border: 1px solid rgba(0, 0, 0, 0.08);
-  background: rgba(255, 255, 255, 0.82);
+  background: #ffffff;
   color: rgba(60, 60, 67, 0.92);
-  backdrop-filter: blur(18px) saturate(1.25);
-  -webkit-backdrop-filter: blur(18px) saturate(1.25);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   box-shadow:
     0 2px 10px rgba(0, 0, 0, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
@@ -5410,9 +5451,9 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
 
 .fetch-home-vision .fetch-maps-explore-sheet--apple .fetch-maps-explore-search-shell--peek.fetch-home-map-header-search-shell {
   border-color: rgba(0, 0, 0, 0.1);
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(20px) saturate(1.35);
-  -webkit-backdrop-filter: blur(20px) saturate(1.35);
+  background: #ffffff;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
 }
 
@@ -5633,14 +5674,14 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
   );
 }
 
-/* Home shell floating card: ~half prior snap heights + squarer panel */
+/* Home shell floating card: taller snaps so booking / intent content breathes above dock */
 .fetch-home-vision .fetch-home-booking-sheet[data-sheet-floating-card='true'][data-snap='compact'] {
   height: min(
-    max(22dvh, 14rem),
+    max(30dvh, 16.5rem),
     calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 10.5rem)
   );
   max-height: min(
-    max(22dvh, 14rem),
+    max(30dvh, 16.5rem),
     calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 10.5rem)
   );
 }
@@ -5648,37 +5689,37 @@ html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-address-input--ab-m
 .fetch-home-vision
   .fetch-home-booking-sheet[data-sheet-floating-card='true'][data-surface='intent'][data-snap='compact'] {
   height: min(
-    calc((8.625rem + 3.5dvh) * 1.4),
-    calc(16dvh * 1.4),
-    calc(10rem * 1.4),
+    calc((11.25rem + 4.5dvh) * 1.4),
+    calc(23dvh * 1.4),
+    calc(13.5rem * 1.4),
     calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 10.5rem)
   );
   max-height: min(
-    calc((8.625rem + 3.5dvh) * 1.4),
-    calc(16dvh * 1.4),
-    calc(10rem * 1.4),
+    calc((11.25rem + 4.5dvh) * 1.4),
+    calc(23dvh * 1.4),
+    calc(13.5rem * 1.4),
     calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 10.5rem)
   );
 }
 
 .fetch-home-vision .fetch-home-booking-sheet[data-sheet-floating-card='true'][data-snap='half'] {
   height: min(
-    max(18dvh, 13.5rem),
+    max(26dvh, 16rem),
     calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 9.75rem)
   );
   max-height: min(
-    max(18dvh, 13.5rem),
+    max(26dvh, 16rem),
     calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 9.75rem)
   );
 }
 
 .fetch-home-vision .fetch-home-booking-sheet[data-sheet-floating-card='true'][data-snap='full'] {
   height: min(
-    max(35dvh, 17rem),
+    max(44dvh, 20rem),
     calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 9rem)
   );
   max-height: min(
-    max(35dvh, 17rem),
+    max(44dvh, 20rem),
     calc(100svh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 9rem)
   );
 }
@@ -5828,24 +5869,21 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   background-color: #ffffff;
 }
 
-/* Maps tab (HomeView homeSheetNavMapChrome) — stronger glass over map at every snap */
+/* Maps tab (HomeView homeSheetNavMapChrome) — solid fill, no glass blur */
 .fetch-home-booking-sheet[data-nav-map-chrome='true'] {
-  background-color: rgba(252, 246, 236, 0.2);
+  background-color: var(--fetch-home-sheet-sand-mid);
   background-image: linear-gradient(
     180deg,
-    rgba(255, 252, 245, 0.22) 0%,
-    rgba(252, 244, 232, 0.48) 18%,
-    rgba(245, 236, 222, 0.72) 45%,
-    rgba(236, 226, 212, 0.88) 72%,
-    rgba(228, 216, 200, 0.94) 100%
+    var(--fetch-home-sheet-sand-top) 0%,
+    var(--fetch-home-sheet-sand-mid) 45%,
+    var(--fetch-home-sheet-sand-muted) 100%
   );
   box-shadow:
     0 -16px 52px rgba(15, 23, 42, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.62),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.24);
-  border: 1px solid rgba(255, 255, 255, 0.42);
-  backdrop-filter: blur(36px) saturate(1.3);
-  -webkit-backdrop-filter: blur(36px) saturate(1.3);
+    inset 0 1px 0 rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(228, 216, 200, 0.55);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .fetch-home-booking-sheet[data-nav-map-chrome='true']::before {
@@ -5972,8 +6010,8 @@ html[data-fetch-theme='light'] .fetch-home-vision {
     0 4px 20px rgba(0, 0, 0, 0.35),
     inset 0 1px 0 rgba(var(--orb-glow), 0.12),
     0 0 28px rgba(var(--orb-glow), 0.1);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -6013,8 +6051,8 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   box-shadow:
     0 6px 22px rgba(15, 23, 42, 0.12),
     0 2px 8px rgba(15, 23, 42, 0.06);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -6109,27 +6147,26 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   }
 }
 
-/* Home intent sheet — earth-horizon top curve; bottom edge square (flush to dock / safe area) */
+/* Home intent sheet — earth-horizon top curve; rounded bottom (uses --fetch-home-sheet-bottom-radius, 1rem with shell nav) */
 .fetch-home-vision .fetch-home-booking-sheet[data-surface='intent'] {
-  border-radius: 46% 46% 0 0 / 17% 17% 0 0;
+  border-top-left-radius: 46% 17%;
+  border-top-right-radius: 46% 17%;
+  border-bottom-left-radius: var(--fetch-home-sheet-bottom-radius);
+  border-bottom-right-radius: var(--fetch-home-sheet-bottom-radius);
   border: 1px solid rgba(255, 255, 255, 0.68);
   box-shadow:
     0 -18px 56px rgba(15, 23, 42, 0.06),
     inset 0 1px 0 rgba(255, 255, 255, 0.55);
-  /* Translucent top: map bleeds slightly; blur aids legibility over the map */
-  background-color: rgba(252, 246, 236, 0.06);
+  background-color: var(--fetch-home-sheet-sand-mid);
   background-image: linear-gradient(
     180deg,
-    rgba(255, 252, 245, 0.14) 0%,
-    rgba(255, 250, 242, 0.32) 10%,
-    rgba(252, 244, 232, 0.58) 22%,
-    rgba(245, 236, 222, 0.88) 34%,
-    rgba(238, 228, 214, 0.95) 46%,
-    #ebe2d6 58%,
-    #f3ebe1 100%
+    var(--fetch-home-sheet-sand-top) 0%,
+    var(--fetch-home-sheet-sand-muted) 38%,
+    var(--fetch-home-sheet-sand-shadow) 58%,
+    var(--fetch-home-sheet-sand-deep) 100%
   );
-  backdrop-filter: blur(36px) saturate(1.32);
-  -webkit-backdrop-filter: blur(36px) saturate(1.32);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 @media (prefers-reduced-transparency: reduce) {
@@ -6226,15 +6263,15 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   border-radius: var(--fetch-home-sheet-maps-radius) var(--fetch-home-sheet-maps-radius)
     var(--fetch-home-sheet-maps-bottom-radius) var(--fetch-home-sheet-maps-bottom-radius);
   border: 1px solid rgba(255, 255, 255, 0.48);
-  background-color: rgba(252, 246, 236, 0.82);
+  background-color: var(--fetch-home-sheet-sand-mid);
   background-image: linear-gradient(
     188deg,
-    rgba(255, 252, 246, 0.98) 0%,
-    rgba(245, 236, 222, 0.92) 38%,
-    rgba(236, 226, 212, 0.88) 100%
+    var(--fetch-home-sheet-sand-top) 0%,
+    var(--fetch-home-sheet-sand-muted) 38%,
+    var(--fetch-home-sheet-sand-shadow) 100%
   );
-  backdrop-filter: blur(34px) saturate(1.3);
-  -webkit-backdrop-filter: blur(34px) saturate(1.3);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   box-shadow:
     0 -22px 60px rgba(15, 23, 42, 0.1),
     0 -1px 0 rgba(255, 255, 255, 0.88) inset,
@@ -6264,15 +6301,15 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   box-shadow:
     0 -12px 40px rgba(15, 23, 42, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.72);
-  background-color: rgba(248, 240, 228, 0.58);
+  background-color: var(--fetch-home-sheet-sand-mid);
   background-image: linear-gradient(
     180deg,
-    rgba(255, 252, 245, 0.72) 0%,
-    rgba(240, 230, 216, 0.9) 55%,
-    rgba(228, 216, 200, 0.95) 100%
+    var(--fetch-home-sheet-sand-top) 0%,
+    var(--fetch-home-sheet-sand-muted) 55%,
+    var(--fetch-home-sheet-sand-shadow) 100%
   );
-  backdrop-filter: blur(32px) saturate(1.26);
-  -webkit-backdrop-filter: blur(32px) saturate(1.26);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .fetch-home-vision .fetch-home-booking-sheet[data-surface='maps'][data-edge-shell='true'] .fetch-home-booking-sheet__handle {
@@ -6425,7 +6462,7 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   padding-top: 0.2rem;
   border-top: 1px solid rgba(255, 255, 255, 0.07);
   box-shadow: none;
-  background: #064e3b;
+  background: var(--fetch-bottom-nav-chrome, #064e3b);
 }
 
 .fetch-home-sheet-dock-cluster[data-shell-footer='true'][data-snap='closed'][data-intent-closed-peek='true'][data-intent-shell-promo='true']
@@ -6436,7 +6473,7 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 .fetch-home-vision
   .fetch-home-sheet-dock-cluster[data-shell-footer='true'][data-snap='closed'][data-intent-closed-peek='true']
   .fetch-home-booking-sheet__shell-footer {
-  background: #064e3b;
+  background: var(--fetch-bottom-nav-chrome, #064e3b);
 }
 
 /* Expanded sheet: full promo above bottom nav */
@@ -6772,10 +6809,19 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 /* Marketplace / chat shell: solid dark emerald bar (icons: scoped white, no pills) */
 .fetch-home-marketplace-shell-footer {
   border-top: 1px solid rgba(255, 255, 255, 0.07);
-  background: #064e3b;
+  background: var(--fetch-bottom-nav-chrome);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   box-shadow: none;
+}
+
+/* Drops reels dock: same emerald as home/marketplace so Safari theme-color matches every tab */
+.fetch-home-reels-shell-footer {
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  background: var(--fetch-bottom-nav-chrome);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 /* Marketplace browse: warm sheet behind the grid (flat-lay reference) */
@@ -6796,29 +6842,11 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   display: none;
 }
 
-/*
- * Drops shell: solid white dock + slate inactive icons; active Drops tab = dark green tile + white plus.
- */
-.fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon {
-  color: rgba(15, 23, 42, 0.58);
-}
-
-.fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon:hover {
-  color: rgba(15, 23, 42, 0.82);
-  background: transparent;
-}
-
-.fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon--active,
-.fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon--active:hover {
-  color: #0a0a0a;
-  background: transparent;
-}
-
-/* Center Drops tab (active while on reels): emerald circle + white + */
+/* Reels: center Drops tab — emerald icon + crosshair (::after) */
 .fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active,
 .fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active:hover {
   position: relative;
-  color: #065f46;
+  color: rgb(52 211 153);
   background: transparent;
 }
 
@@ -6833,8 +6861,8 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   transform: translate(-50%, -50%);
   pointer-events: none;
   background:
-    linear-gradient(#fff, #fff) center/2px 100% no-repeat,
-    linear-gradient(#fff, #fff) center/100% 2px no-repeat;
+    linear-gradient(rgb(52 211 153), rgb(52 211 153)) center/2px 100% no-repeat,
+    linear-gradient(rgb(52 211 153), rgb(52 211 153)) center/100% 2px no-repeat;
 }
 
 .fetch-home-reels-shell-footer[data-fetch-drops-upload-flow='true']
@@ -6855,10 +6883,6 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 .fetch-home-reels-shell-footer[data-fetch-drops-upload-flow='true']
   .fetch-home-intent-bottom-nav--compact {
   min-height: calc(3.95rem + env(safe-area-inset-bottom, 0px));
-}
-
-.fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon:focus-visible {
-  outline-color: rgba(15, 23, 42, 0.35);
 }
 
 /* Full-width bottom bar — home / maps / marketplace (fixed row; safe-area on bottom). */
@@ -6950,54 +6974,72 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   outline-offset: 2px;
 }
 
-/* Home / shop / chat dock: white icons on dark emerald — no tile backgrounds */
+/* Home / shop / chat / reels dock: white icons on dark emerald — no tile backgrounds */
 .fetch-home-booking-sheet__shell-footer .fetch-home-intent-bottom-nav,
-.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav {
+.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav,
+.fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav {
   gap: 0;
 }
 
 .fetch-home-booking-sheet__shell-footer .fetch-home-intent-bottom-nav__icon,
-.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav__icon {
+.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav__icon,
+.fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon {
   background: transparent;
   box-shadow: none;
   color: rgba(255, 255, 255, 0.72);
 }
 
 .fetch-home-booking-sheet__shell-footer .fetch-home-intent-bottom-nav__icon:hover,
-.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav__icon:hover {
+.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav__icon:hover,
+.fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon:hover {
   background: transparent;
   color: rgba(255, 255, 255, 0.92);
   box-shadow: none;
 }
 
 .fetch-home-booking-sheet__shell-footer .fetch-home-intent-bottom-nav__icon:active,
-.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav__icon:active {
+.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav__icon:active,
+.fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon:active {
   background: transparent;
   color: #ffffff;
 }
 
 .fetch-home-booking-sheet__shell-footer .fetch-home-intent-bottom-nav__icon--active,
-.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav__icon--active {
+.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav__icon--active,
+.fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon--active {
   background: transparent;
   color: #ffffff;
   box-shadow: none;
 }
 
 .fetch-home-booking-sheet__shell-footer .fetch-home-intent-bottom-nav__icon--active:hover,
-.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav__icon--active:hover {
+.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav__icon--active:hover,
+.fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon--active:hover {
   background: transparent;
   color: #ffffff;
 }
 
+/* Drops tab active — emerald circle (overrides generic white active above) */
+.fetch-home-booking-sheet__shell-footer .fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active,
+.fetch-home-booking-sheet__shell-footer .fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active:hover,
+.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active,
+.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active:hover,
+.fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active,
+.fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon--reels.fetch-home-intent-bottom-nav__icon--active:hover {
+  color: rgb(52 211 153);
+}
+
 .fetch-home-booking-sheet__shell-footer .fetch-home-intent-bottom-nav__icon:focus-visible,
-.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav__icon:focus-visible {
+.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav__icon:focus-visible,
+.fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav__icon:focus-visible {
   outline: 2px solid rgba(255, 255, 255, 0.55);
   outline-offset: 2px;
 }
 
 /* Slightly raise tab row vs sheet edge (less vertical padding under icons). */
 .fetch-home-booking-sheet__shell-footer .fetch-home-intent-bottom-nav--compact,
-.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav--compact {
+.fetch-home-marketplace-shell-footer .fetch-home-intent-bottom-nav--compact,
+.fetch-home-reels-shell-footer .fetch-home-intent-bottom-nav--compact {
   padding-top: 0;
   padding-bottom: max(0.06rem, env(safe-area-inset-bottom, 0px));
   margin-top: -0.2rem;
@@ -7075,9 +7117,9 @@ html[data-fetch-theme='light'] .fetch-home-vision {
   padding-bottom: 0;
 }
 
-/* Compact intent: keep a floor below handle so cards never tuck under the sheet header */
+/* Compact intent: floor below handle — keep slim so FETCH IT / LIST IT aren't clipped on short sheets */
 .fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-booking-sheet__body--compact {
-  padding-top: max(2.95rem, calc(6.5rem * 0.34 + 0.72rem));
+  padding-top: max(2.25rem, calc(6.5rem * 0.3 + 0.45rem));
   padding-bottom: 0.05rem;
 }
 
@@ -7089,17 +7131,20 @@ html[data-fetch-theme='light'] .fetch-home-vision {
 
 .fetch-home-booking-sheet[data-surface='intent'][data-snap='compact'] .fetch-home-booking-sheet__scroll {
   padding-bottom: 0.3rem;
+  overflow-y: hidden;
+  overscroll-behavior-y: none;
 }
 
-/* Services home: keep last service row clear of promo + bottom nav (same in-flow order as Maps body above dock) */
+/* Services home: breathing room above sheet bottom; shell footer handles safe-area below the card */
 .fetch-home-sheet-dock-cluster[data-shell-footer='true'] .fetch-home-booking-sheet[data-surface='intent']
   .fetch-home-booking-sheet__scroll {
-  padding-bottom: max(0.85rem, env(safe-area-inset-bottom, 0px));
+  padding-bottom: 0.85rem;
 }
 
 .fetch-home-sheet-dock-cluster[data-shell-footer='true'] .fetch-home-booking-sheet[data-surface='intent'][data-snap='compact']
   .fetch-home-booking-sheet__scroll {
-  padding-bottom: 0.42rem;
+  /* Thin gap above sheet bottom edge only — shell footer already owns safe-area-inset-bottom */
+  padding-bottom: 0.5rem;
 }
 
 /* Bottom-align intent landing in compact; fixed ~10dvh spacer clears the handle band */
@@ -10813,6 +10858,88 @@ html[data-fetch-theme='dark'] .fetch-bootstrap-skel-service-label {
   background: #f97316;
 }
 
+/* FetchMapWelcomeDemo — pin + caption stack */
+.fetch-welcome-demo-marker-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  pointer-events: none;
+  position: relative;
+}
+.fetch-welcome-demo-marker-cap {
+  max-width: 11rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.96);
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.38);
+  white-space: nowrap;
+}
+
+/* Searching pulse ring around pickup pin */
+.fetch-welcome-demo-pulse-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 52px;
+  height: 52px;
+  margin-top: -26px;
+  margin-left: -26px;
+  border-radius: 9999px;
+  border: 2.5px solid rgba(34, 197, 94, 0.7);
+  animation: fetch-demo-pulse 1.6s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
+  pointer-events: none;
+}
+.fetch-welcome-demo-pulse-ring--delay {
+  animation-delay: 0.55s;
+}
+
+@keyframes fetch-demo-pulse {
+  0% {
+    transform: scale(0.45);
+    opacity: 0.85;
+  }
+  80% {
+    opacity: 0;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+/* Driver marker pop-in */
+.fetch-welcome-demo-driver {
+  animation: fetch-demo-driver-pop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes fetch-demo-driver-pop {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fetch-welcome-demo-pulse-ring {
+    animation: none;
+    opacity: 0;
+  }
+  .fetch-welcome-demo-driver {
+    animation: none;
+  }
+}
+
 /* Shop: Drinks promo — freezer / snow-storm transition */
 @keyframes fetch-drinks-snow-drift {
   0% {
@@ -11086,5 +11213,257 @@ html[data-fetch-theme='dark'] .fetch-bootstrap-skel-service-label {
   .fetch-drinks-freezer-splash__flake {
     animation-duration: 0.4s !important;
     animation-delay: 0ms !important;
+  }
+}
+
+/* ─── Live Battles animations ─── */
+
+@keyframes battleFloatUp {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(-60px) scale(1.2);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-100px) scale(0.8);
+  }
+}
+
+@keyframes battleConfetti {
+  0% {
+    opacity: 1;
+    transform: translateY(0) rotate(0deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(calc(100vh + 20px)) rotate(720deg);
+  }
+}
+
+@keyframes battlePulseGlow {
+  0%,
+  100% {
+    box-shadow: 0 0 8px rgba(232, 220, 200, 0.15);
+  }
+  50% {
+    box-shadow: 0 0 18px rgba(232, 220, 200, 0.35);
+  }
+}
+
+@keyframes battleScoreJump {
+  0% {
+    transform: scale(1);
+  }
+  30% {
+    transform: scale(1.25);
+  }
+  60% {
+    transform: scale(0.95);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes battleMeterShimmer {
+  0% {
+    background-position: -200% center;
+  }
+  100% {
+    background-position: 200% center;
+  }
+}
+
+.battle-score-jump {
+  animation: battleScoreJump 0.5s ease-out;
+}
+
+.battle-glow-pulse {
+  animation: battlePulseGlow 2s ease-in-out infinite;
+}
+
+.battle-meter-shimmer {
+  background-size: 200% 100%;
+  animation: battleMeterShimmer 3s linear infinite;
+}
+
+@keyframes battleBgDrift {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    transform: translate(8px, -12px) scale(1.08);
+  }
+}
+
+@keyframes battleOrbFloat {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(15px, -20px) scale(1.15);
+    opacity: 0.5;
+  }
+}
+
+@keyframes battleAvatarBreathe {
+  0%,
+  100% {
+    transform: scale(var(--tw-scale-x, 1)) translateY(0);
+  }
+  50% {
+    transform: scale(var(--tw-scale-x, 1)) translateY(-4px);
+  }
+}
+
+/* ── gift boost animations — each gift has a unique feel ── */
+
+/* Rose: gentle float up with soft sway */
+@keyframes giftRoseFloat {
+  0%   { transform: translateY(0) rotate(0deg) scale(1); opacity: 1; }
+  50%  { transform: translateY(-45vh) rotate(15deg) scale(1.1); opacity: 0.9; }
+  100% { transform: translateY(-105vh) rotate(-10deg) scale(0.6); opacity: 0; }
+}
+.gift-anim-rose {
+  animation: giftRoseFloat 2s ease-out forwards;
+}
+
+/* Hearts: rapid wiggle burst upward */
+@keyframes giftHeartsBurst {
+  0%   { transform: translateY(0) scale(0.3); opacity: 0; }
+  15%  { transform: translateY(-10vh) scale(1.3); opacity: 1; }
+  40%  { transform: translateY(-40vh) translateX(10px) scale(1); opacity: 0.9; }
+  65%  { transform: translateY(-65vh) translateX(-12px) scale(0.9); opacity: 0.7; }
+  100% { transform: translateY(-110vh) translateX(5px) scale(0.4); opacity: 0; }
+}
+.gift-anim-hearts {
+  animation: giftHeartsBurst 1.8s ease-out forwards;
+}
+
+/* Applause: pop-scale with horizontal scatter */
+@keyframes giftApplausePop {
+  0%   { transform: translateY(0) scale(0); opacity: 0; }
+  20%  { transform: translateY(-15vh) scale(1.5); opacity: 1; }
+  50%  { transform: translateY(-40vh) scale(1); opacity: 0.8; }
+  100% { transform: translateY(-90vh) scale(0.5); opacity: 0; }
+}
+.gift-anim-applause {
+  animation: giftApplausePop 1.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* Fireworks: sparkle explosion from center, radiate outward */
+@keyframes giftFireworkExplode {
+  0%   { transform: translate(0, 0) scale(0); opacity: 0; }
+  15%  { transform: translate(0, -30vh) scale(1.4); opacity: 1; }
+  40%  { transform: translate(var(--fx, 20px), -55vh) scale(1); opacity: 0.9; }
+  70%  { transform: translate(var(--fx, 20px), -75vh) scale(0.7); opacity: 0.5; }
+  100% { transform: translate(var(--fx, 20px), -100vh) scale(0.3); opacity: 0; }
+}
+.gift-anim-fireworks {
+  --fx: calc((var(--i, 0) - 10) * 6px);
+  animation: giftFireworkExplode 2s ease-out forwards;
+}
+.gift-anim-fireworks:nth-child(odd)  { --fx: calc(-15px + var(--i, 0) * 3px); }
+.gift-anim-fireworks:nth-child(even) { --fx: calc(15px - var(--i, 0) * 3px); }
+
+/* Rocket: fast straight launch with trail shake */
+@keyframes giftRocketLaunch {
+  0%   { transform: translateY(0) scale(1) rotate(-5deg); opacity: 1; }
+  10%  { transform: translateY(-5vh) scale(1.2) rotate(2deg); opacity: 1; }
+  30%  { transform: translateY(-30vh) scale(1.4) rotate(-3deg); opacity: 1; }
+  60%  { transform: translateY(-70vh) scale(1.1) rotate(1deg); opacity: 0.8; }
+  100% { transform: translateY(-120vh) scale(0.8) rotate(0deg); opacity: 0; }
+}
+.gift-anim-rocket {
+  animation: giftRocketLaunch 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  filter: drop-shadow(0 0 12px rgba(255, 140, 0, 0.7));
+}
+
+/* Crown: majestic slow rise with golden glow + spin */
+@keyframes giftCrownAscend {
+  0%   { transform: translateY(0) rotateY(0deg) scale(0.5); opacity: 0; }
+  20%  { transform: translateY(-15vh) rotateY(60deg) scale(1.3); opacity: 1; }
+  50%  { transform: translateY(-45vh) rotateY(180deg) scale(1.1); opacity: 0.9; }
+  80%  { transform: translateY(-75vh) rotateY(300deg) scale(0.9); opacity: 0.6; }
+  100% { transform: translateY(-100vh) rotateY(360deg) scale(0.5); opacity: 0; }
+}
+.gift-anim-crown {
+  animation: giftCrownAscend 2.2s ease-in-out forwards;
+  filter: drop-shadow(0 0 14px rgba(255, 215, 0, 0.6));
+}
+
+/* Meteor ($5): fast diagonal streak with fiery trail */
+@keyframes giftMeteorStreak {
+  0%   { transform: translate(30vw, 0) rotate(25deg) scale(0.5); opacity: 0; }
+  10%  { transform: translate(15vw, -15vh) rotate(20deg) scale(1.3); opacity: 1; }
+  40%  { transform: translate(-5vw, -50vh) rotate(15deg) scale(1.1); opacity: 1; }
+  70%  { transform: translate(-20vw, -80vh) rotate(10deg) scale(0.9); opacity: 0.6; }
+  100% { transform: translate(-30vw, -110vh) rotate(5deg) scale(0.5); opacity: 0; }
+}
+.gift-anim-meteor {
+  animation: giftMeteorStreak 1.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+  filter: drop-shadow(0 0 16px rgba(255, 100, 0, 0.8)) drop-shadow(0 0 30px rgba(255, 60, 0, 0.4));
+}
+
+/* Diamond ($10): sparkling spiral rise with prismatic glow */
+@keyframes giftDiamondSpiral {
+  0%   { transform: translateY(0) rotate(0deg) scale(0.3); opacity: 0; }
+  15%  { transform: translateY(-10vh) rotate(45deg) scale(1.2); opacity: 1; }
+  35%  { transform: translateY(-30vh) rotate(120deg) scale(1); opacity: 1; }
+  55%  { transform: translateY(-55vh) rotate(200deg) scale(1.15); opacity: 0.9; }
+  75%  { transform: translateY(-80vh) rotate(290deg) scale(0.9); opacity: 0.6; }
+  100% { transform: translateY(-110vh) rotate(360deg) scale(0.4); opacity: 0; }
+}
+.gift-anim-diamond {
+  animation: giftDiamondSpiral 2s ease-in-out forwards;
+  filter: drop-shadow(0 0 10px rgba(100, 200, 255, 0.6)) drop-shadow(0 0 20px rgba(200, 100, 255, 0.3));
+}
+
+/* Trophy ($20): grand entrance with scale bounce and golden shower */
+@keyframes giftTrophyGrand {
+  0%   { transform: translateY(0) scale(0); opacity: 0; }
+  12%  { transform: translateY(-12vh) scale(1.8); opacity: 1; }
+  25%  { transform: translateY(-20vh) scale(1.3); opacity: 1; }
+  40%  { transform: translateY(-35vh) scale(1.5); opacity: 1; }
+  60%  { transform: translateY(-55vh) scale(1.2); opacity: 0.9; }
+  80%  { transform: translateY(-80vh) scale(1); opacity: 0.5; }
+  100% { transform: translateY(-105vh) scale(0.6); opacity: 0; }
+}
+.gift-anim-trophy {
+  animation: giftTrophyGrand 2.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  filter: drop-shadow(0 0 18px rgba(255, 215, 0, 0.8)) drop-shadow(0 0 40px rgba(255, 180, 0, 0.4));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .battle-score-jump,
+  .battle-glow-pulse,
+  .battle-meter-shimmer {
+    animation: none !important;
+  }
+
+  [class*="battleBgDrift"],
+  [class*="battleOrbFloat"],
+  [class*="battleAvatarBreathe"] {
+    animation: none !important;
+  }
+
+  .gift-anim-rose,
+  .gift-anim-hearts,
+  .gift-anim-applause,
+  .gift-anim-fireworks,
+  .gift-anim-rocket,
+  .gift-anim-crown,
+  .gift-anim-meteor,
+  .gift-anim-diamond,
+  .gift-anim-trophy {
+    animation: none !important;
   }
 }

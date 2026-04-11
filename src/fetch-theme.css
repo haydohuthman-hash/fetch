@@ -30,14 +30,24 @@ html[data-fetch-theme='light'] {
   background-color: var(--fetch-chrome-bg);
 }
 
-/* Accounts / sign-in: brand dark green, content vertically centered (see AuthScreen layout) */
+/* Accounts / sign-in: brand accent (user-tunable via --fetch-accent). */
 .fetch-auth-screen {
-  background: linear-gradient(180deg, #065f46 0%, #042f2e 42%, #022c22 100%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--fetch-accent, #064e3b) 88%, white) 0%,
+    color-mix(in srgb, var(--fetch-accent, #064e3b) 55%, black) 42%,
+    color-mix(in srgb, var(--fetch-accent, #064e3b) 28%, black) 100%
+  );
   color: rgba(255, 255, 255, 0.96);
 }
 
 html[data-fetch-theme='light'] .fetch-auth-screen {
-  background: linear-gradient(180deg, #047857 0%, #065f46 38%, #042f2e 100%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--fetch-accent, #064e3b) 72%, white) 0%,
+    color-mix(in srgb, var(--fetch-accent, #064e3b) 52%, black) 38%,
+    color-mix(in srgb, var(--fetch-accent, #064e3b) 22%, black) 100%
+  );
   color: rgba(255, 255, 255, 0.96);
 }
 
@@ -364,10 +374,10 @@ html[data-fetch-theme='dark'] .fetch-account-input:focus-visible {
   background-color: transparent;
 }
 
-/* Splash / lazy fallback still need an opaque stage (shell bg is transparent for map bleed). */
+/* Splash / lazy fallback — match bottom dock chrome so Safari edges / first paint align with tab bar */
 .fetch-splash-root.fetch-app-shell-bg,
 .fetch-app-phase-fallback.fetch-app-shell-bg {
-  background-color: var(--fetch-chrome-bg);
+  background-color: var(--fetch-bottom-nav-chrome);
 }
 
 .fetch-app-shell-inner {
@@ -786,7 +796,7 @@ html[data-fetch-theme='light'] .fetch-home-service-segment-heading {
 html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-booking-sheet__shell-footer {
   border: none;
   border-top: 1px solid rgba(255, 255, 255, 0.07);
-  background: #064e3b;
+  background: var(--fetch-bottom-nav-chrome, #064e3b);
   box-shadow: none;
 }
 
@@ -800,7 +810,7 @@ html[data-fetch-theme='light'] .fetch-home-vision .fetch-home-intent-bottom-nav 
 html[data-fetch-theme='dark'] .fetch-home-vision .fetch-home-booking-sheet__shell-footer {
   border: none;
   border-top: 1px solid rgba(255, 255, 255, 0.07);
-  background: #064e3b;
+  background: var(--fetch-bottom-nav-chrome, #064e3b);
   box-shadow: none;
 }
 
@@ -1625,6 +1635,57 @@ html[data-fetch-theme='light'] .fetch-seq-waitlist-pulse {
   }
 }
 
+/* ---------- Fetch It scan-line overlay ---------- */
+@keyframes fetch-scan-line {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(400%);
+    opacity: 0;
+  }
+}
+
+@keyframes fetch-scan-pulse-text {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+.fetch-scan-overlay {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+.fetch-scan-overlay::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  height: 25%;
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    rgba(56, 189, 248, 0.18) 30%,
+    rgba(56, 189, 248, 0.38) 50%,
+    rgba(56, 189, 248, 0.18) 70%,
+    transparent 100%
+  );
+  animation: fetch-scan-line 2s ease-in-out infinite;
+}
+
+.fetch-scan-pulse-label {
+  animation: fetch-scan-pulse-text 1.6s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .fetch-seq-waitlist-pulse,
   html[data-fetch-theme='light'] .fetch-seq-waitlist-pulse,
@@ -1632,7 +1693,9 @@ html[data-fetch-theme='light'] .fetch-seq-waitlist-pulse {
   .fetch-seq-cta-shine::after,
   .fetch-seq-showcase-route-draw,
   .fetch-seq-showcase-pin-pulse,
-  .fetch-seq-showcase-pin-pulse--delay {
+  .fetch-seq-showcase-pin-pulse--delay,
+  .fetch-scan-overlay::after,
+  .fetch-scan-pulse-label {
     animation: none;
   }
 

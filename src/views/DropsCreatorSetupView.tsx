@@ -12,6 +12,7 @@ import {
 } from '../lib/drops/profileStore'
 import { loadSession } from '../lib/fetchUserSession'
 import {
+  formatProfileSaveError,
   getMySupabaseProfile,
   suggestUniqueUsernameFromEmail,
   updateMySupabaseProfile,
@@ -100,7 +101,8 @@ export default function DropsCreatorSetupView({ onDone }: DropsCreatorSetupViewP
         })
         setAvatarUrl(finalAvatarUrl)
       } catch (e) {
-        const msg = e instanceof Error ? e.message : 'Could not save profile.'
+        console.error('[DROPS_SETUP] profile save failed', e)
+        const msg = formatProfileSaveError(e)
         setErr(msg.toLowerCase().includes('duplicate') ? 'That username is already taken.' : msg)
         return
       }

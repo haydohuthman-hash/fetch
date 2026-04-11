@@ -67,7 +67,7 @@ export type FetchBrainMemoryOverlayProps = {
   onChoiceSheetSubmit?: (text: string) => void
   onChoiceSheetDismiss?: () => void
   /** Jarvis orb day/night skin — match home vision theme. */
-  orbAppearance?: 'night' | 'day'
+  orbAppearance?: 'night' | 'day' | 'brand'
   /** Waiting on brain AI reply — disables dock mic. */
   brainReplyPending?: boolean
   /** Thumbs on assistant lines — stored in local brain learning context. */

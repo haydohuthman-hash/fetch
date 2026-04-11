@@ -1,5 +1,6 @@
 import mapboxgl from 'mapbox-gl'
 import { useEffect, useRef } from 'react'
+import { addMapbox3DBuildingsLayer } from '../../lib/mapbox3dBuildings'
 import { FETCH_MAPBOX_STYLE_URL } from '../../lib/mapboxStyle'
 import { getRoute, type LngLat } from '../../lib/mapboxRoute'
 
@@ -25,31 +26,6 @@ const INITIAL = {
 export type FetchMapProps = {
   accessToken: string
   className?: string
-}
-
-function tryAdd3DBuildings(map: mapboxgl.Map) {
-  if (map.getLayer('fetch-3d-buildings')) return
-  if (!map.getSource('composite')) return
-  try {
-    map.addLayer(
-      {
-        id: 'fetch-3d-buildings',
-        source: 'composite',
-        'source-layer': 'building',
-        filter: ['==', ['get', 'extrude'], true],
-        type: 'fill-extrusion',
-        minzoom: 15,
-        paint: {
-          'fill-extrusion-color': '#888',
-          'fill-extrusion-height': ['get', 'height'],
-          'fill-extrusion-base': ['get', 'min_height'],
-          'fill-extrusion-opacity': 0.55,
-        },
-      },
-    )
-  } catch {
-    /* Standard / some styles already extrude buildings */
-  }
 }
 
 function createPin(className: string): HTMLElement {
@@ -95,13 +71,13 @@ export function FetchMap({ accessToken, className = '' }: FetchMapProps) {
     let cancelled = false
 
     const onStyleLoad = () => {
-      tryAdd3DBuildings(map)
+      addMapbox3DBuildingsLayer(map, 'fetch-3d-buildings')
     }
     map.on('styledata', onStyleLoad)
 
     map.once('load', () => {
       if (cancelled) return
-      tryAdd3DBuildings(map)
+      addMapbox3DBuildingsLayer(map, 'fetch-3d-buildings')
 
       void (async () => {
         try {

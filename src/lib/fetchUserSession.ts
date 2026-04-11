@@ -204,6 +204,11 @@ async function refreshSessionFromSupabaseBody(): Promise<FetchUserRecord | null>
     onboardingComplete,
     hasUsername: Boolean(profileUsername),
   })
+  void import('./fetchServerSession')
+    .then((m) =>
+      m.syncSupabaseSessionCookie().catch((e) => console.warn('[AUTH] cookie sync failed', e)),
+    )
+    .catch(() => {})
   return row
 }
 

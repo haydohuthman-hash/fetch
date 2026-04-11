@@ -5,6 +5,35 @@ function makeId(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
 }
 
+/** Serialize read-modify-write so concurrent creates cannot overwrite each other. */
+function createMutationQueue() {
+  let chain = Promise.resolve()
+  return function runMutation(fn) {
+    const p = chain.then(() => fn())
+    chain = p.catch((err) => {
+      console.error('[peer-listings-store] mutation error (queue continues)', err?.message || err)
+    })
+    return p
+  }
+}
+
+/** Only server-issued listing upload paths (defence in depth for create payload). */
+export function normalizeInitialListingImages(imagesIn) {
+  if (!Array.isArray(imagesIn)) return []
+  const out = []
+  for (let i = 0; i < imagesIn.length && out.length < 12; i++) {
+    const x = imagesIn[i]
+    if (!x || typeof x !== 'object') continue
+    const raw = typeof x.url === 'string' ? x.url.trim() : ''
+    if (!raw || raw.includes('..')) continue
+    if (!raw.startsWith('/listing-uploads/')) continue
+    const url = raw.slice(0, 2048)
+    const sort = Number.isFinite(Number(x.sort)) ? Math.floor(Number(x.sort)) : out.length
+    out.push({ url, sort })
+  }
+  return out
+}
+
 /**
  * @param {unknown} l
  */
@@ -49,6 +78,7 @@ export function normalizeListingRow(l) {
  */
 export function createPeerListingsStore(filePath) {
   const resolved = path.resolve(filePath)
+  const runMutation = createMutationQueue()
 
   async function readAll() {
     try {
@@ -64,13 +94,50 @@ export function createPeerListingsStore(filePath) {
       if (e && e.code === 'ENOENT') {
         return { listings: [], sellers: [], listingOrders: [], ledger: [] }
       }
+      if (e instanceof SyntaxError || (e && e.name === 'SyntaxError')) {
+        console.error('[peer-listings-store] JSON parse failed (corrupt file?)', resolved, e.message)
+        const err = new Error(`peer_listings_json_corrupt:${resolved}`)
+        err.cause = e
+        throw err
+      }
       throw e
     }
   }
 
+  /** Atomic replace: readers see either previous full file or next full file (no torn writes). */
   async function writeAll(data) {
-    await fs.mkdir(path.dirname(resolved), { recursive: true })
-    await fs.writeFile(resolved, JSON.stringify(data, null, 2), 'utf8')
+    const dir = path.dirname(resolved)
+    await fs.mkdir(dir, { recursive: true })
+    const json = JSON.stringify(data, null, 2)
+    const tmp = path.join(
+      dir,
+      `.peer-listings-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}.tmp.json`,
+    )
+    try {
+      await fs.writeFile(tmp, json, 'utf8')
+      try {
+        await fs.rename(tmp, resolved)
+      } catch (renameErr) {
+        if (
+          renameErr &&
+          (renameErr.code === 'EPERM' || renameErr.code === 'EEXIST') &&
+          process.platform === 'win32'
+        ) {
+          await fs.copyFile(tmp, resolved)
+          await fs.unlink(tmp).catch(() => {})
+        } else {
+          await fs.unlink(tmp).catch(() => {})
+          throw renameErr
+        }
+      }
+    } catch (e) {
+      console.error('[peer-listings-store] writeAll failed', {
+        path: resolved,
+        code: e?.code,
+        message: e?.message,
+      })
+      throw e
+    }
   }
 
   function sellerKey(userId, email) {
@@ -178,10 +245,14 @@ export function createPeerListingsStore(filePath) {
       profileAuthorId,
       profileDisplayName,
       profileAvatar,
+      images: imagesIn,
     }) {
+      return runMutation(async () => {
       const data = await readAll()
       const skuTrim = String(sku || '').trim().slice(0, 64)
-      const priceCents = Math.max(0, Math.round(Number(priceAud) * 100)) || 0
+      const priceNum = Number(priceAud)
+      const priceCents =
+        Number.isFinite(priceNum) && priceNum >= 0 ? Math.max(0, Math.round(priceNum * 100)) : 0
       let compareAtCents = 0
       if (compareAtCentsIn != null && Number.isFinite(Number(compareAtCentsIn))) {
         const c = Math.max(0, Math.round(Number(compareAtCentsIn)))
@@ -194,6 +265,11 @@ export function createPeerListingsStore(filePath) {
       const endsRaw = Number(auctionEndsAt)
       const auctionEnds =
         mode === 'auction' && Number.isFinite(endsRaw) && endsRaw > Date.now() ? Math.round(endsRaw) : null
+      if (mode === 'auction' && !auctionEnds) {
+        const err = new Error('auction_end_required')
+        err.code = 'auction_end_required'
+        throw err
+      }
       let reserve = 0
       if (mode === 'auction') {
         const r = Number(reserveIn)
@@ -220,7 +296,7 @@ export function createPeerListingsStore(filePath) {
         fetchDelivery: Boolean(fetchDelivery),
         sameDayDelivery: Boolean(sameDayDelivery),
         status: 'draft',
-        images: [],
+        images: normalizeInitialListingImages(imagesIn),
         saleMode: mode,
         auctionEndsAt: auctionEnds,
         reserveCents: mode === 'auction' ? Math.max(0, reserve) : 0,
@@ -245,9 +321,11 @@ export function createPeerListingsStore(filePath) {
       data.listings.unshift(listing)
       await writeAll(data)
       return listing
+      })
     },
 
     async patchListing(id, sellerKeyVal, patch) {
+      return runMutation(async () => {
       const data = await readAll()
       const idx = data.listings.findIndex((l) => l.id === id)
       if (idx < 0) return null
@@ -306,9 +384,11 @@ export function createPeerListingsStore(filePath) {
       data.listings[idx] = next
       await writeAll(data)
       return { listing: next }
+      })
     },
 
     async setListingStatus(id, sellerKeyVal, status) {
+      return runMutation(async () => {
       const data = await readAll()
       const idx = data.listings.findIndex((l) => l.id === id)
       if (idx < 0) return null
@@ -317,9 +397,11 @@ export function createPeerListingsStore(filePath) {
       data.listings[idx] = { ...l, status, updatedAt: Date.now() }
       await writeAll(data)
       return { listing: data.listings[idx] }
+      })
     },
 
     async addListingImage(id, sellerKeyVal, { url, sort }) {
+      return runMutation(async () => {
       const data = await readAll()
       const idx = data.listings.findIndex((l) => l.id === id)
       if (idx < 0) return null
@@ -331,15 +413,18 @@ export function createPeerListingsStore(filePath) {
       data.listings[idx] = { ...l, images, updatedAt: Date.now() }
       await writeAll(data)
       return { listing: data.listings[idx] }
+      })
     },
 
     async markListingSold(listingId) {
-      const data = await readAll()
-      const idx = data.listings.findIndex((l) => l.id === listingId)
-      if (idx < 0) return false
-      data.listings[idx] = { ...data.listings[idx], status: 'sold', updatedAt: Date.now() }
-      await writeAll(data)
-      return true
+      return runMutation(async () => {
+        const data = await readAll()
+        const idx = data.listings.findIndex((l) => l.id === listingId)
+        if (idx < 0) return false
+        data.listings[idx] = { ...data.listings[idx], status: 'sold', updatedAt: Date.now() }
+        await writeAll(data)
+        return true
+      })
     },
 
     async getSeller(userKey) {
@@ -348,6 +433,7 @@ export function createPeerListingsStore(filePath) {
     },
 
     async upsertSellerStripe(userKey, stripeAccountId) {
+      return runMutation(async () => {
       const data = await readAll()
       const i = data.sellers.findIndex((s) => s.userKey === userKey)
       const row = {
@@ -360,9 +446,11 @@ export function createPeerListingsStore(filePath) {
       else data.sellers[i] = { ...data.sellers[i], ...row }
       await writeAll(data)
       return row
+      })
     },
 
     async setSellerOnboardingComplete(stripeAccountId) {
+      return runMutation(async () => {
       const data = await readAll()
       const s = data.sellers.find((x) => x.stripeAccountId === stripeAccountId)
       if (!s) return null
@@ -370,9 +458,11 @@ export function createPeerListingsStore(filePath) {
       s.updatedAt = Date.now()
       await writeAll(data)
       return s
+      })
     },
 
     async setSellerOnboardingByUserKey(userKey, complete) {
+      return runMutation(async () => {
       const data = await readAll()
       const s = data.sellers.find((x) => x.userKey === userKey)
       if (!s) return null
@@ -380,6 +470,7 @@ export function createPeerListingsStore(filePath) {
       s.updatedAt = Date.now()
       await writeAll(data)
       return s
+      })
     },
 
     async listListingsBySeller(sellerKeyVal) {
@@ -389,11 +480,13 @@ export function createPeerListingsStore(filePath) {
     },
 
     async appendListingOrder(order) {
+      return runMutation(async () => {
       const data = await readAll()
       const row = { id: makeId('lo'), createdAt: Date.now(), ...order }
       data.listingOrders.unshift(row)
       await writeAll(data)
       return row
+      })
     },
 
     async findListingOrderByPaymentIntent(pid) {
@@ -407,20 +500,24 @@ export function createPeerListingsStore(filePath) {
     },
 
     async patchListingOrder(id, patch) {
+      return runMutation(async () => {
       const data = await readAll()
       const idx = data.listingOrders.findIndex((o) => o.id === id)
       if (idx < 0) return null
       data.listingOrders[idx] = { ...data.listingOrders[idx], ...patch }
       await writeAll(data)
       return data.listingOrders[idx]
+      })
     },
 
     async appendLedger(entry) {
+      return runMutation(async () => {
       const data = await readAll()
       const row = { id: makeId('led'), createdAt: Date.now(), ...entry }
       data.ledger.unshift(row)
       await writeAll(data)
       return row
+      })
     },
 
     async ledgerForSeller(userKey, { from, to } = {}) {
@@ -435,6 +532,7 @@ export function createPeerListingsStore(filePath) {
      * @param {{ listingId: string, bidderKey: string, amountCents: number, stripePaymentIntentId?: string | null }} p
      */
     async placeBid(p) {
+      return runMutation(async () => {
       const data = await readAll()
       const idx = data.listings.findIndex((l) => l.id === p.listingId)
       if (idx < 0) return { error: 'listing_not_found' }
@@ -474,21 +572,77 @@ export function createPeerListingsStore(filePath) {
       data.listings[idx] = next
       await writeAll(data)
       return { listing: next }
+      })
+    },
+
+    /**
+     * Seller resets an ended auction that did not meet reserve (unsold) with a new end time.
+     * @param {string} id
+     * @param {string} sellerKeyVal
+     * @param {{ auctionEndsAt: number, priceAud?: number, minBidIncrementCents?: number }} opts
+     */
+    async repostExpiredAuctionListing(id, sellerKeyVal, opts = {}) {
+      return runMutation(async () => {
+        const data = await readAll()
+        const idx = data.listings.findIndex((x) => x.id === id)
+        if (idx < 0) return { error: 'listing_not_found' }
+        const l = normalizeListingRow(data.listings[idx])
+        if (!listingOwnedBy(l, sellerKeyVal)) return { error: 'forbidden' }
+        if (l.saleMode !== 'auction') return { error: 'not_auction' }
+        if (l.status !== 'published') return { error: 'bad_status' }
+        const now = Date.now()
+        const timeEnded = Boolean((l.auctionEndsAt && now > l.auctionEndsAt) || l.auctionClosed)
+        if (!timeEnded) return { error: 'auction_not_ended' }
+        const reserve = Math.max(0, l.reserveCents || l.priceCents || 0)
+        const high = Math.max(0, l.auctionHighBidCents || 0)
+        const unsold = reserve <= 0 ? high === 0 : high < reserve
+        if (!unsold) return { error: 'reserve_met' }
+        const endsRaw = Number(opts.auctionEndsAt)
+        if (!Number.isFinite(endsRaw) || endsRaw <= now + 60_000) return { error: 'invalid_end' }
+        let priceCents = l.priceCents
+        if (opts.priceAud != null) {
+          const p = Math.round(Number(opts.priceAud) * 100)
+          if (Number.isFinite(p) && p >= 0) priceCents = p
+        }
+        let minInc = l.minBidIncrementCents || 100
+        if (opts.minBidIncrementCents != null) {
+          const m = Math.round(Number(opts.minBidIncrementCents))
+          if (Number.isFinite(m) && m >= 50) minInc = m
+        }
+        const nextReserve = Math.max(0, priceCents)
+        const next = {
+          ...l,
+          priceCents,
+          reserveCents: nextReserve,
+          minBidIncrementCents: minInc,
+          auctionClosed: false,
+          auctionEndsAt: Math.round(endsRaw),
+          bids: [],
+          auctionHighBidCents: 0,
+          auctionHighBidderKey: null,
+          updatedAt: now,
+        }
+        data.listings[idx] = next
+        await writeAll(data)
+        return { listing: next }
+      })
     },
 
     async closeExpiredAuctions() {
-      const data = await readAll()
-      const now = Date.now()
-      let changed = false
-      for (let i = 0; i < data.listings.length; i++) {
-        const l = normalizeListingRow(data.listings[i])
-        if (l.saleMode !== 'auction' || l.auctionClosed) continue
-        if (l.auctionEndsAt && now > l.auctionEndsAt) {
-          data.listings[i] = { ...l, auctionClosed: true, updatedAt: now }
-          changed = true
+      return runMutation(async () => {
+        const data = await readAll()
+        const now = Date.now()
+        let changed = false
+        for (let i = 0; i < data.listings.length; i++) {
+          const l = normalizeListingRow(data.listings[i])
+          if (l.saleMode !== 'auction' || l.auctionClosed) continue
+          if (l.auctionEndsAt && now > l.auctionEndsAt) {
+            data.listings[i] = { ...l, auctionClosed: true, updatedAt: now }
+            changed = true
+          }
         }
-      }
-      if (changed) await writeAll(data)
+        if (changed) await writeAll(data)
+      })
     },
   }
 }

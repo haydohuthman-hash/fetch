@@ -46,7 +46,20 @@ export function useDropsApiFeed(): UseDropsApiFeedState {
           return
         }
         const list = Array.isArray(payload.drops) ? payload.drops : []
-        let mapped = list.map((row) => mapApiDropToReel(row)).filter(Boolean) as DropReel[]
+        let mapped: DropReel[] = []
+        let feedFilteredOut = 0
+        for (const row of list) {
+          const m = mapApiDropToReel(row)
+          if (m) mapped.push(m)
+          else feedFilteredOut += 1
+        }
+        if (feedFilteredOut > 0) {
+          console.warn('[drops/feed] rows excluded from feed (see mapApiDrop logs)', {
+            total: list.length,
+            kept: mapped.length,
+            excluded: feedFilteredOut,
+          })
+        }
         const session = loadSession()
         if (session && isFetchDevDemoSession(session)) {
           const demoRows = buildDevDemoDropApiRows(session)

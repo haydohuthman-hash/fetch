@@ -221,6 +221,12 @@ export function DropsVideoRecorder({ open, onClose, onComplete, onPickFromLibrar
     const file = new File([previewBlob], `fetch-recording-${Date.now()}.${ext}`, {
       type: previewBlob.type || 'video/webm',
     })
+    console.log('[drops/recorder] recording complete → File', {
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      blobSize: previewBlob.size,
+    })
     stopStream()
     onComplete(file)
   }, [previewBlob, onComplete, stopStream])

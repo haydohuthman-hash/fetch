@@ -55,7 +55,7 @@ export function FetchVoiceCommandFab({
   glowColor?: { r: number; g: number; b: number }
   voiceLevel?: number
   expression?: FetchOrbExpression
-  orbAppearance?: 'night' | 'day'
+  orbAppearance?: 'night' | 'day' | 'brand'
   autonomous?: boolean
   suspendAutonomous?: boolean
   onSheetPullExpand?: () => void
@@ -223,6 +223,7 @@ export function FetchVoiceCommandFab({
           orbAppearance={orbAppearance}
           autonomous={autonomous}
           suspendAutonomous={suspendAutonomous}
+          suppressHomeDockSparkles={homeSheetDock}
           size={
             compact
               ? 'sm'

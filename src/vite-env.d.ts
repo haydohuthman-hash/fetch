@@ -49,6 +49,7 @@ interface ImportMetaEnv {
   readonly VITE_SUPABASE_ANON_KEY?: string
   /** Dev only (localhost + `import.meta.env.DEV`): email/password auto sign-in when session is empty. */
   readonly VITE_DEV_AUTO_SIGNIN_EMAIL?: string
+  /** Defaults to `demo12345678` when email is set but this is omitted. */
   readonly VITE_DEV_AUTO_SIGNIN_PASSWORD?: string
   /**
    * Local demo account email for synthetic marketplace listings + Drops feed clips (defaults to

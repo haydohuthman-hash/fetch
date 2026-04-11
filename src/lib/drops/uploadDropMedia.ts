@@ -73,8 +73,13 @@ function throwStorageUploadFailed(
   })
 }
 
+/** Strip `;codecs=…` etc. Browsers often report `video/webm;codecs=vp9,opus`. */
+function baseMime(mime: string): string {
+  return (mime || '').split(';')[0]?.trim().toLowerCase() || ''
+}
+
 function videoMimeOk(mime: string): boolean {
-  return /^video\/(mp4|webm|quicktime)$/i.test(mime || '')
+  return /^video\/(mp4|webm|quicktime)$/i.test(baseMime(mime))
 }
 
 /** Browsers often leave `file.type` empty or use `application/octet-stream` for .mov / .mp4. */
@@ -90,13 +95,15 @@ function inferVideoMimeForUpload(file: File): { validatedMime: string; storageCo
           ? 'video/mp4'
           : ''
   if (raw && videoMimeOk(raw)) {
-    return { validatedMime: raw, storageContentType: raw }
+    const base = baseMime(raw)
+    return { validatedMime: base, storageContentType: base }
   }
   if (fromExt && videoMimeOk(fromExt)) {
     return { validatedMime: fromExt, storageContentType: fromExt }
   }
   if (raw.startsWith('video/')) {
-    return { validatedMime: raw, storageContentType: raw }
+    const base = baseMime(raw)
+    return { validatedMime: base, storageContentType: base }
   }
   return { validatedMime: 'video/mp4', storageContentType: 'video/mp4' }
 }
@@ -211,11 +218,22 @@ export async function uploadDropMedia(params: {
     const objectPath = resolveObjectPathInBucket(bucket, data, filePath)
     console.log('[publish-upload] step 8: before public url generation (video)', { objectPath })
     const { data: pub } = sb.storage.from(bucket).getPublicUrl(objectPath)
+    const videoUrl = (pub.publicUrl || '').trim()
     console.log('[publish-upload] step 9: after public url generation (video)', {
-      hasUrl: Boolean(pub.publicUrl),
+      hasUrl: Boolean(videoUrl),
+      urlPrefix: videoUrl ? videoUrl.slice(0, 48) : '',
     })
-    const out = { videoUrl: pub.publicUrl }
-    console.log('[publish-upload] step 10: function return (video)', out)
+    if (!videoUrl || !/^https?:\/\//i.test(videoUrl)) {
+      console.error('[drops/upload] invalid video public URL after getPublicUrl', {
+        objectPath,
+        publicUrlLen: videoUrl.length,
+      })
+      throw new UploadDropMediaError('Upload succeeded but public video URL is missing.', 502, {
+        error: 'invalid_public_url',
+      })
+    }
+    const out = { videoUrl }
+    console.log('[publish-upload] step 10: function return (video)', { videoUrl: out.videoUrl })
     return out
   }
 
@@ -250,10 +268,18 @@ export async function uploadDropMedia(params: {
     const objectPath = resolveObjectPathInBucket(bucket, data, filePath)
     console.log('[publish-upload] step 8: before public url generation (image)', { objectPath })
     const { data: pub } = sb.storage.from(bucket).getPublicUrl(objectPath)
+    const imageUrl = (pub.publicUrl || '').trim()
     console.log('[publish-upload] step 9: after public url generation (image)', {
-      hasUrl: Boolean(pub.publicUrl),
+      hasUrl: Boolean(imageUrl),
+      urlPrefix: imageUrl ? imageUrl.slice(0, 48) : '',
     })
-    urls.push(pub.publicUrl)
+    if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) {
+      console.error('[drops/upload] invalid image public URL after getPublicUrl', { objectPath })
+      throw new UploadDropMediaError('Upload succeeded but public image URL is missing.', 502, {
+        error: 'invalid_public_url',
+      })
+    }
+    urls.push(imageUrl)
   }
   const out = { imageUrls: urls }
   console.log('[publish-upload] step 10: function return (images)', { count: urls.length })

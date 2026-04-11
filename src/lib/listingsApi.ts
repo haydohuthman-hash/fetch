@@ -56,6 +56,15 @@ export type PeerListing = {
   fetchDelivery?: boolean
   /** Promo / logistics flag — shown as a badge when true */
   sameDayDelivery?: boolean
+  /** `auction` = timed bidding; opening price is first-bid floor (reserve). */
+  saleMode?: 'fixed' | 'auction'
+  auctionEndsAt?: number | null
+  reserveCents?: number
+  minBidIncrementCents?: number
+  auctionHighBidCents?: number
+  auctionHighBidderKey?: string | null
+  auctionClosed?: boolean
+  bids?: { bidderKey: string; amountCents: number; createdAt: number; status?: string }[]
 }
 
 export type ListingOrder = {
@@ -174,30 +183,202 @@ export async function analyzeListingPhotosForSell(files: File[]): Promise<Listin
   return payload
 }
 
-export async function createListing(body: {
+/** Normalized JSON body for POST /api/listings — `priceAud` is always a finite number ≥ 0. */
+export type ValidatedCreateListingBody = {
+  title: string
+  description: string
+  priceAud: number
+  category: string
+  condition: string
+  keywords: string
+  locationLabel: string
+  sku?: string
+  acceptsOffers: boolean
+  fetchDelivery: boolean
+  sameDayDelivery: boolean
+  compareAtPriceAud?: number
+  profileAuthorId: string
+  profileDisplayName: string
+  profileAvatar?: string
+  /** Pre-uploaded `/listing-uploads/...` from `uploadListingImagesForCreate` */
+  images?: { url: string; sort: number }[]
+  saleMode?: 'fixed' | 'auction'
+  /** Epoch ms when the auction ends (required when `saleMode` is `auction`). */
+  auctionEndsAt?: number
+  /** Minimum raise between bids in whole cents (≥ 50). */
+  minBidIncrementCents?: number
+}
+
+export type CreateListingDraftInput = {
   title: string
   description?: string
-  priceAud: number
+  /** Parsed number or numeric string — must be finite and ≥ 0 after normalization */
+  priceAud: number | string
   category?: string
   condition?: string
   keywords?: string
   locationLabel?: string
+  /** Used when `locationLabel` is empty (server also merges suburb) */
+  suburb?: string
   sku?: string
   acceptsOffers?: boolean
   fetchDelivery?: boolean
   sameDayDelivery?: boolean
-  /** Higher than priceAud — shown as strikethrough “was” price */
   compareAtPriceAud?: number
-  /** Required — seller’s Fetch / Drops public profile */
   profileAuthorId: string
   profileDisplayName: string
   profileAvatar?: string
-}): Promise<PeerListing> {
-  const payload = await listingsJson<{ listing: PeerListing }>('/api/listings', {
+  images?: { url: string; sort?: number }[]
+  saleMode?: 'fixed' | 'auction'
+  auctionEndsAt?: number
+  minBidIncrementAud?: number
+}
+
+/**
+ * Client-side guard before POST /api/listings: required title, finite priceAud ≥ 0, string fields normalized.
+ * Images are optional; when present, coerces `{ url, sort }` so JSON never sends string prices.
+ */
+export function buildValidatedCreateListingBody(
+  input: CreateListingDraftInput,
+):
+  | { ok: true; body: Omit<ValidatedCreateListingBody, 'images'> }
+  | { ok: false; error: string } {
+  const title = String(input.title ?? '').trim()
+  if (!title) return { ok: false, error: 'Add a product title.' }
+
+  const rawPrice = input.priceAud
+  const priceNum =
+    typeof rawPrice === 'string'
+      ? Number.parseFloat(String(rawPrice).replace(/,/g, ''))
+      : Number(rawPrice)
+  if (!Number.isFinite(priceNum) || priceNum < 0) {
+    return { ok: false, error: 'Enter a valid price in AUD (0 or more).' }
+  }
+
+  const description =
+    typeof input.description === 'string' ? input.description.trim().slice(0, 8000) : ''
+  const category =
+    typeof input.category === 'string' && input.category.trim()
+      ? input.category.trim().slice(0, 64)
+      : 'general'
+  const condition =
+    typeof input.condition === 'string' && input.condition.trim()
+      ? input.condition.trim().slice(0, 32)
+      : 'used'
+  const keywords =
+    typeof input.keywords === 'string' ? input.keywords.trim().slice(0, 2000) : ''
+  const loc =
+    (typeof input.locationLabel === 'string' ? input.locationLabel.trim() : '') ||
+    (typeof input.suburb === 'string' ? input.suburb.trim() : '')
+  const locationLabel = loc.slice(0, 200)
+
+  const profileAuthorId = String(input.profileAuthorId ?? '').trim()
+  const profileDisplayName = String(input.profileDisplayName ?? '').trim()
+  if (!profileAuthorId) {
+    return { ok: false, error: 'Link your Fetch public profile before listing.' }
+  }
+  if (!profileDisplayName) {
+    return { ok: false, error: 'Profile display name is required.' }
+  }
+
+  const skuRaw = input.sku != null ? String(input.sku).trim().slice(0, 64) : ''
+  const body: Omit<ValidatedCreateListingBody, 'images'> = {
+    title,
+    description,
+    priceAud: priceNum,
+    category,
+    condition,
+    keywords,
+    locationLabel,
+    acceptsOffers: Boolean(input.acceptsOffers),
+    fetchDelivery: Boolean(input.fetchDelivery),
+    sameDayDelivery: Boolean(input.sameDayDelivery),
+    profileAuthorId,
+    profileDisplayName,
+    profileAvatar: input.profileAvatar != null && String(input.profileAvatar).trim()
+      ? String(input.profileAvatar).trim().slice(0, 120)
+      : undefined,
+  }
+  if (skuRaw) body.sku = skuRaw
+  if (input.compareAtPriceAud != null && Number.isFinite(Number(input.compareAtPriceAud))) {
+    const c = Number(input.compareAtPriceAud)
+    if (c > 0) body.compareAtPriceAud = c
+  }
+
+  const mode = input.saleMode === 'auction' ? 'auction' : 'fixed'
+  if (mode === 'auction') {
+    const ends = Number(input.auctionEndsAt)
+    if (!Number.isFinite(ends) || ends <= Date.now() + 120_000) {
+      return { ok: false, error: 'Choose an auction end time at least 2 minutes from now.' }
+    }
+    const minAud = input.minBidIncrementAud != null ? Number(input.minBidIncrementAud) : 1
+    const minCents = Number.isFinite(minAud) && minAud > 0 ? Math.round(minAud * 100) : 100
+    const bodyAuction: ValidatedCreateListingBody = {
+      ...body,
+      saleMode: 'auction',
+      auctionEndsAt: Math.round(ends),
+      minBidIncrementCents: Math.max(50, minCents),
+    }
+    return { ok: true, body: bodyAuction }
+  }
+
+  return { ok: true, body }
+}
+
+/** Attach pre-uploaded images (each `{ url, sort }`) after `uploadListingImagesForCreate` succeeds. */
+export function withListingImages(
+  body: Omit<ValidatedCreateListingBody, 'images'>,
+  images: { url: string; sort: number }[] | undefined,
+): ValidatedCreateListingBody {
+  if (!images?.length) return { ...body }
+  const safe = images
+    .filter((x) => x && typeof x.url === 'string' && x.url.includes('/listing-uploads/'))
+    .map((x, i) => ({
+      url: x.url.trim().slice(0, 2048),
+      sort: Number.isFinite(Number(x.sort)) ? Math.floor(Number(x.sort)) : i,
+    }))
+    .slice(0, 12)
+  return safe.length ? { ...body, images: safe } : { ...body }
+}
+
+export async function createListing(body: ValidatedCreateListingBody): Promise<PeerListing> {
+  try {
+    const payload = await listingsJson<{ listing: PeerListing }>('/api/listings', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    })
+    return payload.listing
+  } catch (e) {
+    console.error('POST ERROR', e)
+    throw e
+  }
+}
+
+/** Upload images before creating a listing — avoids orphan drafts if create fails. */
+export async function uploadListingImagesForCreate(files: File[]): Promise<string[]> {
+  if (!files.length) return []
+  const fd = new FormData()
+  for (const f of files.slice(0, 12)) {
+    fd.append('files', f)
+  }
+  const response = await fetch(`${getFetchApiBaseUrl()}/api/listings/uploads`, {
     method: 'POST',
-    body: JSON.stringify(body),
+    credentials: 'include',
+    headers: { ...marketplaceActorHeaders('customer') },
+    body: fd,
   })
-  return payload.listing
+  const payload = (await response.json().catch(() => ({}))) as {
+    urls?: string[]
+    error?: string
+    detail?: string
+  }
+  if (!response.ok) {
+    const error = typeof payload.error === 'string' ? payload.error : `Request failed (${response.status})`
+    const detail = typeof payload.detail === 'string' ? `: ${payload.detail}` : ''
+    console.error('POST ERROR', error + detail)
+    throw new Error(`${error}${detail}`)
+  }
+  return Array.isArray(payload.urls) ? payload.urls : []
 }
 
 export async function publishListing(id: string): Promise<PeerListing> {
@@ -261,6 +442,30 @@ export async function checkoutListing(listingId: string): Promise<{
   paymentIntent: BookingPaymentIntent
 }> {
   return listingsJson(`/api/listings/${encodeURIComponent(listingId)}/checkout`, { method: 'POST' })
+}
+
+export async function placeListingBid(
+  listingId: string,
+  amountAud: number,
+): Promise<{
+  listing: PeerListing
+  paymentIntent: { clientSecret: string; id: string } | null
+}> {
+  return listingsJson(`/api/listings/${encodeURIComponent(listingId)}/bid`, {
+    method: 'POST',
+    body: JSON.stringify({ amountAud }),
+  })
+}
+
+export async function repostAuctionListing(
+  listingId: string,
+  body: { auctionEndsAt: number; priceAud?: number; minBidIncrementCents?: number },
+): Promise<PeerListing> {
+  const payload = await listingsJson<{ listing: PeerListing }>(
+    `/api/listings/${encodeURIComponent(listingId)}/repost-auction`,
+    { method: 'POST', body: JSON.stringify(body) },
+  )
+  return payload.listing
 }
 
 export async function startSellerConnect(): Promise<{ url: string; stripeAccountId: string }> {

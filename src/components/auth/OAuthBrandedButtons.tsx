@@ -47,7 +47,7 @@ export function OAuthBrandedButtons({ onApple, onGoogle, disabled }: Props) {
         type="button"
         onClick={onApple}
         disabled={disabled}
-        className="flex h-12 w-full items-center justify-center gap-2 rounded-[13px] bg-black px-4 text-[17px] font-medium leading-none text-white shadow-sm ring-1 ring-white/10 transition-opacity hover:opacity-90 disabled:opacity-45"
+        className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-black px-4 text-[17px] font-medium leading-none text-white shadow-sm ring-1 ring-white/10 transition-opacity hover:opacity-90 disabled:opacity-45"
         style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' }}
       >
         <AppleLogo className="shrink-0 text-white" />
@@ -57,7 +57,7 @@ export function OAuthBrandedButtons({ onApple, onGoogle, disabled }: Props) {
         type="button"
         onClick={onGoogle}
         disabled={disabled}
-        className="flex h-12 w-full items-center justify-center gap-3 rounded-sm border border-[#747775] bg-white px-4 text-[14px] font-medium leading-none text-[#1f1f1f] shadow-[0_1px_2px_rgba(0,0,0,0.08)] transition-colors hover:bg-[#f8f9fa] disabled:opacity-45"
+        className="flex h-12 w-full items-center justify-center gap-3 rounded-full border border-[#747775] bg-white px-4 text-[14px] font-medium leading-none text-[#1f1f1f] shadow-[0_1px_2px_rgba(0,0,0,0.08)] transition-colors hover:bg-[#f8f9fa] disabled:opacity-45"
         style={{ fontFamily: 'Roboto, "Helvetica Neue", Arial, sans-serif' }}
       >
         <GoogleLogo className="shrink-0" />

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { refreshSessionFromSupabase, loadSession } from '../lib/fetchUserSession'
 import {
   completeFetchProfileOnboarding,
+  formatProfileSaveError,
   uploadMySupabaseAvatar,
 } from '../lib/supabase/profiles'
 
@@ -93,9 +94,8 @@ export default function FetchOnboardingView({
       console.log('[ONBOARDING] done → app')
       onComplete()
     } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Something went wrong.'
       console.error('[ONBOARDING] complete failed', e)
-      setError(msg)
+      setError(formatProfileSaveError(e))
     } finally {
       setBusy(false)
     }

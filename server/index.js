@@ -66,7 +66,17 @@ import {
   visitorBucketsByDay,
 } from './lib/analytics-pg.js'
 import { runAdminStoreAiChat } from './lib/admin-store-ai.js'
-import { createPeerListingsStore, normalizeListingRow } from './lib/peer-listings-store.js'
+import {
+  createPeerListingsStore,
+  normalizeInitialListingImages,
+  normalizeListingRow,
+} from './lib/peer-listings-store.js'
+import { createPeerListingsSupabaseStore } from './lib/peer-listings-supabase.js'
+import { getSupabaseAdminClient } from './lib/supabase-admin.js'
+import {
+  classifyListingCreateFailure,
+  logListingCreateRequestBodyShape,
+} from './lib/listing-create-request-log.js'
 import {
   buildPublicDemoListings,
   filterPublicDemoListings,
@@ -132,6 +142,20 @@ import {
   muxPlaybackUrl,
 } from './lib/drops-live-mux.js'
 import { transformVideoBuffer, ffmpegAvailable } from './lib/drops-ffmpeg-process.js'
+import {
+  ensureBattlesTables,
+  createBattle,
+  joinBattle,
+  startBattle,
+  addBattleScore,
+  recordBattleBoost,
+  addBattleComment,
+  finalizeBattle,
+  getBattleWithParticipants,
+  getSellerBattleStats as getSellerBattleStatsPg,
+  listActiveBattles,
+  finalizeExpiredBattles,
+} from './lib/battles-pg.js'
 import {
   getSupabaseClientForUserAccessToken,
   parseBearerAccessToken,
@@ -469,6 +493,7 @@ if (sharedPgPool) {
   await backfillProductSubcategoriesGeneral(sharedPgPool)
   await ensureAnalyticsTables(sharedPgPool)
   await ensureDropsTables(sharedPgPool)
+  await ensureBattlesTables(sharedPgPool)
 }
 
 if (process.env.NODE_ENV === 'production') {
@@ -515,7 +540,17 @@ await refreshMergedStoreCatalog()
 const PEER_LISTINGS_FILE = process.env.VERCEL
   ? path.join('/tmp', 'fetch-peer-listings.json')
   : path.join(__dirname, 'peer-listings.json')
-const peerListingsStore = createPeerListingsStore(PEER_LISTINGS_FILE)
+const supabaseAdminForListings = getSupabaseAdminClient()
+const peerListingsStore = supabaseAdminForListings
+  ? createPeerListingsSupabaseStore(supabaseAdminForListings)
+  : createPeerListingsStore(PEER_LISTINGS_FILE)
+if (supabaseAdminForListings) {
+  console.log('[peer-listings] persistence: Supabase/Postgres (durable)')
+} else {
+  console.warn(
+    '[peer-listings] persistence: local JSON file — set SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY for durable marketplace data (required in production)',
+  )
+}
 
 const PEER_MESSAGES_FILE = process.env.VERCEL
   ? path.join('/tmp', 'fetch-peer-messages.json')
@@ -605,6 +640,12 @@ async function finalizeListingOrderPaidFromPi(stripePiId) {
 const listingImageUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 6 * 1024 * 1024, files: 1 },
+})
+
+/** Batch upload before POST /api/listings — avoids orphan drafts when create fails after partial uploads. */
+const listingImagesBatchUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 6 * 1024 * 1024, files: 12 },
 })
 
 const DROP_VIDEO_MAX_BYTES = 100 * 1024 * 1024
@@ -975,6 +1016,60 @@ app.post('/api/auth/login', async (req, res) => {
     console.error('[auth/login]', e)
     return res.status(500).json({ error: 'login_failed' })
   }
+})
+
+/**
+ * After Supabase (email/OAuth) sign-in, mint httpOnly `fetch_session` so marketplace + listing APIs
+ * resolve `customerUserId` / email from the cookie (see resolveMarketplaceActor).
+ */
+function primaryEmailForFetchSessionFromSupabaseUser(user) {
+  if (!user || typeof user !== 'object') return ''
+  const e = normalizeEmail(typeof user.email === 'string' ? user.email : '')
+  if (e) return e
+  const meta = user.user_metadata && typeof user.user_metadata === 'object' ? user.user_metadata : {}
+  if (typeof meta.email === 'string' && meta.email.trim()) return normalizeEmail(meta.email)
+  const ids = Array.isArray(user.identities) ? user.identities : []
+  for (const row of ids) {
+    const data = row?.identity_data && typeof row.identity_data === 'object' ? row.identity_data : {}
+    if (typeof data.email === 'string' && data.email.trim()) return normalizeEmail(data.email)
+  }
+  const compact = String(user.id || '')
+    .replace(/-/g, '')
+    .slice(0, 12)
+  if (compact.length >= 8) return normalizeEmail(`${compact}@users.oauth.fetch`)
+  return ''
+}
+
+app.post('/api/auth/supabase-session', authRouteLimiter, async (req, res) => {
+  let accessToken = parseBearerAccessToken(req)
+  if (!accessToken && typeof req.body?.access_token === 'string') {
+    accessToken = req.body.access_token.trim()
+  }
+  if (!accessToken) {
+    return res.status(400).json({ error: 'access_token_required' })
+  }
+  const sb = getSupabaseClientForUserAccessToken(accessToken)
+  if (!sb) {
+    console.error('[auth/supabase-session] Supabase env missing (SUPABASE_URL / anon key)')
+    return res.status(503).json({ error: 'supabase_not_configured' })
+  }
+  const { data, error } = await sb.auth.getUser()
+  if (error || !data?.user?.id) {
+    console.error('[auth/supabase-session] getUser failed', error?.message ?? 'no user')
+    return res.status(401).json({
+      error: 'invalid_token',
+      detail: error?.message ?? 'invalid_session',
+    })
+  }
+  const user = data.user
+  const email = primaryEmailForFetchSessionFromSupabaseUser(user)
+  if (!email) {
+    console.error('[auth/supabase-session] no email derivable for user', user.id)
+    return res.status(400).json({ error: 'email_required', detail: 'Could not derive email for session' })
+  }
+  console.log('[auth/supabase-session] issuing cookie', { userId: user.id, email })
+  issueCustomerSessionCookie(res, { userId: user.id, email })
+  return res.json({ ok: true, userId: user.id })
 })
 
 app.get('/api/auth/me', async (req, res) => {
@@ -3250,6 +3345,268 @@ app.get('/api/drops/ffmpeg-status', async (_req, res) => {
   return res.json({ available: ok, bin: (process.env.FFMPEG_PATH || 'ffmpeg').trim() || 'ffmpeg' })
 })
 
+/* ═══════════════════════ Live Battles API ═══════════════════════ */
+
+const battlesWriteLimiter = rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false })
+
+const BATTLE_BOOST_TIERS = {
+  1: { creditsCost: 10, pointsValue: 5 },
+  2: { creditsCost: 50, pointsValue: 30 },
+  3: { creditsCost: 200, pointsValue: 150 },
+}
+
+const BATTLE_SCORING = {
+  sales: { sale: 100, bid: 10, boostMul: 0.5 },
+  bidding: { sale: 40, bid: 100, boostMul: 0.5 },
+  boost: { sale: 20, bid: 20, boostMul: 2 },
+  mixed: { sale: 80, bid: 50, boostMul: 1 },
+}
+
+app.post('/api/battles', battlesWriteLimiter, async (req, res) => {
+  if (!sharedPgPool) return res.status(503).json({ error: 'db_not_configured' })
+  try {
+    const body = req.body || {}
+    const mode = ['sales', 'bidding', 'boost', 'mixed'].includes(body.mode) ? body.mode : 'mixed'
+    const durationMs = Math.min(600000, Math.max(60000, Number(body.durationMs) || 300000))
+    const battle = await createBattle(sharedPgPool, { mode, durationMs })
+    console.log('[battles] created', { id: battle.id, mode, durationMs })
+    return res.json({ ok: true, battle })
+  } catch (e) {
+    console.error('[battles] create failed', e)
+    return res.status(500).json({ error: 'battle_create_failed' })
+  }
+})
+
+app.post('/api/battles/:id/join', battlesWriteLimiter, async (req, res) => {
+  if (!sharedPgPool) return res.status(503).json({ error: 'db_not_configured' })
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.status(401).json({ error: 'auth_required' })
+  try {
+    const body = req.body || {}
+    const side = body.side === 'b' ? 'b' : 'a'
+    const part = await joinBattle(sharedPgPool, {
+      battleId: req.params.id,
+      sellerKey: sk,
+      side,
+      displayName: typeof body.displayName === 'string' ? body.displayName.trim().slice(0, 60) : '@seller',
+      avatar: typeof body.avatar === 'string' ? body.avatar.trim().slice(0, 10) : '',
+      rating: Number(body.rating) || null,
+    })
+    console.log('[battles] joined', { battleId: req.params.id, side, seller: sk })
+    return res.json({ ok: true, participant: part })
+  } catch (e) {
+    console.error('[battles] join failed', e)
+    return res.status(500).json({ error: 'join_failed' })
+  }
+})
+
+app.post('/api/battles/:id/start', battlesWriteLimiter, async (req, res) => {
+  if (!sharedPgPool) return res.status(503).json({ error: 'db_not_configured' })
+  try {
+    const battle = await startBattle(sharedPgPool, req.params.id)
+    console.log('[battles] started', { id: battle.id, endsAt: battle.ends_at })
+    battleEventBus.emit('battle_started', { battleId: battle.id, battle })
+    return res.json({ ok: true, battle })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg === 'battle_not_found') return res.status(404).json({ error: msg })
+    if (msg === 'battle_already_started') return res.status(409).json({ error: msg })
+    console.error('[battles] start failed', e)
+    return res.status(500).json({ error: 'start_failed' })
+  }
+})
+
+app.post('/api/battles/:id/boost', battlesWriteLimiter, async (req, res) => {
+  if (!sharedPgPool) return res.status(503).json({ error: 'db_not_configured' })
+  try {
+    const body = req.body || {}
+    const side = body.side === 'b' ? 'b' : 'a'
+    const tier = [1, 2, 3].includes(Number(body.tier)) ? Number(body.tier) : 1
+    const tierCfg = BATTLE_BOOST_TIERS[tier]
+    const viewerId = typeof body.viewerId === 'string' ? body.viewerId.trim() : 'anon'
+    const viewerName = typeof body.viewerName === 'string' ? body.viewerName.trim().slice(0, 40) : 'Viewer'
+
+    const full = await getBattleWithParticipants(sharedPgPool, req.params.id)
+    if (!full) return res.status(404).json({ error: 'battle_not_found' })
+    if (full.battle.status !== 'live') return res.status(409).json({ error: 'battle_not_live' })
+
+    const mode = full.battle.mode || 'mixed'
+    const scoring = BATTLE_SCORING[mode] ?? BATTLE_SCORING.mixed
+    const points = Math.round(tierCfg.pointsValue * scoring.boostMul)
+
+    const boost = await recordBattleBoost(sharedPgPool, {
+      battleId: req.params.id,
+      viewerId,
+      viewerName,
+      side,
+      tier,
+      creditsCost: tierCfg.creditsCost,
+      pointsAdded: points,
+    })
+    const newScore = await addBattleScore(sharedPgPool, {
+      battleId: req.params.id,
+      side,
+      points,
+      reason: `boost_tier_${tier}`,
+    })
+
+    battleEventBus.emit('boost_sent', { battleId: req.params.id, boost, newScore })
+    return res.json({ ok: true, boost, newScore })
+  } catch (e) {
+    console.error('[battles] boost failed', e)
+    return res.status(500).json({ error: 'boost_failed' })
+  }
+})
+
+app.post('/api/battles/:id/comment', battlesWriteLimiter, async (req, res) => {
+  if (!sharedPgPool) return res.status(503).json({ error: 'db_not_configured' })
+  try {
+    const body = req.body || {}
+    const comment = await addBattleComment(sharedPgPool, {
+      battleId: req.params.id,
+      viewerId: typeof body.viewerId === 'string' ? body.viewerId.trim() : 'anon',
+      viewerName: typeof body.viewerName === 'string' ? body.viewerName.trim().slice(0, 40) : 'Viewer',
+      body: typeof body.text === 'string' ? body.text : '',
+    })
+    if (!comment) return res.status(400).json({ error: 'empty_comment' })
+    battleEventBus.emit('comment_added', { battleId: req.params.id, comment })
+    return res.json({ ok: true, comment })
+  } catch (e) {
+    console.error('[battles] comment failed', e)
+    return res.status(500).json({ error: 'comment_failed' })
+  }
+})
+
+app.post('/api/battles/:id/score', battlesWriteLimiter, async (req, res) => {
+  if (!sharedPgPool) return res.status(503).json({ error: 'db_not_configured' })
+  try {
+    const body = req.body || {}
+    const side = body.side === 'b' ? 'b' : 'a'
+    const reason = typeof body.reason === 'string' ? body.reason : 'manual'
+    const full = await getBattleWithParticipants(sharedPgPool, req.params.id)
+    if (!full) return res.status(404).json({ error: 'battle_not_found' })
+    if (full.battle.status !== 'live') return res.status(409).json({ error: 'battle_not_live' })
+
+    const mode = full.battle.mode || 'mixed'
+    const scoring = BATTLE_SCORING[mode] ?? BATTLE_SCORING.mixed
+    let points = 0
+    if (reason === 'sale') points = scoring.sale
+    else if (reason === 'bid') points = scoring.bid
+    else points = Math.min(500, Math.max(0, Math.round(Number(body.points) || 0)))
+
+    if (points <= 0) return res.status(400).json({ error: 'invalid_points' })
+
+    const newScore = await addBattleScore(sharedPgPool, { battleId: req.params.id, side, points, reason })
+    battleEventBus.emit('score_updated', { battleId: req.params.id, side, points, reason, newScore })
+    return res.json({ ok: true, newScore })
+  } catch (e) {
+    console.error('[battles] score failed', e)
+    return res.status(500).json({ error: 'score_failed' })
+  }
+})
+
+app.post('/api/battles/:id/end', battlesWriteLimiter, async (req, res) => {
+  if (!sharedPgPool) return res.status(503).json({ error: 'db_not_configured' })
+  try {
+    const result = await finalizeBattle(sharedPgPool, req.params.id)
+    if (!result) return res.status(404).json({ error: 'battle_not_found' })
+    battleEventBus.emit('battle_ended', { battleId: req.params.id, result })
+    return res.json({ ok: true, result })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg === 'battle_not_found') return res.status(404).json({ error: msg })
+    console.error('[battles] end failed', e)
+    return res.status(500).json({ error: 'end_failed' })
+  }
+})
+
+app.get('/api/battles', async (_req, res) => {
+  if (!sharedPgPool) return res.status(503).json({ error: 'db_not_configured' })
+  try {
+    const battles = await listActiveBattles(sharedPgPool)
+    return res.json({ ok: true, battles })
+  } catch (e) {
+    console.error('[battles] list failed', e)
+    return res.status(500).json({ error: 'list_failed' })
+  }
+})
+
+app.get('/api/battles/:id', async (req, res) => {
+  if (!sharedPgPool) return res.status(503).json({ error: 'db_not_configured' })
+  try {
+    const data = await getBattleWithParticipants(sharedPgPool, req.params.id)
+    if (!data) return res.status(404).json({ error: 'battle_not_found' })
+    return res.json({ ok: true, ...data })
+  } catch (e) {
+    console.error('[battles] get failed', e)
+    return res.status(500).json({ error: 'get_failed' })
+  }
+})
+
+app.get('/api/battles/seller/:sellerId/stats', async (req, res) => {
+  if (!sharedPgPool) return res.status(503).json({ error: 'db_not_configured' })
+  try {
+    const stats = await getSellerBattleStatsPg(sharedPgPool, req.params.sellerId)
+    return res.json({ ok: true, stats: stats ?? null })
+  } catch (e) {
+    console.error('[battles] seller stats failed', e)
+    return res.status(500).json({ error: 'stats_failed' })
+  }
+})
+
+app.get('/api/battles/:id/stream', async (req, res) => {
+  if (!sharedPgPool) return res.status(503).json({ error: 'db_not_configured' })
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  })
+  res.write('event: connected\ndata: {}\n\n')
+
+  const battleId = req.params.id
+  const handler = (/** @type {{ battleId: string }} */ evt) => {
+    if (evt.battleId !== battleId) return
+    try {
+      res.write(`event: battle\ndata: ${JSON.stringify(evt)}\n\n`)
+    } catch {}
+  }
+  battleEventBus.on('score_updated', handler)
+  battleEventBus.on('boost_sent', handler)
+  battleEventBus.on('comment_added', handler)
+  battleEventBus.on('battle_ended', handler)
+  battleEventBus.on('battle_started', handler)
+
+  const ping = setInterval(() => {
+    try { res.write('event: ping\ndata: {}\n\n') } catch {}
+  }, 15_000)
+
+  req.on('close', () => {
+    clearInterval(ping)
+    battleEventBus.off('score_updated', handler)
+    battleEventBus.off('boost_sent', handler)
+    battleEventBus.off('comment_added', handler)
+    battleEventBus.off('battle_ended', handler)
+    battleEventBus.off('battle_started', handler)
+  })
+})
+
+import { EventEmitter } from 'node:events'
+const battleEventBus = new EventEmitter()
+battleEventBus.setMaxListeners(200)
+
+if (sharedPgPool) {
+  setInterval(async () => {
+    try {
+      const finalized = await finalizeExpiredBattles(sharedPgPool)
+      for (const r of finalized) {
+        battleEventBus.emit('battle_ended', { battleId: r.battle_id, result: r })
+      }
+    } catch {}
+  }, 5_000)
+}
+
+/* ═══════════════════════ End Live Battles API ═══════════════════════ */
+
 app.post(
   '/api/drops/process-video',
   dropsWriteLimiter,
@@ -3678,55 +4035,191 @@ app.get('/api/listings/:listingId', async (req, res) => {
   return res.json({ listing: l })
 })
 
+app.post(
+  '/api/listings/uploads',
+  listingImagesBatchUpload.array('files', 12),
+  async (req, res) => {
+    const sk = peerListingSellerKey(req)
+    if (!sk) return res.status(401).json({ error: 'auth_required' })
+    const files = req.files
+    if (!Array.isArray(files) || files.length === 0) {
+      return res.status(400).json({ error: 'files_required', detail: 'Attach at least one image.' })
+    }
+    try {
+      await fs.promises.mkdir(LISTING_UPLOAD_DIR, { recursive: true })
+      const urls = []
+      for (const f of files) {
+        const buf = f.buffer
+        if (!buf || !buf.length) continue
+        const ext = path.extname(f.originalname || '').toLowerCase()
+        const safeExt = ['.jpg', '.jpeg', '.png', '.webp'].includes(ext) ? ext : '.jpg'
+        const name = `${Date.now()}_${crypto.randomBytes(8).toString('hex')}${safeExt}`
+        await fs.promises.writeFile(path.join(LISTING_UPLOAD_DIR, name), buf)
+        urls.push(`/listing-uploads/${name}`)
+      }
+      if (urls.length === 0) {
+        return res.status(400).json({ error: 'file_required', detail: 'No valid image bytes received.' })
+      }
+      return res.json({ urls })
+    } catch (e) {
+      console.error('POST ERROR', e)
+      const code = e && typeof e === 'object' && 'code' in e ? e.code : undefined
+      console.error('[listings/uploads] write failed', {
+        code,
+        message: e instanceof Error ? e.message : String(e),
+        dir: LISTING_UPLOAD_DIR,
+      })
+      return res.status(500).json({ error: 'upload_failed', detail: 'Could not save images.' })
+    }
+  },
+)
+
 app.post('/api/listings', async (req, res) => {
   const sk = peerListingSellerKey(req)
   if (!sk) return res.status(401).json({ error: 'auth_required' })
   const actor = resolveMarketplaceActor(req)
   const body = req.body ?? {}
-  const profileAuthorId = typeof body.profileAuthorId === 'string' ? body.profileAuthorId.trim() : ''
-  const profileDisplayName = typeof body.profileDisplayName === 'string' ? body.profileDisplayName.trim() : ''
-  if (!profileAuthorId) {
-    return res.status(400).json({
-      error: 'profile_required',
-      detail: 'Link your Fetch public profile (Drops @handle) before listing.',
+  logListingCreateRequestBodyShape(body)
+  try {
+    const title =
+      typeof body.title === 'string' ? body.title.trim().slice(0, 200) : String(body.title ?? '').trim().slice(0, 200)
+    if (!title) {
+      return res.status(400).json({ error: 'title_required', detail: 'Add a product title.' })
+    }
+
+    const rawPrice = body.priceAud
+    const priceNum =
+      typeof rawPrice === 'string' ? Number.parseFloat(String(rawPrice).replace(/,/g, '')) : Number(rawPrice)
+    if (!Number.isFinite(priceNum) || priceNum < 0) {
+      return res.status(400).json({ error: 'invalid_price', detail: 'Enter a valid price (0 or more AUD).' })
+    }
+
+    const profileAuthorId = typeof body.profileAuthorId === 'string' ? body.profileAuthorId.trim() : ''
+    const profileDisplayName = typeof body.profileDisplayName === 'string' ? body.profileDisplayName.trim() : ''
+    if (!profileAuthorId) {
+      return res.status(400).json({
+        error: 'profile_required',
+        detail: 'Link your Fetch public profile (Drops @handle) before listing.',
+      })
+    }
+    if (!profileDisplayName) {
+      return res.status(400).json({
+        error: 'profile_display_required',
+        detail: 'profileDisplayName is required (your public @handle name).',
+      })
+    }
+
+    const description =
+      typeof body.description === 'string' ? body.description.trim().slice(0, 8000) : ''
+    const category =
+      typeof body.category === 'string' && body.category.trim()
+        ? body.category.trim().slice(0, 64)
+        : 'general'
+    const condition =
+      typeof body.condition === 'string' && body.condition.trim()
+        ? body.condition.trim().slice(0, 32)
+        : 'used'
+    const keywords =
+      typeof body.keywords === 'string' ? body.keywords.trim().slice(0, 2000) : ''
+    const locFromLabel =
+      typeof body.locationLabel === 'string' && body.locationLabel.trim()
+        ? body.locationLabel.trim().slice(0, 200)
+        : ''
+    const locFromSuburb =
+      typeof body.suburb === 'string' && body.suburb.trim() ? body.suburb.trim().slice(0, 200) : ''
+    const locationLabel = locFromLabel || locFromSuburb
+
+    const images = Array.isArray(body.images) ? body.images : []
+    const imagesAccepted = normalizeInitialListingImages(images)
+    const rawImagesLen = images.length
+    if (rawImagesLen > 0 && imagesAccepted.length === 0) {
+      console.warn('[listings/create] images_raw_present_but_none_accepted', {
+        rawImagesLen,
+        hint: 'URLs must start with /listing-uploads/ and contain no ..',
+      })
+    }
+
+    const insertPayload = {
+      sellerUserId: actor.customerUserId ?? null,
+      sellerEmail: actor.customerEmail ?? null,
+      title,
+      description,
+      priceAud: priceNum,
+      category,
+      condition,
+      keywords,
+      locationLabel,
+      imagesRawCount: rawImagesLen,
+      imagesAcceptedCount: imagesAccepted.length,
+    }
+    console.log('[listings/create] insert payload', JSON.stringify(insertPayload))
+
+    const saleModeNorm = body.saleMode === 'auction' ? 'auction' : 'fixed'
+    if (saleModeNorm === 'auction') {
+      const ends = Number(body.auctionEndsAt)
+      if (!Number.isFinite(ends) || ends <= Date.now() + 60_000) {
+        return res.status(400).json({
+          error: 'auction_end_required',
+          detail: 'Timed auctions need an end time at least 2 minutes in the future.',
+        })
+      }
+    }
+
+    let compareAtCents = 0
+    const capRaw = body.compareAtPriceAud
+    if (capRaw != null && String(capRaw).trim() !== '') {
+      const c = Math.round(Number(capRaw) * 100)
+      if (Number.isFinite(c) && c > 0) compareAtCents = c
+    }
+
+    const minIncRaw = Number(body.minBidIncrementCents)
+    const minBidIncrementCents =
+      Number.isFinite(minIncRaw) && minIncRaw >= 50 ? Math.round(minIncRaw) : undefined
+    const reserveRaw = Number(body.reserveCents)
+    const reserveCents =
+      saleModeNorm === 'auction' && Number.isFinite(reserveRaw) && reserveRaw >= 0
+        ? Math.round(reserveRaw)
+        : undefined
+
+    const listing = await peerListingsStore.createListing({
+      sellerUserId: actor.customerUserId,
+      sellerEmail: actor.customerEmail,
+      title,
+      description,
+      priceAud: priceNum,
+      compareAtCents,
+      category,
+      condition,
+      keywords,
+      locationLabel,
+      sku: body.sku,
+      acceptsOffers: body.acceptsOffers,
+      fetchDelivery: body.fetchDelivery,
+      sameDayDelivery: body.sameDayDelivery,
+      saleMode: body.saleMode,
+      auctionEndsAt: body.auctionEndsAt,
+      reserveCents,
+      minBidIncrementCents,
+      profileAuthorId,
+      profileDisplayName,
+      profileAvatar: typeof body.profileAvatar === 'string' ? body.profileAvatar : '',
+      images,
+    })
+    return res.json({ listing })
+  } catch (e) {
+    console.error('POST ERROR', e)
+    const { reason, code, message } = classifyListingCreateFailure(e)
+    console.error('[listings/create] failure', { reason, code, message })
+    const msg = e instanceof Error ? e.message : String(e)
+    const fileWriteHint =
+      reason === 'filesystem_permission' || reason === 'disk_full' || reason === 'filesystem_missing'
+        ? ' (peer listings JSON file write)'
+        : ''
+    return res.status(500).json({
+      error: 'listing_create_failed',
+      detail: `${msg.slice(0, 200)}${fileWriteHint}`.slice(0, 240),
     })
   }
-  if (!profileDisplayName) {
-    return res.status(400).json({
-      error: 'profile_display_required',
-      detail: 'profileDisplayName is required (your public @handle name).',
-    })
-  }
-  let compareAtCents = 0
-  const capRaw = body.compareAtPriceAud
-  if (capRaw != null && String(capRaw).trim() !== '') {
-    const c = Math.round(Number(capRaw) * 100)
-    if (Number.isFinite(c) && c > 0) compareAtCents = c
-  }
-  const listing = await peerListingsStore.createListing({
-    sellerUserId: actor.customerUserId,
-    sellerEmail: actor.customerEmail,
-    title: body.title,
-    description: body.description,
-    priceAud: body.priceAud,
-    compareAtCents,
-    category: body.category,
-    condition: body.condition,
-    keywords: body.keywords,
-    locationLabel: body.locationLabel,
-    sku: body.sku,
-    acceptsOffers: body.acceptsOffers,
-    fetchDelivery: body.fetchDelivery,
-    sameDayDelivery: body.sameDayDelivery,
-    saleMode: body.saleMode,
-    auctionEndsAt: body.auctionEndsAt,
-    reserveCents: body.reserveCents,
-    minBidIncrementCents: body.minBidIncrementCents,
-    profileAuthorId,
-    profileDisplayName,
-    profileAvatar: typeof body.profileAvatar === 'string' ? body.profileAvatar : '',
-  })
-  return res.json({ listing })
 })
 
 app.patch('/api/listings/:listingId', async (req, res) => {
@@ -3938,6 +4431,41 @@ app.post('/api/listings/:listingId/bid', paymentIntentCreateLimiter, async (req,
     listing: out.listing,
     paymentIntent: clientSecret ? { clientSecret, id: stripePaymentIntentId } : null,
   })
+})
+
+/** Seller resets an ended auction that did not meet reserve, with a new end time. */
+app.post('/api/listings/:listingId/repost-auction', async (req, res) => {
+  const sk = peerListingSellerKey(req)
+  if (!sk) return res.status(401).json({ error: 'auth_required' })
+  if (isDevDemoListingId(req.params.listingId)) {
+    return res.status(403).json({ error: 'demo_readonly', detail: 'Demo listings cannot be changed.' })
+  }
+  const ends = Number(req.body?.auctionEndsAt)
+  if (!Number.isFinite(ends) || ends <= Date.now() + 60_000) {
+    return res.status(400).json({ error: 'invalid_auction_end', detail: 'Pick an end time at least 2 minutes ahead.' })
+  }
+  const priceAud = req.body?.priceAud
+  const minBidInc = req.body?.minBidIncrementCents
+  const out = await peerListingsStore.repostExpiredAuctionListing(req.params.listingId, sk, {
+    auctionEndsAt: ends,
+    priceAud: priceAud != null && priceAud !== '' ? Number(priceAud) : undefined,
+    minBidIncrementCents:
+      minBidInc != null && Number.isFinite(Number(minBidInc)) ? Math.round(Number(minBidInc)) : undefined,
+  })
+  if (out?.error) {
+    const map = {
+      listing_not_found: 404,
+      forbidden: 403,
+      not_auction: 400,
+      bad_status: 400,
+      auction_not_ended: 409,
+      reserve_met: 409,
+      invalid_end: 400,
+    }
+    const status = map[out.error] ?? 400
+    return res.status(status).json({ error: out.error })
+  }
+  return res.json({ listing: out.listing })
 })
 
 app.get('/api/messages/unread-summary', async (req, res) => {

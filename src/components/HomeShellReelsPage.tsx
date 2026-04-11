@@ -47,6 +47,12 @@ import { UploadDropMediaError, uploadDropMedia } from '../lib/drops/uploadDropMe
 import { useDropsApiFeed } from '../lib/drops/useDropsApiFeed'
 import { syncCustomerSessionCookie } from '../lib/fetchServerSession'
 import { isFollowingAuthor, toggleFollowAuthor } from '../lib/fetchProfile/followGraphStore'
+import { FetchCommercePillSlider } from './commerce/FetchCommercePillSlider'
+import { LiveBattleScreen } from './battles/LiveBattleScreen'
+import { BattleLobbySheet } from './battles/BattleLobbySheet'
+import { setBattle } from '../lib/battles/battleStore'
+import { createDemoBattle } from '../lib/battles/battleDemoData'
+import type { BattleMode } from '../lib/battles/types'
 import { getFetchApiBaseUrl } from '../lib/fetchApiBase'
 import { HARDWARE_PRODUCTS } from '../lib/hardwareCatalog'
 import { fetchMyListings, type PeerListing } from '../lib/listingsApi'
@@ -247,6 +253,8 @@ function HomeShellReelsPageInner({
   const [livePickListings, setLivePickListings] = useState<Record<string, boolean>>({})
   const [feedAnimKey, setFeedAnimKey] = useState(0)
   const [feedEnterDir, setFeedEnterDir] = useState<1 | -1>(1)
+  const [battleScreenOpen, setBattleScreenOpen] = useState(false)
+  const [battleLobbyOpen, setBattleLobbyOpen] = useState(false)
   const [tabSplash, setTabSplash] = useState<TabSplashState | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const slideEls = useRef<Map<string, HTMLDivElement>>(new Map())
@@ -286,7 +294,21 @@ function HomeShellReelsPageInner({
 
   useEffect(() => {
     const apiIds = new Set(apiFeedReels.map((r) => r.id))
-    setPublishedOverlayReels((prev) => prev.filter((r) => !apiIds.has(r.id)))
+    setPublishedOverlayReels((prev) => {
+      const dropped = prev.filter((r) => apiIds.has(r.id))
+      if (dropped.length) {
+        for (const r of dropped) {
+          const apiReel = apiFeedReels.find((x) => x.id === r.id)
+          console.log('[drops/feed] overlay slot replaced by API row', {
+            id: r.id,
+            apiRowFound: Boolean(apiReel),
+            overlayPlayable: Boolean(r.videoUrl || r.imageUrls?.length),
+            apiPlayable: Boolean(apiReel && (apiReel.videoUrl || apiReel.imageUrls?.length)),
+          })
+        }
+      }
+      return prev.filter((r) => !apiIds.has(r.id))
+    })
   }, [apiFeedReels])
 
   const pool = useMemo(
@@ -543,9 +565,21 @@ function HomeShellReelsPageInner({
     }
     let uploaded
     try {
+      if (p.videoFile) {
+        console.log('[drops/local-publish] upload input video File', {
+          name: p.videoFile.name,
+          size: p.videoFile.size,
+          type: p.videoFile.type,
+        })
+      }
       uploaded = await uploadDropMedia({
         video: p.videoFile ?? undefined,
         images: p.imageFiles.length ? p.imageFiles : undefined,
+      })
+      console.log('[drops/local-publish] upload response', {
+        hasVideoUrl: Boolean(uploaded.videoUrl),
+        videoUrlPrefix: uploaded.videoUrl ? uploaded.videoUrl.slice(0, 64) : '',
+        imageUrlCount: uploaded.imageUrls?.length ?? 0,
       })
     } catch (e) {
       if (e instanceof UploadDropMediaError) {
@@ -778,20 +812,47 @@ function HomeShellReelsPageInner({
           >
         {orderedReels.length === 0 ? (
           <div className="flex min-h-[100dvh] snap-start flex-col items-center justify-center bg-black px-8 pb-32 pt-24 text-center">
-            <p className="text-[17px] font-bold text-white">
-              {topTab === 'local'
-                ? 'No local drops yet'
-                : topTab === 'live'
-                  ? 'No live replays yet'
-                  : 'Nothing in this feed yet'}
-            </p>
-            <button
-              type="button"
-              onClick={openReelsMenu}
-              className="mt-6 rounded-full bg-white px-5 py-2.5 text-[14px] font-bold text-zinc-900 shadow-lg active:opacity-90"
-            >
-              Open menu
-            </button>
+            {topTab === 'live' ? (
+              <>
+                <p className="text-[17px] font-bold text-white">Live Battles</p>
+                <p className="mt-2 text-[13px] text-white/50">
+                  Challenge another seller or watch an active battle.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setBattleLobbyOpen(true)}
+                  className="mt-6 rounded-full bg-[#e8dcc8] px-6 py-3 text-[14px] font-bold text-[#031c14] shadow-[0_2px_12px_rgba(232,220,200,0.25)] active:scale-[0.97]"
+                >
+                  Start a Battle
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const demo = createDemoBattle()
+                    setBattle(demo)
+                    setBattleScreenOpen(true)
+                  }}
+                  className="mt-3 rounded-full border-2 border-white/15 bg-transparent px-6 py-2.5 text-[13px] font-bold text-white/70 active:scale-[0.97]"
+                >
+                  Watch Demo Battle
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-[17px] font-bold text-white">
+                  {topTab === 'local'
+                    ? 'No local drops yet'
+                    : 'Nothing in this feed yet'}
+                </p>
+                <button
+                  type="button"
+                  onClick={openReelsMenu}
+                  className="mt-6 rounded-full bg-white px-5 py-2.5 text-[14px] font-bold text-zinc-900 shadow-lg active:opacity-90"
+                >
+                  Open menu
+                </button>
+              </>
+            )}
           </div>
         ) : null}
         {orderedReels.map((r, slideIndex) => {
@@ -902,52 +963,36 @@ function HomeShellReelsPageInner({
                             item.label ||
                             (item.kind === 'marketplace_product' ? item.productId : item.listingId)
                           return (
-                            <button
+                            <FetchCommercePillSlider
                               key={key}
-                              type="button"
-                              onClick={() => onCommerceAction(target, 'fetch_it')}
-                              className="flex w-full min-w-0 items-center justify-between gap-3 rounded-xl bg-white/95 px-4 py-3.5 text-left active:bg-white/90"
-                            >
-                              <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-zinc-900">
-                                {label}
-                              </span>
-                              <span className="shrink-0 text-[13px] font-semibold text-zinc-600">
-                                Fetch it
-                              </span>
-                            </button>
+                              density="compact"
+                              mode="fetch"
+                              fetchLine={label}
+                              onConfirm={() => onCommerceAction(target, 'fetch_it')}
+                            />
                           )
                         })}
                       </div>
                     ) : r.commerce.kind === 'live_showcase' ? null : r.commerceSaleMode === 'auction' ? (
-                      <>
-                        <p className="text-[12px] font-medium text-white/80">{r.priceLabel}</p>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setDropsBidSheet({
-                              commerce: r.commerce!,
-                              priceLabel: r.priceLabel,
-                              title: r.title,
-                            })
-                          }
-                          className="flex w-full items-center justify-center rounded-xl bg-white/95 py-3.5 text-[15px] font-semibold text-zinc-900 active:bg-white/90"
-                        >
-                          Bid
-                        </button>
-                      </>
+                      <FetchCommercePillSlider
+                        density="compact"
+                        mode="bid"
+                        priceLabel={r.priceLabel}
+                        onConfirm={() =>
+                          setDropsBidSheet({
+                            commerce: r.commerce!,
+                            priceLabel: r.priceLabel,
+                            title: r.title,
+                          })
+                        }
+                      />
                     ) : (
-                      <button
-                        type="button"
-                        onClick={() => onCommerceAction(r.commerce!, 'fetch_it')}
-                        className="flex w-full min-w-0 items-center justify-between gap-3 rounded-xl bg-white/95 px-4 py-3.5 text-left active:bg-white/90"
-                      >
-                        <span className="min-w-0 truncate text-[16px] font-bold tabular-nums text-zinc-900">
-                          {r.priceLabel}
-                        </span>
-                        <span className="shrink-0 text-[14px] font-semibold text-zinc-700">
-                          Fetch it
-                        </span>
-                      </button>
+                      <FetchCommercePillSlider
+                        density="compact"
+                        mode="buy"
+                        priceLabel={r.priceLabel}
+                        onConfirm={() => onCommerceAction(r.commerce!, 'fetch_it')}
+                      />
                     )
                   ) : (
                     <span className="inline-flex items-center rounded-full bg-white/95 px-3 py-1.5 text-[13px] font-bold text-zinc-900 shadow-lg ring-1 ring-black/5">
@@ -1073,7 +1118,7 @@ function HomeShellReelsPageInner({
 
       {bottomNav ? (
         <div
-          className="fetch-home-reels-shell-footer shrink-0 border-t border-zinc-200/90 bg-white pb-[env(safe-area-inset-bottom,0px)] shadow-[0_-4px_24px_rgba(15,23,42,0.06)]"
+          className="fetch-home-reels-shell-footer shrink-0 pb-[env(safe-area-inset-bottom,0px)]"
           data-fetch-drops-upload-flow={reelsMenuOpen || liveSheetOpen ? 'true' : undefined}
         >
           {bottomNav}
@@ -1599,14 +1644,25 @@ function HomeShellReelsPageInner({
           }}
           onPublished={(serverId, publicDrop) => {
             if (serverId && publicDrop && typeof publicDrop === 'object') {
-              const reel = mapApiDropToReel(publicDrop as Record<string, unknown>)
+              const raw = publicDrop as Record<string, unknown>
+              console.log('[drops] onPublished saved drop fields', {
+                serverId,
+                videoUrlLen: typeof raw.videoUrl === 'string' ? raw.videoUrl.length : 0,
+                imageUrlsLen: Array.isArray(raw.imageUrls) ? raw.imageUrls.length : 0,
+                poster: typeof raw.poster === 'string' ? Boolean(raw.poster) : false,
+                mediaKind: raw.mediaKind,
+              })
+              const reel = mapApiDropToReel(raw)
               if (reel) {
                 setPublishedOverlayReels((prev) => {
                   if (prev.some((r) => r.id === serverId)) return prev
                   return [reel, ...prev]
                 })
               } else {
-                console.warn('[drops] publish response drop did not map to reel', { serverId, publicDrop })
+                console.warn('[drops] publish response drop did not map to reel (no overlay)', {
+                  serverId,
+                  publicDrop,
+                })
               }
             }
             refreshApiDropsFeed()
@@ -1621,6 +1677,26 @@ function HomeShellReelsPageInner({
           onPublishActivity={onPublishActivity}
         />
       ) : null}
+
+      {/* ── Live Battles ── */}
+      <LiveBattleScreen
+        open={battleScreenOpen}
+        onClose={() => setBattleScreenOpen(false)}
+        onCommerceAction={(side, action, product) => {
+          console.log('[battles] commerce action', { side, action, productId: product.id })
+        }}
+      />
+      <BattleLobbySheet
+        open={battleLobbyOpen}
+        onClose={() => setBattleLobbyOpen(false)}
+        onStartBattle={(mode: BattleMode, durationMs: number) => {
+          console.log('[battles] create battle', { mode, durationMs })
+          const demo = createDemoBattle()
+          setBattle({ ...demo, mode, durationMs, endsAt: Date.now() + durationMs })
+          setBattleLobbyOpen(false)
+          setBattleScreenOpen(true)
+        }}
+      />
     </div>
   )
 }

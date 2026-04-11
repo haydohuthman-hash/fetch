@@ -38,6 +38,10 @@ import { FetchVoiceProvider } from './voice/FetchVoiceContext'
 import { FetchBootstrappingProvider } from './boot/FetchBootstrappingContext'
 import { FetchBootstrapOverlay } from './components/FetchBootstrapOverlay'
 import { FetchAppShellSuspenseFallback } from './components/FetchAppShellSuspenseFallback'
+import {
+  FetchMapWelcomeDemo,
+  welcomeMapDemoAlreadySeen,
+} from './components/onboarding/FetchMapWelcomeDemo'
 import SplashScreen from './views/SplashScreen'
 
 const homeChunk = () => import('./views/HomeView')
@@ -107,6 +111,14 @@ function nowMs(): number {
   return Date.now()
 }
 
+function mapboxTokenFromEnv(): string {
+  return (
+    import.meta.env.VITE_MAPBOX_TOKEN?.trim() ??
+    import.meta.env.VITE_MAPBOX_ACCESS_TOKEN?.trim() ??
+    ''
+  )
+}
+
 function likelyPostAuthTargetFromHints(): PostAuthTarget {
   const s = loadSession()
   if (!s?.email?.trim()) return 'auth'
@@ -147,6 +159,7 @@ function App() {
   const [authSessionUserId, setAuthSessionUserId] = useState<string | null>(null)
   const [homeBootstrapOpen, setHomeBootstrapOpen] = useState(initialHomeBootstrapOpen)
   const [homeMapBootReady, setHomeMapBootReady] = useState(false)
+  const [welcomeMapDemoOpen, setWelcomeMapDemoOpen] = useState(false)
   /**
    * When false, ignore post-auth phase jumps from onAuthStateChange so splash can finish and session cache can hydrate.
    * Seed from module splash flag so React Strict Mode remounts after handoff don’t stay “locked” on home.
@@ -519,6 +532,31 @@ function App() {
     setHomeBootstrapOpen(false)
   }, [])
 
+  useEffect(() => {
+    if (phase !== 'home') {
+      setWelcomeMapDemoOpen(false)
+      return
+    }
+    const isProfileSurface =
+      Boolean(authSessionUserId) &&
+      (pathname === FETCH_PROFILE_PATH ||
+        pathname === FETCH_PROFILE_EDIT_PATH ||
+        pathname === FETCH_MARKETPLACE_LIST_PATH ||
+        pathname === FETCH_WALLET_CASH_OUT_PATH ||
+        pathname === FETCH_WALLET_ADD_CREDITS_PATH)
+    if (pathname !== FETCH_APP_PATH || isProfileSurface) {
+      setWelcomeMapDemoOpen(false)
+      return
+    }
+    const tok = mapboxTokenFromEnv()
+    if (!tok || welcomeMapDemoAlreadySeen()) {
+      setWelcomeMapDemoOpen(false)
+      return
+    }
+    if (homeBootstrapOpen) return
+    setWelcomeMapDemoOpen(true)
+  }, [phase, pathname, authSessionUserId, homeBootstrapOpen])
+
   const onSignedIn = useCallback(
     async (user: import('@supabase/supabase-js').User) => {
       console.log('[AUTH] email/OAuth sign-in completed → handlePostAuthUser')
@@ -566,6 +604,14 @@ function App() {
             {pathname === FETCH_PROFILE_PATH ? (
               <FetchProfilePage
                 onOpenApp={() => navigate(FETCH_APP_PATH)}
+                onOpenDrops={() => {
+                  try {
+                    sessionStorage.setItem('fetch.pendingHomeShellTab', 'reels')
+                  } catch {
+                    /* ignore */
+                  }
+                  navigate(FETCH_APP_PATH)
+                }}
                 onEditProfile={() => navigate(FETCH_PROFILE_EDIT_PATH)}
                 onListItem={() => navigate(FETCH_MARKETPLACE_LIST_PATH)}
                 onEditListing={(listingId) =>
@@ -622,7 +668,6 @@ function App() {
           }
         >
           <AuthScreen
-            initialTab="signup"
             onBack={() => {
               navigate(FETCH_APP_PATH, { replace: true })
               setPhase('home')
@@ -660,12 +705,17 @@ function App() {
     )
   })()
 
+  const mapboxTok = mapboxTokenFromEnv()
+
   return (
     <FetchVoiceProvider>
       <div className="fetch-app-shell-bg relative flex min-h-dvh min-h-[100dvh] w-full justify-center">
         <div className="fetch-app-shell-inner relative z-[1] mx-auto min-h-dvh min-h-[100dvh] w-full max-w-[1024px] overflow-x-clip overflow-y-visible">
           {phaseBody}
         </div>
+        {welcomeMapDemoOpen && mapboxTok ? (
+          <FetchMapWelcomeDemo accessToken={mapboxTok} onComplete={() => setWelcomeMapDemoOpen(false)} />
+        ) : null}
       </div>
     </FetchVoiceProvider>
   )

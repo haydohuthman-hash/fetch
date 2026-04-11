@@ -30,12 +30,11 @@ type AuthScreenProps = {
   /** Called after Supabase session is valid — parent runs `handlePostAuthUser`. */
   onSignedIn: (user: User) => void | Promise<void>
   onBack: () => void
-  initialTab?: 'signin' | 'signup'
 }
 
-export default function AuthScreen({ onSignedIn, onBack, initialTab = 'signin' }: AuthScreenProps) {
+export default function AuthScreen({ onSignedIn, onBack }: AuthScreenProps) {
   const serverDbAuth = true
-  const [tab, setTab] = useState<'signin' | 'signup'>(initialTab)
+  const [tab, setTab] = useState<'signin' | 'signup'>('signin')
   const [showEmailForm, setShowEmailForm] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState(getFetchDevDemoPasswordPrefill)
@@ -196,12 +195,6 @@ export default function AuthScreen({ onSignedIn, onBack, initialTab = 'signin' }
   const inputClass =
     'rounded-xl border border-zinc-300/80 bg-white px-3 py-2.5 text-[14px] text-zinc-900 placeholder:text-zinc-400 outline-none ring-0 focus:border-[#134632]/50 focus:ring-2 focus:ring-[#134632]/15'
 
-  const emailInsteadLabel = tab === 'signup' ? 'Sign up with email instead' : 'Log in with email instead'
-
-  const tabBtnActive =
-    'flex-1 rounded-[0.6rem] bg-[#134632] py-2.5 text-[12px] font-semibold text-white shadow-sm'
-  const tabBtnInactive = 'flex-1 rounded-[0.6rem] py-2.5 text-[12px] font-medium text-zinc-500'
-
   return (
     <div className="mx-auto flex min-h-dvh min-h-[100dvh] w-full max-w-lg flex-col bg-[#e8dfc9]">
       {/* Hero — dark green brand strip */}
@@ -226,181 +219,188 @@ export default function AuthScreen({ onSignedIn, onBack, initialTab = 'signin' }
         </div>
       </header>
 
-      {/* Sand panel — forms & OAuth sit lower with clear separation */}
+      {/* Sand panel — forms & sign-in at bottom */}
       <main className="relative -mt-5 flex min-h-0 flex-1 flex-col rounded-t-[26px] bg-[#e8dfc9] px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-8 shadow-[0_-10px_40px_-14px_rgba(0,0,0,0.18)]">
-        <div className="mx-auto w-full max-w-md flex-1 overflow-y-auto overscroll-contain">
-          <h1 className="text-[21px] font-semibold tracking-[-0.03em] text-zinc-900">
-            Account
-          </h1>
-          <p className="mt-1 text-[13px] leading-snug text-zinc-600">
-            Continue with Apple or Google, or use email.
-          </p>
-
-          <div className="mt-5 flex gap-1 rounded-2xl border border-zinc-300/70 bg-white/50 p-1">
-            <button
-              type="button"
-              onClick={() => {
-                setTab('signin')
-                setError(null)
-                setShowEmailForm(false)
-              }}
-              className={tab === 'signin' ? tabBtnActive : tabBtnInactive}
-            >
-              Log in
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setTab('signup')
-                setError(null)
-                setShowEmailForm(false)
-              }}
-              className={tab === 'signup' ? tabBtnActive : tabBtnInactive}
-            >
-              Sign up
-            </button>
-          </div>
-
+        <div className="mx-auto flex w-full max-w-md flex-1 flex-col overflow-y-auto overscroll-contain">
           {!showEmailForm ? (
-            <div className="mt-10 flex flex-col gap-3">
-              <OAuthBrandedButtons
-                disabled={busy}
-                onApple={() => void signInWithAppleOAuth()}
-                onGoogle={() => void signInWithGoogleOAuth()}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  setError(null)
-                  setShowEmailForm(true)
-                }}
-                className="mt-2 w-full py-2.5 text-[13px] font-semibold text-[#134632] underline decoration-[#134632]/35 underline-offset-4 hover:text-[#0f3628]"
-              >
-                {emailInsteadLabel}
-              </button>
-              {message ? <p className="text-[12px] text-emerald-800">{message}</p> : null}
-              {error ? <p className="text-[12px] text-red-700">{error}</p> : null}
-            </div>
+            <>
+              <div className="flex-1" />
+              <div className="flex flex-col gap-3 pb-2">
+                <OAuthBrandedButtons
+                  disabled={busy}
+                  onApple={() => void signInWithAppleOAuth()}
+                  onGoogle={() => void signInWithGoogleOAuth()}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setError(null)
+                    setShowEmailForm(true)
+                  }}
+                  className="mt-1 w-full py-2.5 text-[13px] font-semibold text-[#134632] underline decoration-[#134632]/35 underline-offset-4 hover:text-[#0f3628]"
+                >
+                  Continue with email instead
+                </button>
+                {message ? <p className="text-[12px] text-emerald-800">{message}</p> : null}
+                {error ? <p className="text-[12px] text-red-700">{error}</p> : null}
+              </div>
+            </>
           ) : tab === 'signin' ? (
-            <form onSubmit={onSignIn} className="mt-8 flex max-w-md flex-col gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowEmailForm(false)
-                  setError(null)
-                }}
-                className="mb-1 self-start text-[12px] font-semibold text-zinc-600 hover:text-zinc-900"
-              >
-                ← Apple / Google
-              </button>
-              <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-500">
-                Email
-              </label>
-              <input
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@email.com"
-                className={inputClass}
-              />
-              {serverDbAuth ? (
-                <>
-                  <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-500">
-                    Password
-                  </label>
-                  <input
-                    type="password"
-                    autoComplete="current-password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className={inputClass}
-                  />
-                </>
-              ) : null}
-              {message ? <p className="text-[12px] text-emerald-800">{message}</p> : null}
-              {error ? <p className="text-[12px] text-red-700">{error}</p> : null}
-              <button
-                type="submit"
-                disabled={busy}
-                className="mt-2 rounded-xl bg-[#134632] py-3 text-[14px] font-bold text-white shadow-sm transition-colors hover:bg-[#0f3628] disabled:opacity-45"
-              >
-                {busy ? 'Please wait…' : 'Continue'}
-              </button>
-            </form>
+            <>
+              <div className="flex-1" />
+              <form onSubmit={onSignIn} className="flex max-w-md flex-col gap-2 pb-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEmailForm(false)
+                    setError(null)
+                  }}
+                  className="mb-1 self-start text-[12px] font-semibold text-zinc-600 hover:text-zinc-900"
+                >
+                  ← Apple / Google
+                </button>
+                <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-500">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@email.com"
+                  className={inputClass}
+                />
+                {serverDbAuth ? (
+                  <>
+                    <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-500">
+                      Password
+                    </label>
+                    <input
+                      type="password"
+                      autoComplete="current-password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className={inputClass}
+                    />
+                  </>
+                ) : null}
+                {message ? <p className="text-[12px] text-emerald-800">{message}</p> : null}
+                {error ? <p className="text-[12px] text-red-700">{error}</p> : null}
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="mt-2 rounded-full bg-[#134632] py-3 text-[14px] font-bold text-white shadow-sm transition-colors hover:bg-[#0f3628] disabled:opacity-45"
+                >
+                  {busy ? 'Please wait…' : 'Continue'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setTab('signup'); setError(null) }}
+                  className="mt-1 w-full py-1.5 text-[12px] font-medium text-zinc-500 hover:text-zinc-700"
+                >
+                  Don&apos;t have an account? <span className="font-semibold text-[#134632]">Sign up</span>
+                </button>
+              </form>
+            </>
           ) : (
-            <form onSubmit={onSignUp} className="mt-8 flex max-w-md flex-col gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowEmailForm(false)
-                  setError(null)
-                }}
-                className="mb-1 self-start text-[12px] font-semibold text-zinc-600 hover:text-zinc-900"
-              >
-                ← Apple / Google
-              </button>
-              <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-500">
-                Name
-              </label>
-              <input
-                type="text"
-                autoComplete="name"
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder="Your name"
-                className={inputClass}
-              />
-              <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-500">
-                Email
-              </label>
-              <input
-                type="email"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@email.com"
-                className={inputClass}
-              />
-              <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-500">
-                Phone{' '}
-                <span className="font-normal text-zinc-400">(optional)</span>
-              </label>
-              <input
-                type="tel"
-                autoComplete="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+61 …"
-                className={inputClass}
-              />
-              {serverDbAuth ? (
-                <>
-                  <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-500">
-                    Password
-                  </label>
-                  <input
-                    type="password"
-                    autoComplete="new-password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="At least 8 characters"
-                    className={inputClass}
-                  />
-                </>
-              ) : null}
-              {message ? <p className="text-[12px] text-emerald-800">{message}</p> : null}
-              {error ? <p className="text-[12px] text-red-700">{error}</p> : null}
-              <button
-                type="submit"
-                disabled={busy}
-                className="mt-2 rounded-xl bg-[#134632] py-3 text-[14px] font-bold text-white shadow-sm transition-colors hover:bg-[#0f3628] disabled:opacity-45"
-              >
-                {busy ? 'Please wait…' : 'Create account'}
-              </button>
-            </form>
+            <>
+              <div className="flex-1" />
+              <form onSubmit={onSignUp} className="flex max-w-md flex-col gap-2 pb-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEmailForm(false)
+                    setError(null)
+                  }}
+                  className="mb-1 self-start text-[12px] font-semibold text-zinc-600 hover:text-zinc-900"
+                >
+                  ← Apple / Google
+                </button>
+                <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-500">
+                  Name
+                </label>
+                <input
+                  type="text"
+                  autoComplete="name"
+                  value={displayName}
+                  onChange={(e) => setDisplayName(e.target.value)}
+                  placeholder="Your name"
+                  className={inputClass}
+                />
+                <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-500">
+                  Email
+                </label>
+                <input
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@email.com"
+                  className={inputClass}
+                />
+                <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-500">
+                  Phone{' '}
+                  <span className="font-normal text-zinc-400">(optional)</span>
+                </label>
+                <input
+                  type="tel"
+                  autoComplete="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="+61 …"
+                  className={inputClass}
+                />
+                {serverDbAuth ? (
+                  <>
+                    <label className="text-[10px] font-semibold uppercase tracking-[0.1em] text-zinc-500">
+                      Password
+                    </label>
+                    <input
+                      type="password"
+                      autoComplete="new-password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="At least 8 characters"
+                      className={inputClass}
+                    />
+                  </>
+                ) : null}
+                {message ? <p className="text-[12px] text-emerald-800">{message}</p> : null}
+                {error ? <p className="text-[12px] text-red-700">{error}</p> : null}
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="mt-2 rounded-full bg-[#134632] py-3 text-[14px] font-bold text-white shadow-sm transition-colors hover:bg-[#0f3628] disabled:opacity-45"
+                >
+                  {busy ? 'Please wait…' : 'Create account'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setTab('signin'); setError(null) }}
+                  className="mt-1 w-full py-1.5 text-[12px] font-medium text-zinc-500 hover:text-zinc-700"
+                >
+                  Already have an account? <span className="font-semibold text-[#134632]">Log in</span>
+                </button>
+              </form>
+            </>
           )}
+        </div>
+
+        {/* Legal links pinned to bottom */}
+        <div className="mx-auto flex w-full max-w-md shrink-0 items-end justify-between pt-3">
+          <a
+            href="/privacy"
+            className="text-[11px] font-medium text-zinc-500 underline decoration-zinc-400/40 underline-offset-2 hover:text-zinc-700"
+          >
+            Privacy Policy
+          </a>
+          <a
+            href="/terms"
+            className="text-[11px] font-medium text-zinc-500 underline decoration-zinc-400/40 underline-offset-2 hover:text-zinc-700"
+          >
+            Terms
+          </a>
         </div>
       </main>
     </div>

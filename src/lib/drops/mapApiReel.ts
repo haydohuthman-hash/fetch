@@ -46,7 +46,10 @@ function asCommerce(raw: unknown): DropsCommerceTarget | undefined {
 /** Map GET /api/drops/feed row to `DropReel` for the home reels UI. */
 export function mapApiDropToReel(raw: Record<string, unknown>): DropReel | null {
   const id = typeof raw.id === 'string' ? raw.id : ''
-  if (!id) return null
+  if (!id) {
+    console.warn('[drops/mapApiDrop] feed row hidden: missing id', { keys: Object.keys(raw) })
+    return null
+  }
   const title = typeof raw.title === 'string' ? raw.title : ''
   const seller = typeof raw.seller === 'string' ? raw.seller : '@seller'
   const authorId = typeof raw.authorId === 'string' ? raw.authorId : id
@@ -99,7 +102,15 @@ export function mapApiDropToReel(raw: Record<string, unknown>): DropReel | null 
     isOfficial: Boolean(raw.isOfficial),
     isSponsored: Boolean(raw.isSponsored),
   }
-  if (!dropIsPlayable(reel)) return null
+  if (!dropIsPlayable(reel)) {
+    console.warn('[drops/mapApiDrop] feed row hidden: not playable', {
+      id,
+      hasVideoUrl: Boolean(videoUrl && videoUrl.length > 0),
+      imageUrlCount: imageUrls?.length ?? 0,
+      mediaKind: raw.mediaKind,
+    })
+    return null
+  }
   return reel
 }
 

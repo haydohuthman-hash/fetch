@@ -142,7 +142,7 @@ import {
   tripSheetPhaseSuppressesHomeOrb,
   type TripSheetPhase,
 } from '../lib/booking'
-import { computeIntentJunkRemovalEstimate } from '../lib/booking/intentScanEstimate'
+import { computeDeliveryEstimate } from '../lib/booking/intentScanEstimate'
 import { useFetchTheme } from '../theme/FetchThemeContext'
 import { syncCustomerSessionCookie } from '../lib/fetchServerSession'
 import { confirmDemoPaymentIntent, isStripePublishableConfigured } from '../lib/paymentCheckout'
@@ -638,6 +638,8 @@ export default function HomeView({
   } | null>(null)
   const [scanThumbs, setScanThumbs] = useState<string[]>([])
   const [scanning, setScanning] = useState(false)
+  type FetchItStep = 'idle' | 'scanning' | 'addresses' | 'price'
+  const [fetchItStep, setFetchItStep] = useState<FetchItStep>('idle')
   type OrbChatTurn = { id: string; role: 'user' | 'assistant'; text: string }
   const [orbChatTurns, setOrbChatTurns] = useState<OrbChatTurn[]>([])
   /** Fetch “system” line above orb (intent prompt / booking questions); auto-hides after 5s. */
@@ -2054,17 +2056,6 @@ export default function HomeView({
     requestAnimationFrame(() => intentCameraInputRef.current?.click())
   }, [bumpInteraction])
 
-  const onIntentFetchIt = useCallback(() => {
-    bumpInteraction()
-    const junkOpt = LANDING_PRIMARY_SERVICES.find((o) => o.jobType === 'junkRemoval')
-    if (junkOpt) {
-      pendingServicePersonalityRef.current = junkOpt.fetchPersonalityExample
-      setServicePersonalityLine(junkOpt.fetchPersonalityExample)
-    }
-    commitJobTypeSelection('junkRemoval')
-    setSheetSnap('compact')
-  }, [bumpInteraction, commitJobTypeSelection])
-
   const onIntentSheetPullExpand = useCallback(() => {
     bumpInteraction()
     setSheetSnap((s) => {
@@ -2215,6 +2206,7 @@ export default function HomeView({
     lastJobCompletionSpokenBookingIdRef.current = null
     setChatBookingHintSource(null)
     setReelFetchItDelivery(null)
+    setFetchItStep('idle')
     bumpInteraction()
   }, [bumpInteraction, clearDriverFlowTimers])
 
@@ -3835,11 +3827,6 @@ export default function HomeView({
     [showIntent, homeShellTab, chatNavRoute, cardVisible, homeBrainFlow, brainImmersive],
   )
 
-  const intentJunkEstimate = useMemo(() => {
-    if (!intentAiScannerMapOverlay || !bookingState.scan.result) return null
-    return computeIntentJunkRemovalEstimate(bookingState)
-  }, [intentAiScannerMapOverlay, bookingState])
-
   /** Services-tab booking after job pick: map-first sheet, minimal chrome. */
   const bookingSheetFocusMode = useMemo(
     () =>
@@ -4709,6 +4696,8 @@ export default function HomeView({
         images: [...prev.scan.images, ...files.map((f) => f.name)],
       },
     }))
+    setFetchItStep('scanning')
+    setSheetSnap('half')
     bumpInteraction()
     if (e.target) e.target.value = ''
   }, [bumpInteraction])
@@ -4878,6 +4867,51 @@ export default function HomeView({
       void handleScan()
     }
   }, [intentAiScannerMapOverlay, scanFiles.length, scanning, handleScan])
+
+  useEffect(() => {
+    if (fetchItStep === 'scanning' && !scanning && scanFiles.length > 0) {
+      setFetchItStep('addresses')
+    }
+  }, [fetchItStep, scanning, scanFiles.length])
+
+  useEffect(() => {
+    if (fetchItStep !== 'addresses') return
+    const pu = bookingState.pickupPlace
+    const doff = bookingState.dropoffPlace
+    if (pu && doff) {
+      setFetchItStep('price')
+      setSheetSnap('half')
+    }
+  }, [fetchItStep, bookingState.pickupPlace, bookingState.dropoffPlace])
+
+  const fetchItDeliveryEstimate = useMemo(() => {
+    if (fetchItStep !== 'price') return null
+    const pC = bookingState.pickupCoords
+    const dC = bookingState.dropoffCoords
+    const coords = pC && dC ? { pickup: pC, dropoff: dC } : undefined
+    return computeDeliveryEstimate(bookingState.distanceMeters, coords)
+  }, [fetchItStep, bookingState.distanceMeters, bookingState.pickupCoords, bookingState.dropoffCoords])
+
+  const onFetchItBookDelivery = useCallback(() => {
+    bumpInteraction()
+    const opt = LANDING_PRIMARY_SERVICES.find((o) => o.jobType === 'deliveryPickup')
+    if (opt) {
+      pendingServicePersonalityRef.current = opt.fetchPersonalityExample
+      setServicePersonalityLine(opt.fetchPersonalityExample)
+    }
+    setFetchItStep('idle')
+    commitJobTypeSelection('deliveryPickup')
+    setSheetSnap('compact')
+  }, [bumpInteraction, commitJobTypeSelection])
+
+  const onFetchItStepBack = useCallback(() => {
+    setFetchItStep((s) => {
+      if (s === 'price') return 'addresses'
+      if (s === 'addresses') return 'idle'
+      if (s === 'scanning') return 'idle'
+      return 'idle'
+    })
+  }, [])
 
   const runBrainPhotoScan = useCallback(
     async (file: File) => {
@@ -5537,63 +5571,198 @@ export default function HomeView({
 
           {showIntent ? (
             <div className="fetch-home-landing fetch-home-landing--intent-tight flex flex-col gap-2 px-0.5">
-              <section className="fetch-home-landing-section fetch-home-landing-section--intent shrink-0 -mt-1">
-                  <div className="flex flex-col gap-3">
-                    <input
-                      ref={intentCameraInputRef}
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      multiple
-                      onChange={handlePhotoAdd}
-                      className="hidden"
-                    />
-                    <button
-                      type="button"
-                      disabled={scanning}
-                      onClick={openIntentCameraPicker}
-                      className="w-full min-h-[3.15rem] rounded-full border-2 border-zinc-300 bg-white py-3.5 text-center text-[15px] font-bold uppercase tracking-[0.08em] text-zinc-900 shadow-sm transition-transform hover:bg-zinc-50 active:scale-[0.99] disabled:opacity-55 dark:border-zinc-500 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
-                    >
-                      FETCH IT
-                    </button>
-                    <button
-                      type="button"
-                      disabled={scanning}
-                      onClick={() => {
-                        bumpInteraction()
-                        navigate(FETCH_MARKETPLACE_LIST_PATH)
-                      }}
-                      className="w-full min-h-[3.15rem] rounded-full bg-emerald-800 py-3.5 text-center text-[15px] font-bold uppercase tracking-[0.08em] text-white shadow-[0_1px_0_#065f46,0_4px_14px_rgba(6,95,70,0.35)] transition-transform hover:bg-emerald-700 active:scale-[0.99] disabled:opacity-55 dark:bg-emerald-900 dark:hover:bg-emerald-800"
-                    >
-                      LIST IT
-                    </button>
-                    {scanning ? (
+              <section className="fetch-home-landing-section fetch-home-landing-section--intent shrink-0">
+                <div className="flex flex-col gap-3">
+                  <input
+                    ref={intentCameraInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    multiple
+                    onChange={handlePhotoAdd}
+                    className="hidden"
+                  />
+
+                  {/* ── Step 1: idle — FETCH IT / LIST IT buttons ── */}
+                  {fetchItStep === 'idle' ? (
+                    <>
+                      <button
+                        type="button"
+                        disabled={scanning}
+                        onClick={openIntentCameraPicker}
+                        className="w-full min-h-[3.15rem] rounded-full border-2 border-zinc-300 bg-white py-3.5 text-center text-[15px] font-bold uppercase tracking-[0.08em] text-zinc-900 shadow-sm transition-transform hover:bg-zinc-50 active:scale-[0.99] disabled:opacity-55 dark:border-zinc-500 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
+                      >
+                        FETCH IT
+                      </button>
+                      <button
+                        type="button"
+                        disabled={scanning}
+                        onClick={() => {
+                          bumpInteraction()
+                          navigate(FETCH_MARKETPLACE_LIST_PATH)
+                        }}
+                        className="w-full min-h-[3.15rem] rounded-full bg-emerald-800 py-3.5 text-center text-[15px] font-bold uppercase tracking-[0.08em] text-white shadow-[0_1px_0_#065f46,0_4px_14px_rgba(6,95,70,0.35)] transition-transform hover:bg-emerald-700 active:scale-[0.99] disabled:opacity-55 dark:bg-emerald-900 dark:hover:bg-emerald-800"
+                      >
+                        LIST IT
+                      </button>
+                    </>
+                  ) : null}
+
+                  {/* ── Step 2: scanning — photo + animated scan overlay ── */}
+                  {fetchItStep === 'scanning' ? (
+                    <div className="flex flex-col gap-3">
+                      <div className="relative mx-auto w-full max-w-[20rem] overflow-hidden rounded-2xl border border-zinc-200/90 bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-900/60">
+                        {scanThumbs[0] ? (
+                          <img
+                            src={scanThumbs[0]}
+                            alt="Scanning item"
+                            className="block w-full object-cover"
+                            style={{ maxHeight: '14rem' }}
+                          />
+                        ) : (
+                          <div className="flex h-[10rem] items-center justify-center">
+                            <div className="fetch-stage-spinner h-6 w-6 animate-spin rounded-full" aria-hidden />
+                          </div>
+                        )}
+                        <div className="fetch-scan-overlay" aria-hidden />
+                      </div>
                       <div className="flex items-center justify-center gap-2 py-1">
                         <div className="fetch-stage-spinner h-4 w-4 shrink-0 animate-spin rounded-full" aria-hidden />
-                        <span className="text-[12px] font-medium text-fetch-muted">
-                          Scanning for prices…
+                        <span className="fetch-scan-pulse-label text-[13px] font-semibold text-zinc-700 dark:text-zinc-200">
+                          Scanning your item…
                         </span>
                       </div>
-                    ) : null}
-                    {intentJunkEstimate ? (
-                      <div className="mt-1 flex flex-col gap-2.5 rounded-2xl border border-zinc-200/80 bg-white/90 px-4 py-3.5 dark:border-zinc-600 dark:bg-zinc-900/85">
-                        <p className="text-[11px] font-medium uppercase tracking-wide text-fetch-muted">
-                          Est. junk removal (AUD)
+                    </div>
+                  ) : null}
+
+                  {/* ── Step 3: addresses — pickup + drop-off ── */}
+                  {fetchItStep === 'addresses' ? (
+                    <div className="flex flex-col gap-3">
+                      {scanThumbs[0] ? (
+                        <div className="mx-auto flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-zinc-200/80 bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-900/50">
+                          <img src={scanThumbs[0]} alt="" className="h-full w-full object-cover" />
+                        </div>
+                      ) : null}
+                      <p className="text-center text-[14px] font-semibold text-zinc-800 dark:text-zinc-100">
+                        Where are we picking up and dropping off?
+                      </p>
+                      {mapsApiKey ? (
+                        <>
+                          <div className="flex flex-col gap-2">
+                            <PlacesAddressAutocomplete
+                              key={`fetchit-pu-${bookingState.pickupPlace?.placeId ?? 'new'}`}
+                              apiKey={mapsApiKey}
+                              field="pickup"
+                              placeholder="Pickup address"
+                              autoFocus
+                              initialDisplayValue={bookingState.pickupAddressText}
+                              onResolved={onPickupResolved}
+                              onSuggestionsOpenChange={setBookingAddressSuggestOpen}
+                              suggestionsMountRef={addressSuggestionsMountRef}
+                              className={bookingAddressFieldMinimalClass}
+                            />
+                            <PlacesAddressAutocomplete
+                              key={`fetchit-do-${bookingState.dropoffPlace?.placeId ?? 'new'}`}
+                              apiKey={mapsApiKey}
+                              field="dropoff"
+                              placeholder="Drop-off address"
+                              initialDisplayValue={bookingState.dropoffAddressText}
+                              onResolved={onDropoffResolved}
+                              onSuggestionsOpenChange={setBookingAddressSuggestOpen}
+                              suggestionsMountRef={addressSuggestionsMountRef}
+                              className={bookingAddressFieldMinimalClass}
+                            />
+                          </div>
+                          {savedAddresses.length > 0 ? (
+                            <div className="flex flex-wrap gap-1" role="group" aria-label="Saved places">
+                              {savedAddresses.map((a) => (
+                                <button
+                                  key={a.id}
+                                  type="button"
+                                  onClick={() => {
+                                    const resolved = savedPlaceToResolved(a)
+                                    if (!bookingState.pickupPlace) onPickupResolved(resolved)
+                                    else onDropoffResolved(resolved)
+                                  }}
+                                  className="rounded-full border border-fetch-charcoal/12 bg-fetch-charcoal/[0.04] px-2 py-0.5 text-[10px] font-semibold text-fetch-charcoal/90 transition-colors hover:bg-fetch-charcoal/[0.07] active:scale-[0.98]"
+                                >
+                                  {a.label}
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+                          <AddressSuggestionsPanel mountRef={addressSuggestionsMountRef} />
+                        </>
+                      ) : (
+                        <p className="text-[12px] text-fetch-muted">
+                          Add a Google Maps API key to use addresses.
                         </p>
-                        <p className="text-[1.65rem] font-bold leading-tight tracking-tight text-zinc-950 dark:text-zinc-50">
-                          ${intentJunkEstimate.minPrice} – ${intentJunkEstimate.maxPrice}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={onIntentFetchIt}
-                          className="w-full min-h-[3.15rem] rounded-full bg-zinc-900 py-3.5 text-center text-[15px] font-bold uppercase tracking-[0.06em] text-white transition-transform active:scale-[0.98] dark:bg-zinc-100 dark:text-zinc-950"
-                        >
-                          Start junk removal
-                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={onFetchItStepBack}
+                        className="mx-auto text-[12px] font-medium text-fetch-muted underline underline-offset-2"
+                      >
+                        Back
+                      </button>
+                    </div>
+                  ) : null}
+
+                  {/* ── Step 4: price — delivery estimate ── */}
+                  {fetchItStep === 'price' ? (
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center gap-3 rounded-2xl border border-zinc-200/80 bg-white/90 px-4 py-3 dark:border-zinc-600 dark:bg-zinc-900/85">
+                        {scanThumbs[0] ? (
+                          <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-zinc-200/70 bg-zinc-100 dark:border-zinc-600 dark:bg-zinc-800">
+                            <img src={scanThumbs[0]} alt="" className="h-full w-full object-cover" />
+                          </div>
+                        ) : null}
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-[13px] font-medium text-zinc-700 dark:text-zinc-200">
+                            {bookingState.pickupAddressText?.split(',')[0] || 'Pickup'}
+                          </p>
+                          <p className="text-[11px] text-fetch-muted">→</p>
+                          <p className="truncate text-[13px] font-medium text-zinc-700 dark:text-zinc-200">
+                            {bookingState.dropoffAddressText?.split(',')[0] || 'Drop-off'}
+                          </p>
+                        </div>
                       </div>
-                    ) : null}
-                    <div className="fetch-home-intent-sheet-pull-strip" aria-hidden />
-                  </div>
+                      {fetchItDeliveryEstimate ? (
+                        <div className="flex flex-col items-center gap-1 py-1">
+                          <p className="text-[11px] font-medium uppercase tracking-wide text-fetch-muted">
+                            Delivery estimate (AUD)
+                          </p>
+                          <p className="text-[1.8rem] font-bold leading-tight tracking-tight text-zinc-950 dark:text-zinc-50">
+                            ${fetchItDeliveryEstimate.minPrice} – ${fetchItDeliveryEstimate.maxPrice}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center gap-2 py-3">
+                          <div className="fetch-stage-spinner h-4 w-4 shrink-0 animate-spin rounded-full" aria-hidden />
+                          <span className="text-[12px] font-medium text-fetch-muted">
+                            Calculating price…
+                          </span>
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={onFetchItBookDelivery}
+                        className="w-full min-h-[3.15rem] rounded-full bg-zinc-900 py-3.5 text-center text-[15px] font-bold uppercase tracking-[0.06em] text-white transition-transform active:scale-[0.98] dark:bg-zinc-100 dark:text-zinc-950"
+                      >
+                        Book Fetch delivery
+                      </button>
+                      <button
+                        type="button"
+                        onClick={onFetchItStepBack}
+                        className="mx-auto text-[12px] font-medium text-fetch-muted underline underline-offset-2"
+                      >
+                        Back
+                      </button>
+                    </div>
+                  ) : null}
+
+                  <div className="fetch-home-intent-sheet-pull-strip" aria-hidden />
+                </div>
               </section>
             </div>
           ) : null}
@@ -6994,7 +7163,7 @@ export default function HomeView({
               <div
                 key={turn.id}
                 className={[
-                  'fetch-home-orb-chat-bubble pointer-events-none max-w-[92%] rounded-[1.05rem] border px-3 py-2.5 shadow-lg backdrop-blur-md',
+                  'fetch-home-orb-chat-bubble pointer-events-none max-w-[92%] rounded-[1.05rem] border px-3 py-2.5 shadow-lg',
                   turn.role === 'user'
                     ? 'fetch-home-orb-chat-bubble--user ml-auto'
                     : 'fetch-home-orb-chat-bubble--fetch mr-auto',
@@ -7118,7 +7287,7 @@ export default function HomeView({
                           !isSpeechPlaying,
                       )}
                       glowColor={orbGlowColor}
-                      orbAppearance={themeResolved === 'light' ? 'day' : 'night'}
+                      orbAppearance="day"
                       autonomous={orbDockAutonomous}
                       suspendAutonomous={Boolean(orbBurstExpression)}
                       onOpen={openBrainFromHome}
@@ -7163,7 +7332,7 @@ export default function HomeView({
                         !isSpeechPlaying,
                     )}
                     glowColor={orbGlowColor}
-                    orbAppearance={themeResolved === 'light' ? 'day' : 'night'}
+                    orbAppearance="day"
                     autonomous={orbDockAutonomous}
                     suspendAutonomous={Boolean(orbBurstExpression)}
                     minimalDockPresentation={bookingSheetFocusMode}
@@ -7187,7 +7356,7 @@ export default function HomeView({
           onClose={exitBrainChatToServiceSelector}
           theme={themeResolved}
           mind={fetchBrainMind}
-          orbAppearance={themeResolved === 'light' ? 'day' : 'night'}
+          orbAppearance="day"
           brainReplyPending={brainAiPending || brainPlacesLoading}
           glowRgb={GLOW_BLUE}
           instantReveal={brainSkipReveal}

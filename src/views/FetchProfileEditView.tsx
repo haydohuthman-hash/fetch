@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ChangeEvent } from 'react'
 import {
-  getMySupabaseProfile,
+  ensureMySupabaseProfile,
+  formatProfileSaveError,
   updateMySupabaseProfile,
   uploadMySupabaseAvatar,
   validateUsername,
@@ -32,11 +33,7 @@ export default function FetchProfileEditView({ onDone }: FetchProfileEditViewPro
   useEffect(() => {
     void (async () => {
       try {
-        const p = await getMySupabaseProfile()
-        if (!p) {
-          setErr('Could not load profile.')
-          return
-        }
+        const p = await ensureMySupabaseProfile()
         setFullName((p.full_name || '').trim())
         setUsername((p.username || '').trim())
         setBio((p.bio || '').trim())
@@ -45,7 +42,8 @@ export default function FetchProfileEditView({ onDone }: FetchProfileEditViewPro
         setAvatarUrl((p.avatar_url || '').trim())
         ensureDropProfileForSession()
       } catch (e) {
-        setErr(e instanceof Error ? e.message : 'Could not load profile.')
+        console.error('[PROFILE_EDIT] load failed', e)
+        setErr(formatProfileSaveError(e) || 'Could not load profile.')
       } finally {
         setLoading(false)
       }
@@ -100,7 +98,8 @@ export default function FetchProfileEditView({ onDone }: FetchProfileEditViewPro
         if ('error' in r) setErr(r.error)
         else onDone()
       } catch (e) {
-        setErr(e instanceof Error ? e.message : 'Save failed.')
+        console.error('[PROFILE_EDIT] save failed', e)
+        setErr(formatProfileSaveError(e))
       } finally {
         setSaving(false)
       }

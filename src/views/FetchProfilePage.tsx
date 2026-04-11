@@ -2,13 +2,18 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { loadSession } from '../lib/fetchUserSession'
 import { getMySupabaseProfile } from '../lib/supabase/profiles'
-import { ensureDropProfileForSession, getMyDropProfile } from '../lib/drops/profileStore'
+import {
+  ensureDropProfileForSession,
+  getMyDropProfile,
+  type DropCreatorProfile,
+} from '../lib/drops/profileStore'
 import {
   fetchMyListings,
   fetchSellerEarnings,
   listingImageAbsoluteUrl,
   type PeerListing,
 } from '../lib/listingsApi'
+import { useFetchAccent } from '../theme/FetchAccentContext'
 
 function audFromCents(cents: number): string {
   const safe = Number.isFinite(cents) ? cents : 0
@@ -17,6 +22,7 @@ function audFromCents(cents: number): string {
 
 export type FetchProfilePageProps = {
   onOpenApp: () => void
+  onOpenDrops: () => void
   onEditProfile: () => void
   onListItem: () => void
   onEditListing: (listingId: string) => void
@@ -26,13 +32,18 @@ export type FetchProfilePageProps = {
 
 export default function FetchProfilePage({
   onOpenApp,
+  onOpenDrops,
   onEditProfile,
   onListItem,
   onEditListing,
   onCashOut,
   onAddCredits,
 }: FetchProfilePageProps) {
+  const { accentHex, accentRgb } = useFetchAccent()
+  const accentRgbStr = `${accentRgb.r}, ${accentRgb.g}, ${accentRgb.b}`
   const location = useLocation()
+  const [mainTab, setMainTab] = useState<'drops' | 'listings'>('listings')
+  const [dropProfile, setDropProfile] = useState<DropCreatorProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [listings, setListings] = useState<PeerListing[]>([])
@@ -99,6 +110,7 @@ export default function FetchProfilePage({
       }
       mine.sort((a, b) => (b.updatedAt ?? b.createdAt) - (a.updatedAt ?? a.createdAt))
       setListings(mine)
+      setDropProfile(getMyDropProfile())
       setEarnedNetCents(earnAll?.summary?.netCents ?? 0)
       setTodayNetCents(earnToday?.summary?.netCents ?? 0)
     } catch (e) {
@@ -128,9 +140,22 @@ export default function FetchProfilePage({
     return `${r.toFixed(1)} rating`
   }, [rating])
 
+  const pageBg = useMemo(
+    () => ({
+      background: `linear-gradient(to bottom, color-mix(in srgb, ${accentHex} 26%, #030806), #09090b 42%, #000000)`,
+    }),
+    [accentHex],
+  )
+
   return (
-    <div className="min-h-dvh bg-gradient-to-b from-emerald-950 via-zinc-950 to-black pb-28 text-white">
-      <header className="sticky top-0 z-10 flex items-center justify-between border-b border-emerald-500/15 bg-emerald-950/80 px-4 py-3 backdrop-blur-md">
+    <div className="min-h-dvh pb-28 text-white" style={pageBg}>
+      <header
+        className="sticky top-0 z-10 flex items-center justify-between px-4 py-3 backdrop-blur-md"
+        style={{
+          borderBottom: `1px solid rgba(${accentRgbStr}, 0.14)`,
+          background: `color-mix(in srgb, ${accentHex} 22%, rgba(0,0,0,0.82))`,
+        }}
+      >
         <button
           type="button"
           onClick={onOpenApp}
@@ -147,160 +172,308 @@ export default function FetchProfilePage({
             />
           </svg>
         </button>
-        <span className="text-[13px] font-semibold tracking-wide text-emerald-100/90">Your profile</span>
+        <span className="text-[13px] font-semibold tracking-wide text-white/90">Your profile</span>
         <button
           type="button"
           onClick={onEditProfile}
-          className="text-[13px] font-semibold text-emerald-300"
+          className="text-[13px] font-semibold"
+          style={{ color: `rgba(${accentRgbStr}, 0.95)` }}
         >
           Edit
         </button>
       </header>
 
       <div className="px-4 pt-6">
-        <div className="relative overflow-hidden rounded-3xl border border-emerald-400/20 bg-gradient-to-br from-emerald-900/50 via-emerald-950/60 to-black/80 p-6 shadow-[0_24px_80px_rgba(0,0,0,0.5)]">
-          <div className="absolute -right-16 -top-16 h-48 w-48 rounded-full bg-emerald-400/10 blur-3xl" aria-hidden />
+        <div
+          className="relative overflow-hidden rounded-3xl border bg-gradient-to-br p-6 shadow-[0_24px_80px_rgba(0,0,0,0.5)]"
+          style={{
+            borderColor: `rgba(${accentRgbStr}, 0.22)`,
+            background: `linear-gradient(to bottom right, color-mix(in srgb, ${accentHex} 42%, transparent), rgba(9,9,11,0.92), rgba(0,0,0,0.78))`,
+          }}
+        >
+          <div
+            className="absolute -right-16 -top-16 h-48 w-48 rounded-full blur-3xl"
+            style={{ background: `rgba(${accentRgbStr}, 0.12)` }}
+            aria-hidden
+          />
           <div className="relative flex flex-col items-center text-center">
             <div
-              className="h-[5.5rem] w-[5.5rem] overflow-hidden rounded-full ring-2 ring-emerald-400/40 ring-offset-4 ring-offset-emerald-950/80"
-              style={
-                avatarUrl
+              className="h-[5.5rem] w-[5.5rem] overflow-hidden rounded-full"
+              style={{
+                boxShadow: `0 0 0 2px rgba(${accentRgbStr}, 0.45), 0 0 0 6px rgba(6, 10, 12, 0.85)`,
+                ...(avatarUrl
                   ? {
                       backgroundImage: `url(${avatarUrl})`,
                       backgroundSize: 'cover',
                       backgroundPosition: 'center',
                     }
-                  : undefined
-              }
+                  : {}),
+              }}
             >
               {!avatarUrl ? (
-                <div className="flex h-full w-full items-center justify-center bg-emerald-800/50 text-2xl font-bold text-emerald-50">
+                <div
+                  className="flex h-full w-full items-center justify-center text-2xl font-bold text-white/95"
+                  style={{ background: `color-mix(in srgb, ${accentHex} 35%, #0c0c0e)` }}
+                >
                   {initials}
                 </div>
               ) : null}
             </div>
             <h1 className="mt-4 text-[1.35rem] font-semibold tracking-tight text-white">{displayName}</h1>
             {username ? (
-              <p className="mt-1 text-[13px] font-medium text-emerald-100/65">@{username}</p>
+              <p className="mt-1 text-[13px] font-medium" style={{ color: `rgba(${accentRgbStr}, 0.62)` }}>
+                @{username}
+              </p>
             ) : null}
             {locationLabel ? (
-              <p className="mt-0.5 text-[12px] text-emerald-100/50">{locationLabel}</p>
+              <p className="mt-0.5 text-[12px]" style={{ color: `rgba(${accentRgbStr}, 0.48)` }}>
+                {locationLabel}
+              </p>
             ) : null}
-            <div className="mt-3 flex flex-wrap items-center justify-center gap-2 text-[12px] text-emerald-100/75">
-              <span className="rounded-full border border-emerald-400/25 bg-black/25 px-3 py-1 font-semibold">
+            <div className="mt-3 flex flex-wrap items-center justify-center gap-2 text-[12px]">
+              <span
+                className="rounded-full border bg-black/25 px-3 py-1 font-semibold"
+                style={{
+                  borderColor: `rgba(${accentRgbStr}, 0.28)`,
+                  color: `rgba(${accentRgbStr}, 0.88)`,
+                }}
+              >
                 {ratingLabel}
               </span>
-              <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1">
+              <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-white/75">
                 {followers} followers · {following} following
               </span>
             </div>
             {bio ? (
-              <p className="mt-4 max-w-md text-[13px] leading-relaxed text-emerald-50/80">{bio}</p>
+              <p className="mt-4 max-w-md text-[13px] leading-relaxed text-white/78">{bio}</p>
             ) : (
-              <p className="mt-4 text-[12px] text-emerald-100/40">Add a short bio from Edit profile</p>
+              <p className="mt-4 text-[12px]" style={{ color: `rgba(${accentRgbStr}, 0.38)` }}>
+                Add a short bio from Edit profile
+              </p>
             )}
           </div>
         </div>
 
-        <section className="mt-6 rounded-3xl border border-emerald-500/20 bg-gradient-to-br from-emerald-900/40 to-zinc-950 p-5 shadow-lg">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-200/55">Earnings</p>
-          <p className="mt-2 text-3xl font-semibold tracking-tight text-white">{audFromCents(earnedNetCents)}</p>
-          <p className="mt-1 text-[12px] text-emerald-100/50">
+        <section
+          className="mt-6 rounded-3xl border p-5 shadow-lg"
+          style={{
+            borderColor: `rgba(${accentRgbStr}, 0.22)`,
+            background: `linear-gradient(to bottom right, color-mix(in srgb, ${accentHex} 28%, #0a0a0c), #0c0c0f)`,
+          }}
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em]" style={{ color: `rgba(${accentRgbStr}, 0.55)` }}>
+            Earnings
+          </p>
+          <p className="mt-1 text-5xl font-bold leading-none tracking-tight text-white sm:text-6xl">
+            {audFromCents(earnedNetCents)}
+          </p>
+          <p className="mt-3 text-[13px]" style={{ color: `rgba(${accentRgbStr}, 0.52)` }}>
             Total earned (after fees)
-            <span className="text-emerald-100/40"> · </span>
-            Today <span className="font-medium text-emerald-100/75">{audFromCents(todayNetCents)}</span>
+            <span style={{ color: `rgba(${accentRgbStr}, 0.35)` }}> · </span>
+            Today{' '}
+            <span className="font-semibold text-white/90">{audFromCents(todayNetCents)}</span>
           </p>
           <div className="mt-4 grid grid-cols-2 gap-3">
             <button
               type="button"
               onClick={onCashOut}
-              className="rounded-2xl bg-white py-3.5 text-[14px] font-bold text-emerald-950 shadow-md active:scale-[0.98]"
+              className="rounded-2xl bg-white py-3.5 text-[14px] font-bold text-zinc-950 shadow-md active:scale-[0.98]"
             >
               Cash out
             </button>
             <button
               type="button"
               onClick={onAddCredits}
-              className="rounded-2xl border border-emerald-400/35 bg-emerald-500/15 py-3.5 text-[14px] font-bold text-emerald-50 active:scale-[0.98]"
+              className="rounded-2xl border py-3.5 text-[14px] font-bold text-white active:scale-[0.98]"
+              style={{
+                borderColor: `rgba(${accentRgbStr}, 0.4)`,
+                background: `rgba(${accentRgbStr}, 0.12)`,
+              }}
             >
               Add credits
             </button>
           </div>
-          <p className="mt-3 text-center text-[11px] text-emerald-100/45">
-            Credits balance: <span className="font-semibold text-emerald-100/80">{audFromCents(creditsCents)}</span>
+          <p className="mt-3 text-center text-[12px]" style={{ color: `rgba(${accentRgbStr}, 0.45)` }}>
+            Credits balance:{' '}
+            <span className="font-semibold text-white/85">{audFromCents(creditsCents)}</span>
           </p>
         </section>
 
-        <button
-          type="button"
-          onClick={onListItem}
-          className="mt-4 w-full rounded-2xl border border-emerald-400/30 bg-emerald-500/10 py-4 text-[15px] font-bold text-emerald-50 shadow-inner active:scale-[0.99]"
+        <div
+          className="mt-6 flex rounded-2xl border p-1"
+          style={{
+            borderColor: `rgba(${accentRgbStr}, 0.2)`,
+            background: 'rgba(0,0,0,0.35)',
+          }}
+          role="tablist"
+          aria-label="Profile sections"
         >
-          List an item
-        </button>
-
-        <div className="mt-8 flex items-end justify-between gap-3">
-          <h2 className="text-[15px] font-semibold text-white">Your listings</h2>
-          <span className="text-[12px] text-emerald-100/45">{listings.length} total</span>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mainTab === 'drops'}
+            onClick={() => setMainTab('drops')}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl py-3 text-[13px] font-semibold transition-colors"
+            style={
+              mainTab === 'drops'
+                ? {
+                    background: `rgba(${accentRgbStr}, 0.22)`,
+                    color: 'white',
+                  }
+                : { color: `rgba(${accentRgbStr}, 0.55)` }
+            }
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <rect x="3" y="5" width="14" height="14" rx="3" stroke="currentColor" strokeWidth="1.75" />
+              <path
+                d="M10 9.5v5l4-2.5-4-2.5z"
+                fill="currentColor"
+                stroke="currentColor"
+                strokeWidth="0.5"
+                strokeLinejoin="round"
+              />
+            </svg>
+            Drops
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mainTab === 'listings'}
+            onClick={() => setMainTab('listings')}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl py-3 text-[13px] font-semibold transition-colors"
+            style={
+              mainTab === 'listings'
+                ? {
+                    background: `rgba(${accentRgbStr}, 0.22)`,
+                    color: 'white',
+                  }
+                : { color: `rgba(${accentRgbStr}, 0.55)` }
+            }
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <path
+                d="M4 4h7v7H4V4zm9 0h7v7h-7V4zM4 13h7v7H4v-7zm9 0h7v7h-7v-7z"
+                stroke="currentColor"
+                strokeWidth="1.75"
+                strokeLinejoin="round"
+              />
+            </svg>
+            Listings
+          </button>
         </div>
 
-        {loadError ? (
-          <p className="mt-3 rounded-xl border border-amber-500/25 bg-amber-950/30 px-3 py-2 text-center text-[12px] text-amber-100/90">
-            {loadError}
-          </p>
-        ) : null}
-
-        {loading ? (
-          <p className="mt-6 text-center text-[13px] text-emerald-100/50">Loading…</p>
-        ) : listings.length === 0 ? (
-          <div className="mt-4 rounded-3xl border border-dashed border-emerald-500/25 bg-emerald-950/25 px-5 py-10 text-center">
-            <p className="text-[14px] font-medium text-emerald-50/90">No listings yet</p>
-            <p className="mt-2 text-[12px] text-emerald-100/45">Showcase products to buyers across Fetch marketplace.</p>
+        {mainTab === 'drops' ? (
+          <div
+            className="mt-4 rounded-3xl border p-6"
+            style={{
+              borderColor: `rgba(${accentRgbStr}, 0.22)`,
+              background: `linear-gradient(to bottom, rgba(${accentRgbStr}, 0.08), rgba(0,0,0,0.4))`,
+            }}
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/50">Creator handle</p>
+            <p className="mt-2 text-2xl font-bold text-white">@{dropProfile?.displayName ?? '—'}</p>
+            <p className="mt-2 text-[13px] text-white/55">How viewers see you on Reels and Drops.</p>
             <button
               type="button"
-              onClick={onListItem}
-              className="mt-5 rounded-2xl bg-emerald-500 px-6 py-3 text-[13px] font-bold text-emerald-950"
+              onClick={onOpenDrops}
+              className="mt-6 w-full rounded-2xl py-3.5 text-[15px] font-bold text-zinc-950 shadow-lg active:scale-[0.99]"
+              style={{ background: accentHex }}
             >
-              Create your first listing
+              Open Drops
             </button>
           </div>
         ) : (
-          <ul className="mt-4 grid grid-cols-2 gap-3">
-            {listings.map((l) => {
-              const img = l.images?.[0]?.url
-              const thumb = img ? listingImageAbsoluteUrl(img) : ''
-              const price = audFromCents(l.priceCents)
-              return (
-                <li key={l.id}>
-                  <button
-                    type="button"
-                    onClick={() => setListingSheet(l)}
-                    className="flex w-full flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/30 text-left shadow-md active:scale-[0.99]"
-                  >
-                    <div
-                      className="aspect-square w-full bg-zinc-800"
-                      style={
-                        thumb
-                          ? {
-                              backgroundImage: `url(${thumb})`,
-                              backgroundSize: 'cover',
-                              backgroundPosition: 'center',
-                            }
-                          : undefined
-                      }
-                    />
-                    <div className="p-2.5">
-                      <p className="line-clamp-2 text-[12px] font-semibold leading-snug text-white">{l.title}</p>
-                      <p className="mt-1 text-[13px] font-bold text-emerald-300">{price}</p>
-                      <p className="mt-0.5 text-[10px] font-medium uppercase tracking-wide text-emerald-100/40">
-                        {l.status || 'draft'}
-                      </p>
-                    </div>
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
+          <>
+            <button
+              type="button"
+              onClick={onListItem}
+              className="mt-4 w-full rounded-2xl border py-4 text-[15px] font-bold shadow-inner active:scale-[0.99]"
+              style={{
+                borderColor: `rgba(${accentRgbStr}, 0.35)`,
+                background: `rgba(${accentRgbStr}, 0.1)`,
+                color: 'white',
+              }}
+            >
+              List an item
+            </button>
+
+            <div className="mt-6 flex items-end justify-between gap-3">
+              <h2 className="text-[15px] font-semibold text-white">Your listings</h2>
+              <span className="text-[12px]" style={{ color: `rgba(${accentRgbStr}, 0.45)` }}>
+                {listings.length} total
+              </span>
+            </div>
+
+            {loadError ? (
+              <p className="mt-3 rounded-xl border border-amber-500/25 bg-amber-950/30 px-3 py-2 text-center text-[12px] text-amber-100/90">
+                {loadError}
+              </p>
+            ) : null}
+
+            {loading ? (
+              <p className="mt-6 text-center text-[13px]" style={{ color: `rgba(${accentRgbStr}, 0.5)` }}>
+                Loading…
+              </p>
+            ) : listings.length === 0 ? (
+              <div
+                className="mt-4 rounded-3xl border border-dashed px-5 py-10 text-center"
+                style={{
+                  borderColor: `rgba(${accentRgbStr}, 0.28)`,
+                  background: `rgba(${accentRgbStr}, 0.05)`,
+                }}
+              >
+                <p className="text-[14px] font-medium text-white/90">No listings yet</p>
+                <p className="mt-2 text-[12px] text-white/45">Showcase products to buyers across Fetch marketplace.</p>
+                <button
+                  type="button"
+                  onClick={onListItem}
+                  className="mt-5 rounded-2xl px-6 py-3 text-[13px] font-bold text-zinc-950"
+                  style={{ background: accentHex }}
+                >
+                  Create your first listing
+                </button>
+              </div>
+            ) : (
+              <ul className="mt-4 grid grid-cols-2 gap-3">
+                {listings.map((l) => {
+                  const img = l.images?.[0]?.url
+                  const thumb = img ? listingImageAbsoluteUrl(img) : ''
+                  const price = audFromCents(l.priceCents)
+                  return (
+                    <li key={l.id}>
+                      <button
+                        type="button"
+                        onClick={() => setListingSheet(l)}
+                        className="flex w-full flex-col overflow-hidden rounded-2xl border border-white/10 bg-black/30 text-left shadow-md active:scale-[0.99]"
+                      >
+                        <div
+                          className="aspect-square w-full bg-zinc-800"
+                          style={
+                            thumb
+                              ? {
+                                  backgroundImage: `url(${thumb})`,
+                                  backgroundSize: 'cover',
+                                  backgroundPosition: 'center',
+                                }
+                              : undefined
+                          }
+                        />
+                        <div className="p-2.5">
+                          <p className="line-clamp-2 text-[12px] font-semibold leading-snug text-white">{l.title}</p>
+                          <p className="mt-1 text-[13px] font-bold" style={{ color: `rgba(${accentRgbStr}, 0.95)` }}>
+                            {price}
+                          </p>
+                          <p className="mt-0.5 text-[10px] font-medium uppercase tracking-wide text-white/40">
+                            {l.status || 'draft'}
+                          </p>
+                        </div>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </>
         )}
       </div>
 
@@ -312,7 +485,10 @@ export default function FetchProfilePage({
             aria-label="Close listing"
             onClick={() => setListingSheet(null)}
           />
-          <div className="relative z-[1] max-h-[min(85dvh,32rem)] overflow-y-auto rounded-t-3xl border border-emerald-500/25 border-b-0 bg-gradient-to-b from-zinc-900 to-zinc-950 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5 shadow-[0_-12px_48px_rgba(0,0,0,0.5)]">
+          <div
+            className="relative z-[1] max-h-[min(85dvh,32rem)] overflow-y-auto rounded-t-3xl border border-b-0 bg-gradient-to-b from-zinc-900 to-zinc-950 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-5 shadow-[0_-12px_48px_rgba(0,0,0,0.5)]"
+            style={{ borderColor: `rgba(${accentRgbStr}, 0.28)` }}
+          >
             <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-white/15" aria-hidden />
             {(() => {
               const img = listingSheet.images?.[0]?.url
@@ -333,13 +509,15 @@ export default function FetchProfilePage({
               )
             })()}
             <h3 className="text-lg font-semibold leading-snug text-white">{listingSheet.title}</h3>
-            <p className="mt-1 text-xl font-bold text-emerald-300">{audFromCents(listingSheet.priceCents)}</p>
-            <p className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-100/45">
+            <p className="mt-1 text-xl font-bold" style={{ color: `rgba(${accentRgbStr}, 0.92)` }}>
+              {audFromCents(listingSheet.priceCents)}
+            </p>
+            <p className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-white/45">
               {listingSheet.status || 'draft'}
               {listingSheet.locationLabel ? ` · ${listingSheet.locationLabel}` : ''}
             </p>
             {listingSheet.description ? (
-              <p className="mt-3 line-clamp-4 text-[13px] leading-relaxed text-emerald-50/75">
+              <p className="mt-3 line-clamp-4 text-[13px] leading-relaxed text-white/72">
                 {listingSheet.description}
               </p>
             ) : null}
@@ -351,7 +529,8 @@ export default function FetchProfilePage({
                   setListingSheet(null)
                   onEditListing(id)
                 }}
-                className="w-full rounded-2xl bg-emerald-500 py-3.5 text-[14px] font-bold text-emerald-950"
+                className="w-full rounded-2xl py-3.5 text-[14px] font-bold text-zinc-950"
+                style={{ background: accentHex }}
               >
                 Edit listing
               </button>
@@ -365,7 +544,7 @@ export default function FetchProfilePage({
             </div>
           </div>
         </div>
-      ) : null}
+          ) : null}
     </div>
   )
 }

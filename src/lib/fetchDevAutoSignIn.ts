@@ -1,8 +1,10 @@
+import { FETCH_DEV_DEMO_DEFAULT_PASSWORD } from './fetchDevDemo'
 import { getSupabaseBrowserClient } from './supabase/client'
 
 /**
- * Dev-only: sign in with email/password from env when there is no session.
- * Set `VITE_DEV_AUTO_SIGNIN_EMAIL` + `VITE_DEV_AUTO_SIGNIN_PASSWORD` in `.env.local` (localhost only).
+ * Dev-only: sign in with email/password from env when there is no session (localhost only).
+ * Set `VITE_DEV_AUTO_SIGNIN_EMAIL` in `.env.local`. If `VITE_DEV_AUTO_SIGNIN_PASSWORD` is omitted,
+ * uses {@link FETCH_DEV_DEMO_DEFAULT_PASSWORD} (`demo12345678`) for the demo user.
  * Use the same email as `VITE_DEV_DEMO_USER_EMAIL` (or `demo@fetch.local`) so marketplace + Drops dev mocks attach.
  */
 export async function tryDevAutoSignIn(): Promise<boolean> {
@@ -12,8 +14,9 @@ export async function tryDevAutoSignIn(): Promise<boolean> {
   if (host !== 'localhost' && host !== '127.0.0.1') return false
 
   const email = import.meta.env.VITE_DEV_AUTO_SIGNIN_EMAIL?.trim()
-  const password = import.meta.env.VITE_DEV_AUTO_SIGNIN_PASSWORD?.trim()
-  if (!email || !password) return false
+  const password =
+    import.meta.env.VITE_DEV_AUTO_SIGNIN_PASSWORD?.trim() || FETCH_DEV_DEMO_DEFAULT_PASSWORD
+  if (!email) return false
 
   const sb = getSupabaseBrowserClient()
   if (!sb) return false

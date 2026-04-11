@@ -1,11 +1,14 @@
 import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { addMapbox3DBuildingsLayer } from '../../lib/mapbox3dBuildings'
 import { FETCH_MAPBOX_STYLE_URL } from '../../lib/mapboxStyle'
 /** Brisbane CBD — fallback when no user location */
 const FALLBACK_CENTER: [number, number] = [153.0251, -27.4698]
-const DEFAULT_ZOOM = 13
-const DEFAULT_PITCH = 38
+/** Closer view so extruded buildings read clearly */
+const DEFAULT_ZOOM = 15.35
+const DEFAULT_PITCH = 62
+const DEFAULT_BEARING = -16
 const ROUTE_SOURCE_ID = 'fetch-mapbox-route'
 const ROUTE_LAYER_ID = 'fetch-mapbox-route-line'
 
@@ -131,7 +134,7 @@ export function MapboxMapLayer({
       center: initialCenterRef.current,
       zoom: DEFAULT_ZOOM,
       pitch: DEFAULT_PITCH,
-      bearing: 0,
+      bearing: DEFAULT_BEARING,
       antialias: true,
       attributionControl: true,
       fadeDuration: 220,
@@ -157,12 +160,16 @@ export function MapboxMapLayer({
     }
     map.on('error', onMapError)
 
+    const onStyleData = () => addMapbox3DBuildingsLayer(map, 'fetch-home-mapbox-3d-buildings')
+    map.on('styledata', onStyleData)
+
     const onLoad = () => {
       if (cancelled) return
       window.clearTimeout(bootFailsafe)
       if (import.meta.env.DEV) {
         map.getContainer().style.background = ''
       }
+      addMapbox3DBuildingsLayer(map, 'fetch-home-mapbox-3d-buildings')
       requestAnimationFrame(() => map.resize())
       window.setTimeout(() => map.resize(), 300)
 
@@ -191,6 +198,7 @@ export function MapboxMapLayer({
         }
       }
       mapRef.current = null
+      map.off('styledata', onStyleData)
       map.off('error', onMapError)
       map.remove()
       setMapReady(false)
@@ -210,7 +218,7 @@ export function MapboxMapLayer({
         duration: 1100,
         easing: (t) => 1 - (1 - t) * (1 - t),
         pitch: DEFAULT_PITCH,
-        bearing: 0,
+        bearing: DEFAULT_BEARING,
       })
     }
 

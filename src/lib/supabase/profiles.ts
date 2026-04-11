@@ -196,6 +196,44 @@ async function resolveAuthUser(sb: SupabaseClient): Promise<User | null> {
   return user?.id ? user : null
 }
 
+/**
+ * All Supabase **writes** must use this — matches production JWT validation (no session.user fallback).
+ */
+export async function requireSupabaseAuthUser(sb: SupabaseClient): Promise<User> {
+  const { data, error } = await sb.auth.getUser()
+  if (error) {
+    console.error(LOG, 'AUTH_GET_USER_ERROR', error.message, error)
+    throw new Error(error.message || 'Authentication failed')
+  }
+  const user = data.user
+  if (!user?.id) {
+    console.error(LOG, 'AUTH_GET_USER_MISSING')
+    throw new Error('Not signed in')
+  }
+  console.log(LOG, 'auth user id', user.id)
+  return user
+}
+
+export function formatProfileSaveError(err: unknown): string {
+  if (err == null) return 'Save failed'
+  if (typeof err === 'string') return err
+  if (err instanceof Error) return err.message || 'Save failed'
+  if (typeof err === 'object') {
+    const o = err as Record<string, unknown>
+    const msg = typeof o.message === 'string' ? o.message : ''
+    const det = typeof o.details === 'string' ? o.details : ''
+    const hint = typeof o.hint === 'string' ? o.hint : ''
+    const code = typeof o.code === 'string' ? o.code : ''
+    const parts = [msg, det, hint, code ? `[${code}]` : ''].filter(Boolean)
+    if (parts.length) return parts.join(' — ')
+  }
+  try {
+    return JSON.stringify(err)
+  } catch {
+    return 'Save failed'
+  }
+}
+
 /** Picture URLs from Google (picture), Apple variants, or Supabase-normalized fields. */
 function avatarUrlFromUser(user: User): string | null {
   const m = user.user_metadata as Record<string, unknown> | undefined
@@ -292,12 +330,16 @@ export async function ensureUserProfile(user: User | null | undefined): Promise<
       following_count: 0,
       credits_balance_cents: 0,
     }
-    console.log('[PROFILE] inserting profile row', { userId: uid })
-    let insErr = (await sb.from('profiles').insert(rich as never)).error
+    console.log('[PROFILE] upsert profile row (ignoreDuplicates)', { userId: uid, payloadKeys: Object.keys(rich) })
+    let insErr = (
+      await sb.from('profiles').upsert(rich as never, { onConflict: 'id', ignoreDuplicates: true })
+    ).error
     if (insErr) {
       const legacy = { id: uid, username: base.username, avatar_url: base.avatar_url ?? avatarMeta ?? null }
-      console.warn('[PROFILE] rich insert failed, trying legacy columns', insErr.message)
-      insErr = (await sb.from('profiles').insert(legacy as never)).error
+      console.warn('[PROFILE] rich upsert failed, trying legacy upsert', insErr.message)
+      insErr = (
+        await sb.from('profiles').upsert(legacy as never, { onConflict: 'id', ignoreDuplicates: true })
+      ).error
     }
     if (insErr) {
       const msg = String(insErr.message || '')
@@ -382,38 +424,61 @@ export async function completeFetchProfileOnboarding(input: {
   avatarUrl?: string | null
 }): Promise<SupabaseProfile> {
   const sb = requireSupabaseBrowserClient()
-  const user = await resolveAuthUser(sb)
-  if (!user) throw new Error('You must be logged in')
+  const user = await requireSupabaseAuthUser(sb)
   const uid = user.id
   await ensureUserProfile(user)
   const name = input.fullName.trim()
   if (name.length < 1) throw new Error('Enter your name.')
 
-  const body = {
+  const existing = await fetchProfileRow(sb, uid)
+  const base = profileInsertPayload(user)
+  const email = profileEmailFromUser(user)
+  const merged: Record<string, unknown> = {
+    id: uid,
+    username: existing?.username ?? base.username,
+    avatar_url: input.avatarUrl ?? existing?.avatar_url ?? base.avatar_url ?? avatarUrlFromUser(user),
+    email: existing?.email || email || null,
     full_name: name,
-    avatar_url: input.avatarUrl ?? null,
     onboarding_complete: true,
+    bio: existing?.bio ?? null,
+    location_label: existing?.location_label ?? null,
+    phone: existing?.phone ?? null,
+    seller_rating: existing?.seller_rating ?? 5,
+    followers_count: existing?.followers_count ?? 0,
+    following_count: existing?.following_count ?? 0,
+    credits_balance_cents: existing?.credits_balance_cents ?? 0,
   }
-  const full = await sb
+  console.log('[ONBOARDING] profile upsert payload', { userId: uid, keys: Object.keys(merged) })
+  const { data, error } = await sb
     .from('profiles')
-    .update(body as never)
-    .eq('id', uid)
+    .upsert(merged as never, { onConflict: 'id' })
     .select(PROFILE_SELECT_EXTENDED)
     .single()
-  let data: SupabaseProfile | null = (full.data as SupabaseProfile | null) ?? null
-  if (full.error) {
+  if (error) {
+    console.error('[ONBOARDING] PROFILE_SAVE_ERROR', error)
     const leg = await sb
       .from('profiles')
-      .update({ full_name: name, avatar_url: input.avatarUrl ?? null } as never)
-      .eq('id', uid)
+      .upsert(
+        {
+          id: uid,
+          username: merged.username,
+          avatar_url: merged.avatar_url,
+          full_name: name,
+        } as never,
+        { onConflict: 'id' },
+      )
       .select('id,username,avatar_url,created_at')
       .single()
-    if (leg.error) throw full.error
-    data = leg.data as SupabaseProfile
+    if (leg.error) {
+      console.error('[ONBOARDING] legacy upsert failed', leg.error)
+      throw error
+    }
+    console.log('[ONBOARDING] profile marked complete (legacy columns)', { userId: uid })
+    return { ...(leg.data as SupabaseProfile), full_name: name, onboarding_complete: true }
   }
   if (!data) throw new Error('Could not update profile.')
   console.log('[ONBOARDING] profile marked complete', { userId: uid })
-  return data
+  return data as SupabaseProfile
 }
 
 /**
@@ -422,10 +487,9 @@ export async function completeFetchProfileOnboarding(input: {
  */
 export async function ensureMySupabaseProfile(): Promise<SupabaseProfile> {
   const sb = requireSupabaseBrowserClient()
-  const user = await resolveAuthUser(sb)
-  if (!user) throw new Error('You must be logged in')
+  const user = await requireSupabaseAuthUser(sb)
   const profile = await ensureUserProfile(user)
-  if (!profile) throw new Error('You must be logged in')
+  if (!profile) throw new Error('Could not load or create profile.')
   return profile
 }
 
@@ -448,8 +512,7 @@ async function usernameTaken(sb: SupabaseClient, candidate: string, userId: stri
 
 export async function suggestUniqueUsernameFromEmail(email: string, displayName?: string): Promise<string> {
   const sb = requireSupabaseBrowserClient()
-  const user = await resolveAuthUser(sb)
-  if (!user?.id) throw new Error('You must be logged in')
+  const user = await requireSupabaseAuthUser(sb)
   const uid = user.id
   const base = usernameSeedFromEmail(email, displayName)
   const candidates: string[] = []
@@ -482,19 +545,20 @@ export async function uploadMySupabaseAvatar(file: File): Promise<string> {
   if (file.size > 8 * 1024 * 1024) throw new Error('Profile photo must be 8MB or smaller.')
 
   const sb = requireSupabaseBrowserClient()
-  const user = await resolveAuthUser(sb)
-  if (!user?.id) throw new Error('You must be logged in')
+  const user = await requireSupabaseAuthUser(sb)
   const uid = user.id
   const bucket = import.meta.env.VITE_SUPABASE_PROFILE_BUCKET || import.meta.env.VITE_SUPABASE_DROP_BUCKET || 'drops'
   const ext = extensionForImage(file)
   const path = `profiles/${uid}/avatar-${Date.now()}.${ext}`
 
+  console.log(LOG, 'avatar upload start', { userId: uid, bucket, path, bytes: file.size })
   const { error: uploadError } = await sb.storage.from(bucket).upload(path, file, {
     upsert: true,
     cacheControl: '3600',
     contentType: file.type || undefined,
   })
   if (uploadError) {
+    console.error(LOG, 'AVATAR_UPLOAD_ERROR', uploadError.message, uploadError)
     throw new Error(uploadError.message || 'Could not upload profile photo.')
   }
   const { data } = sb.storage.from(bucket).getPublicUrl(path)
@@ -512,40 +576,98 @@ export async function updateMySupabaseProfile(patch: {
   phone?: string | null
 }): Promise<SupabaseProfile> {
   const sb = requireSupabaseBrowserClient()
-  const user = await resolveAuthUser(sb)
-  if (!user) throw new Error('You must be logged in')
+  const user = await requireSupabaseAuthUser(sb)
   const uid = user.id
 
   await ensureUserProfile(user)
 
-  const next: Record<string, string | null> = {}
-  if (patch.username !== undefined) {
-    const u = patch.username.trim()
-    const verr = validateUsername(u)
-    if (verr) throw new Error(verr)
-    next.username = u
+  const existing = await fetchProfileRow(sb, uid)
+  if (!existing) {
+    console.error(LOG, 'PROFILE_SAVE_ERROR no row after ensure', { userId: uid })
+    throw new Error('Profile not found. Try signing out and back in.')
   }
-  if (patch.avatar_url !== undefined) next.avatar_url = patch.avatar_url
-  if (patch.full_name !== undefined) next.full_name = patch.full_name?.trim() || null
-  if (patch.bio !== undefined) next.bio = patch.bio?.trim() ? patch.bio.trim().slice(0, 500) : null
-  if (patch.location_label !== undefined)
-    next.location_label = patch.location_label?.trim() ? patch.location_label.trim().slice(0, 120) : null
-  if (patch.phone !== undefined) next.phone = patch.phone?.trim() ? patch.phone.trim().slice(0, 32) : null
+
+  const base = profileInsertPayload(user)
+  const email = profileEmailFromUser(user)
+
+  let username = existing.username ?? base.username
+  if (patch.username !== undefined) {
+    const raw = patch.username.trim()
+    const verr = validateUsername(raw)
+    if (verr) throw new Error(verr)
+    username = raw.toLowerCase()
+  }
+
+  const merged: Record<string, unknown> = {
+    id: uid,
+    email: existing.email || email || null,
+    username,
+    avatar_url:
+      patch.avatar_url !== undefined ? patch.avatar_url : (existing.avatar_url ?? base.avatar_url),
+    full_name:
+      patch.full_name !== undefined
+        ? patch.full_name?.trim() || null
+        : existing.full_name ?? (fullNameFromUser(user) || null),
+    bio:
+      patch.bio !== undefined
+        ? (() => {
+            const t = patch.bio == null ? '' : String(patch.bio).trim()
+            return t ? t.slice(0, 500) : null
+          })()
+        : (existing.bio ?? null),
+    location_label:
+      patch.location_label !== undefined
+        ? (() => {
+            const t = patch.location_label == null ? '' : String(patch.location_label).trim()
+            return t ? t.slice(0, 120) : null
+          })()
+        : (existing.location_label ?? null),
+    phone:
+      patch.phone !== undefined
+        ? (() => {
+            const t = patch.phone == null ? '' : String(patch.phone).trim()
+            return t ? t.slice(0, 32) : null
+          })()
+        : (existing.phone ?? null),
+    onboarding_complete: existing.onboarding_complete !== false,
+    seller_rating: existing.seller_rating ?? 5,
+    followers_count: existing.followers_count ?? 0,
+    following_count: existing.following_count ?? 0,
+    credits_balance_cents: existing.credits_balance_cents ?? 0,
+  }
+
+  console.log(LOG, 'PROFILE_UPSERT_PAYLOAD', { userId: uid, keys: Object.keys(merged) })
   const { data, error } = await sb
     .from('profiles')
-    .update(next)
-    .eq('id', uid)
+    .upsert(merged as never, { onConflict: 'id' })
     .select(PROFILE_SELECT_EXTENDED)
     .single()
+
   if (error) {
+    console.error(LOG, 'PROFILE_SAVE_ERROR', error)
+    const slim: Record<string, unknown> = {
+      id: uid,
+      username: merged.username,
+      avatar_url: merged.avatar_url,
+      full_name: merged.full_name,
+    }
     const { data: d2, error: e2 } = await sb
       .from('profiles')
-      .update(next)
-      .eq('id', uid)
+      .upsert(slim as never, { onConflict: 'id' })
       .select('id,username,avatar_url,created_at')
       .single()
-    if (e2) throw error
-    return d2 as SupabaseProfile
+    if (e2) {
+      console.error(LOG, 'PROFILE_SAVE_ERROR legacy upsert', e2)
+      throw error
+    }
+    return {
+      ...(d2 as SupabaseProfile),
+      full_name: merged.full_name as string | null,
+      bio: merged.bio as string | null,
+      location_label: merged.location_label as string | null,
+      phone: merged.phone as string | null,
+    }
   }
+
   return data as SupabaseProfile
 }

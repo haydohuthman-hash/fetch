@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { waitForPaymentIntentServerConfirmed } from '../lib/booking/api'
 import {
   analyzeListingPhotosForSell,
+  buildValidatedCreateListingBody,
   checkoutListing,
   createListing,
   DEMO_LISTING_CHECKOUT_DISABLED_MESSAGE,
@@ -17,7 +18,8 @@ import {
   refreshSellerConnectStatus,
   registerDevSellerStripe,
   startSellerConnect,
-  uploadListingImage,
+  uploadListingImagesForCreate,
+  withListingImages,
   type PeerListing,
 } from '../lib/listingsApi'
 import { formatDropHandle, getMyDropProfile } from '../lib/drops/profileStore'
@@ -553,6 +555,10 @@ function HomeShellBuySellPageInner({
     setBusy(true)
     try {
       await syncCustomerSessionCookie()
+      if (!title.trim()) {
+        setCreateErr('Add a product title.')
+        return
+      }
       if (priceAud.trim() === '') {
         setCreateErr('Set a price in AUD (0 for free) or use AI fill from photos.')
         return
@@ -590,15 +596,23 @@ function HomeShellBuySellPageInner({
         descBody = descBody ? `${descBody}\n${sumLine}` : sumLine
       }
 
-      const listing = await createListing({
-        title: title.trim() || 'Untitled',
+      let preImages: { url: string; sort: number }[] | undefined
+      if (photos.length > 0) {
+        const urls = await uploadListingImagesForCreate(photos)
+        preImages = urls.map((url, i) => ({ url, sort: i }))
+      }
+      const locPrimary = listingLocationDraft.trim()
+      const locFallback = locationLabel.trim()
+      const draft = buildValidatedCreateListingBody({
+        title: title.trim(),
         description: descBody,
         priceAud: n,
         compareAtPriceAud,
         category: createCategory,
         condition: createCondition,
         keywords: keywords.trim(),
-        locationLabel: listingLocationDraft.trim() || locationLabel.trim(),
+        locationLabel: locPrimary,
+        suburb: locFallback,
         sku: sku.trim() || undefined,
         acceptsOffers,
         fetchDelivery,
@@ -607,9 +621,11 @@ function HomeShellBuySellPageInner({
         profileDisplayName: me.displayName,
         profileAvatar: me.avatar,
       })
-      for (const file of photos) {
-        await uploadListingImage(listing.id, file)
+      if (!draft.ok) {
+        setCreateErr(draft.error)
+        return
       }
+      const listing = await createListing(withListingImages(draft.body, preImages))
       await publishListing(listing.id)
       setTitle('')
       setDescription('')

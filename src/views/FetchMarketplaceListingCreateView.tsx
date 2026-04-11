@@ -3,11 +3,14 @@ import { useSearchParams } from 'react-router-dom'
 import { loadSession } from '../lib/fetchUserSession'
 import { ensureDropProfileForSession, getMyDropProfile } from '../lib/drops/profileStore'
 import {
+  buildValidatedCreateListingBody,
   createListing,
   fetchListing,
   patchListing,
   publishListing,
   uploadListingImage,
+  uploadListingImagesForCreate,
+  withListingImages,
 } from '../lib/listingsApi'
 
 const LIST_CATEGORIES: { id: string; label: string }[] = [
@@ -113,8 +116,8 @@ export default function FetchMarketplaceListingCreateView({ onDone }: FetchMarke
         setErr('Add a product title.')
         return
       }
-      if (!Number.isFinite(price) || price <= 0) {
-        setErr('Enter a valid price.')
+      if (!Number.isFinite(price) || price < 0) {
+        setErr('Enter a valid price (0 or more AUD).')
         return
       }
       ensureDropProfileForSession()
@@ -128,8 +131,15 @@ export default function FetchMarketplaceListingCreateView({ onDone }: FetchMarke
       try {
         let id = listingId
         const keywords = buildKeywords()
+        const isNew = !id
+        let preUploadedImages: { url: string; sort: number }[] | undefined
+        if (isNew && files.length > 0) {
+          const urls = await uploadListingImagesForCreate(files)
+          preUploadedImages = urls.map((url, i) => ({ url, sort: i }))
+        }
+
         if (!id) {
-          const created = await createListing({
+          const draft = buildValidatedCreateListingBody({
             title: title.trim(),
             description: description.trim(),
             priceAud: price,
@@ -143,6 +153,11 @@ export default function FetchMarketplaceListingCreateView({ onDone }: FetchMarke
             profileDisplayName: me.displayName,
             profileAvatar: me.avatar?.trim() || undefined,
           })
+          if (!draft.ok) {
+            setErr(draft.error)
+            return
+          }
+          const created = await createListing(withListingImages(draft.body, preUploadedImages))
           id = created.id
           setListingId(id)
         } else {
@@ -160,10 +175,9 @@ export default function FetchMarketplaceListingCreateView({ onDone }: FetchMarke
             profileDisplayName: me.displayName,
             profileAvatar: me.avatar?.trim() || null,
           })
-        }
-
-        for (const f of files) {
-          await uploadListingImage(id, f)
+          for (const f of files) {
+            await uploadListingImage(id, f)
+          }
         }
 
         await publishListing(id)

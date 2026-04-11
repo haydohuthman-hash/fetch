@@ -406,13 +406,12 @@ export function DropsPostWizard({
         boostTier,
       }
       onPublishActivity?.({ type: 'progress', step: 'upload', hasVideo, mediaLabel })
-      setBusy(false)
-      onClose()
-      reset()
       void (async () => {
         try {
           await withTimeout(Promise.resolve(onLocalPublish?.(payload)), 30_000, 'Local publish')
           onPublishActivity?.({ type: 'idle' })
+          onClose()
+          reset()
           onPublished(undefined, null)
         } catch (e) {
           onPublishActivity?.({
@@ -454,9 +453,6 @@ export function DropsPostWizard({
         }
 
         onPublishActivity?.({ type: 'progress', step: 'upload', hasVideo, mediaLabel: snapshot.mediaLabel })
-        setBusy(false)
-        onClose()
-        reset()
 
         const uploadMs = snapshot.hasVideo ? 180_000 : 60_000
         const media = await withTimeout(
@@ -467,6 +463,11 @@ export function DropsPostWizard({
           uploadMs,
           'Upload',
         )
+        console.log('[drops/publish-wizard] upload response', {
+          hasVideoUrl: Boolean(media.videoUrl),
+          videoUrlPrefix: media.videoUrl ? media.videoUrl.slice(0, 64) : '',
+          imageUrlCount: media.imageUrls?.length ?? 0,
+        })
         if (!media.videoUrl && !(media.imageUrls?.length ?? 0)) {
           onPublishActivity?.({ type: 'error', message: 'Upload failed — no media URL returned.' })
           return
@@ -479,6 +480,33 @@ export function DropsPostWizard({
           mediaLabel: snapshot.mediaLabel,
         })
 
+        const publishBody = {
+          authorId: snapshot.authorId,
+          sellerDisplay: snapshot.sellerDisplay,
+          title: snapshot.title,
+          priceLabel: snapshot.priceLabel,
+          blurb: snapshot.blurb,
+          categories: [snapshot.category],
+          region: snapshot.region,
+          commerce: snapshot.commerce,
+          commerceSaleMode: snapshot.commerceSaleMode,
+          growthVelocityScore: 1.55,
+          ...(media.videoUrl ? { videoUrl: media.videoUrl } : { imageUrls: media.imageUrls ?? [] }),
+        }
+        if ('videoUrl' in publishBody && publishBody.videoUrl) {
+          console.log('[drops/publish-wizard] create payload', {
+            ...publishBody,
+            videoUrl: `${publishBody.videoUrl.slice(0, 64)}…`,
+          })
+        } else if ('imageUrls' in publishBody) {
+          console.log('[drops/publish-wizard] create payload', {
+            ...publishBody,
+            imageUrls: publishBody.imageUrls.map((u: string) => `${u.slice(0, 48)}…`),
+          })
+        } else {
+          console.log('[drops/publish-wizard] create payload', publishBody)
+        }
+
         const res = await withTimeout(
           fetch(`${getFetchApiBaseUrl()}/api/publish`, {
             method: 'POST',
@@ -488,19 +516,7 @@ export function DropsPostWizard({
               Authorization: `Bearer ${session.access_token}`,
               ...marketplaceActorHeaders('customer'),
             },
-            body: JSON.stringify({
-              authorId: snapshot.authorId,
-              sellerDisplay: snapshot.sellerDisplay,
-              title: snapshot.title,
-              priceLabel: snapshot.priceLabel,
-              blurb: snapshot.blurb,
-              categories: [snapshot.category],
-              region: snapshot.region,
-              commerce: snapshot.commerce,
-              commerceSaleMode: snapshot.commerceSaleMode,
-              growthVelocityScore: 1.55,
-              ...(media.videoUrl ? { videoUrl: media.videoUrl } : { imageUrls: media.imageUrls ?? [] }),
-            }),
+            body: JSON.stringify(publishBody),
           }),
           30_000,
           'Create drop',
@@ -510,6 +526,16 @@ export function DropsPostWizard({
           drop?: Record<string, unknown> | null
           error?: string
         }
+        const drop = payload.drop && typeof payload.drop === 'object' ? payload.drop : null
+        console.log('[drops/publish-wizard] create response', {
+          ok: res.ok,
+          status: res.status,
+          id: payload.id,
+          error: payload.error,
+          dropHasVideoUrl: typeof drop?.videoUrl === 'string' && Boolean(drop.videoUrl),
+          dropImageCount: Array.isArray(drop?.imageUrls) ? drop.imageUrls.length : 0,
+          dropPoster: typeof drop?.poster === 'string' ? Boolean(drop.poster) : false,
+        })
         if (!res.ok) {
           onPublishActivity?.({
             type: 'error',
@@ -528,7 +554,9 @@ export function DropsPostWizard({
         }
 
         onPublishActivity?.({ type: 'idle' })
-        onPublished(id, payload.drop ?? null)
+        onClose()
+        reset()
+        onPublished(id, drop)
       } catch (e) {
         if (e instanceof UploadDropMediaError) {
           onPublishActivity?.({ type: 'error', message: e.message })

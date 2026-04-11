@@ -2,6 +2,18 @@ import { normalizeEmail, type FetchUserRecord, loadSession } from './fetchUserSe
 import { completeDropsCreatorOnboarding, needsDropsCreatorOnboarding } from './drops/fetchDropsCreatorOnboarding'
 import { completePlatformOnboarding, needsPlatformOnboarding } from './fetchPlatformIdentity'
 
+/** Password for the local Supabase demo user (pair with {@link getFetchDevDemoUserEmail}). */
+export const FETCH_DEV_DEMO_DEFAULT_PASSWORD = 'demo12345678'
+
+/** Prefill email sign-in password on localhost in dev (empty in production builds). */
+export function getFetchDevDemoPasswordPrefill(): string {
+  if (!import.meta.env.DEV) return ''
+  if (typeof window === 'undefined') return ''
+  const h = window.location.hostname
+  if (h !== 'localhost' && h !== '127.0.0.1') return ''
+  return FETCH_DEV_DEMO_DEFAULT_PASSWORD
+}
+
 /** Canonical demo mailbox for local Drops + marketplace mocks (override with env). */
 export function getFetchDevDemoUserEmail(): string {
   const explicit = import.meta.env.VITE_DEV_DEMO_USER_EMAIL?.trim()

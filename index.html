@@ -7,6 +7,9 @@
       name="viewport"
       content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content"
     />
+    <!-- Safari iOS: browser chrome (top/bottom) matches app bottom dock — see --fetch-bottom-nav-chrome in src/index.css -->
+    <meta name="theme-color" content="#064e3b" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Fetch</title>
     <script>
       (function () {
@@ -24,6 +27,24 @@
         } catch (e) {
           document.documentElement.setAttribute('data-fetch-theme', 'dark')
         }
+        try {
+          var ah = localStorage.getItem('fetch.accentHex')
+          if (ah && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(ah.trim())) {
+            var h = ah.trim()
+            if (h.length === 4) {
+              h = '#' + h[1] + h[1] + h[2] + h[2] + h[3] + h[3]
+            }
+            var n = parseInt(h.slice(1), 16)
+            var rr = (n >> 16) & 255
+            var gg = (n >> 8) & 255
+            var bb = n & 255
+            document.documentElement.style.setProperty('--fetch-accent', h.toLowerCase())
+            document.documentElement.style.setProperty('--fetch-accent-rgb', rr + ', ' + gg + ', ' + bb)
+            document.documentElement.style.setProperty('--fetch-bottom-nav-chrome', h.toLowerCase())
+            var tm = document.querySelector('meta[name="theme-color"]')
+            if (tm) tm.setAttribute('content', h.toLowerCase())
+          }
+        } catch (e2) {}
       })()
     </script>
   </head>

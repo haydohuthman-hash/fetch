@@ -155,8 +155,8 @@ function HomeShellChatHubPageInner({
       className={[
         'relative flex h-[3.25rem] w-[3.25rem] shrink-0 items-center justify-center rounded-full border-2 transition-[colors,box-shadow,transform] active:scale-[0.96]',
         expanded
-          ? 'border-[#1877f2] bg-blue-50 text-[#1877f2] shadow-md shadow-blue-900/10'
-          : 'border-zinc-200/90 bg-white text-zinc-700 shadow-sm active:bg-zinc-50',
+          ? 'border-[#065f46] bg-emerald-100 text-[#064e3b] shadow-md shadow-emerald-900/15'
+          : 'border-emerald-200/90 bg-white text-emerald-950 shadow-sm active:bg-emerald-50/80',
       ].join(' ')}
     >
       {children}
@@ -170,7 +170,7 @@ function HomeShellChatHubPageInner({
 
   if (screen === 'thread' && activeThread) {
     return (
-      <div className="fetch-home-buysell-page absolute inset-0 z-[60] flex min-h-0 flex-col bg-zinc-100" role="main">
+      <div className="fetch-home-buysell-page absolute inset-0 z-[60] flex min-h-0 flex-col bg-emerald-50" role="main">
         <ChatThreadView
           thread={activeThread}
           onBack={() => {
@@ -198,7 +198,7 @@ function HomeShellChatHubPageInner({
 
   return (
     <div
-      className="fetch-home-buysell-page absolute inset-0 z-[60] flex min-h-0 flex-col bg-zinc-100"
+      className="fetch-home-buysell-page absolute inset-0 z-[60] flex min-h-0 flex-col bg-emerald-50"
       role="main"
       aria-label="Fetch chat"
     >
@@ -210,31 +210,31 @@ function HomeShellChatHubPageInner({
             aria-label="Close menu"
             onClick={() => setMenuOpen(false)}
           />
-          <div className="flex h-full w-[min(18rem,88vw)] flex-col border-l border-zinc-200 bg-white shadow-xl">
-            <div className="border-b border-zinc-100 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top,0px))]">
-              <p className="text-[16px] font-bold text-zinc-900">Chat</p>
-              <p className="mt-0.5 text-[12px] text-zinc-500">Marketplace, support, and the field</p>
+          <div className="flex h-full w-[min(18rem,88vw)] flex-col border-l border-emerald-200/80 bg-white shadow-xl">
+            <div className="border-b border-emerald-100 px-4 py-3 pt-[max(0.75rem,env(safe-area-inset-top,0px))]">
+              <p className="text-[16px] font-bold text-[#064e3b]">Chat</p>
+              <p className="mt-0.5 text-[12px] text-emerald-800/80">Marketplace, support, and the field</p>
             </div>
             <nav className="flex flex-col gap-0.5 p-2">
               <button
                 type="button"
-                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] font-semibold text-zinc-900 active:bg-zinc-100"
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-[15px] font-semibold text-emerald-950 active:bg-emerald-50"
                 onClick={() => {
                   setMenuOpen(false)
                   void loadThreads('listing')
                 }}
               >
-                <ShellMenuRefreshIcon className="h-[1.35rem] w-[1.35rem] shrink-0 text-zinc-500" />
+                <ShellMenuRefreshIcon className="h-[1.35rem] w-[1.35rem] shrink-0 text-emerald-700" />
                 <span className="min-w-0">Refresh marketplace threads</span>
               </button>
             </nav>
-            <div className="mt-auto border-t border-zinc-100 p-2 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]">
+            <div className="mt-auto border-t border-emerald-100 p-2 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]">
               <button
                 type="button"
-                className="flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-[15px] font-semibold text-zinc-600 active:bg-zinc-100"
+                className="flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-[15px] font-semibold text-emerald-800 active:bg-emerald-50"
                 onClick={() => setMenuOpen(false)}
               >
-                <ShellMenuCloseIcon className="h-[1.2rem] w-[1.2rem] shrink-0 text-zinc-400" />
+                <ShellMenuCloseIcon className="h-[1.2rem] w-[1.2rem] shrink-0 text-emerald-600" />
                 Close
               </button>
             </div>
@@ -242,11 +242,11 @@ function HomeShellChatHubPageInner({
         </div>
       ) : null}
 
-      <header className="shrink-0 border-b border-zinc-200/80 bg-white px-3 pb-2 pt-[max(0.5rem,env(safe-area-inset-top,0px))] sm:px-4">
+      <header className="shrink-0 border-b border-emerald-800/40 bg-[#064e3b] px-3 pb-2 pt-[max(0.5rem,env(safe-area-inset-top,0px))] sm:px-4">
         <div className="mx-auto grid w-full min-w-0 max-w-lg grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] items-center gap-2">
           <button
             type="button"
-            className="flex h-10 w-10 items-center justify-center rounded-full text-zinc-800 transition-colors active:bg-zinc-100"
+            className="flex h-10 w-10 items-center justify-center rounded-full text-emerald-100 transition-colors active:bg-white/10"
             aria-label="Menu"
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen(true)}
@@ -254,13 +254,13 @@ function HomeShellChatHubPageInner({
             <ShellMenuIcon className="h-5 w-5" />
           </button>
           <div className="flex min-w-0 items-center justify-center gap-2">
-            <FetchEyesHomeIcon className="h-8 w-8 shrink-0 text-zinc-900 sm:h-9 sm:w-9" />
+            <FetchEyesHomeIcon className="h-8 w-8 shrink-0 text-emerald-50 sm:h-9 sm:w-9" />
             <div className="min-w-0 text-left">
               <span className="flex min-w-0 items-baseline gap-1 truncate">
-                <span className="fetch-home-map-brand-logo shrink-0 text-[1.2rem] font-bold leading-none tracking-[-0.03em] text-zinc-900 sm:text-[1.35rem]">
+                <span className="fetch-home-map-brand-logo shrink-0 text-[1.2rem] font-bold leading-none tracking-[-0.03em] text-white sm:text-[1.35rem]">
                   Fetch
                 </span>
-                <span className="min-w-0 truncate text-[0.8rem] font-semibold leading-none tracking-[-0.02em] text-zinc-700 sm:text-[0.9rem]">
+                <span className="min-w-0 truncate text-[0.8rem] font-semibold leading-none tracking-[-0.02em] text-emerald-200 sm:text-[0.9rem]">
                   chat
                 </span>
               </span>
@@ -270,7 +270,7 @@ function HomeShellChatHubPageInner({
             <button
               type="button"
               onClick={onMenuAccount}
-              className="flex h-10 w-10 shrink-0 items-center justify-center justify-self-end rounded-full text-zinc-800 transition-colors active:bg-zinc-100"
+              className="flex h-10 w-10 shrink-0 items-center justify-center justify-self-end rounded-full text-emerald-100 transition-colors active:bg-white/10"
               aria-label="Profile"
             >
               <AccountNavIconFilled className="h-6 w-6" />
@@ -282,7 +282,7 @@ function HomeShellChatHubPageInner({
       </header>
 
       <div className="mx-auto flex min-h-0 w-full max-w-lg flex-1 flex-col overflow-hidden">
-        <div className="shrink-0 border-b border-zinc-200/60 bg-zinc-50/80 px-3 py-3 sm:px-4">
+        <div className="shrink-0 border-b border-emerald-200/70 bg-emerald-100/90 px-3 py-3 sm:px-4">
           <div className="flex flex-wrap items-center gap-2.5">
             {circleBtn(
               'hub-opt-field',
@@ -314,22 +314,22 @@ function HomeShellChatHubPageInner({
           {err ? <p className="mb-2 text-[13px] text-red-600">{err}</p> : null}
 
           {expandedHub === null ? (
-            <p className="py-6 text-center text-[14px] text-zinc-500">Tap a circle to open chats below.</p>
+            <p className="py-6 text-center text-[14px] text-emerald-800/70">Tap a circle to open chats below.</p>
           ) : null}
 
           {expandedHub === 'field' ? (
             <div className="space-y-2" role="region" aria-labelledby="hub-opt-field">
               <button
                 type="button"
-                className="flex w-full items-center gap-3 rounded-2xl border border-zinc-200/90 bg-white p-3 text-left shadow-sm active:bg-zinc-50"
+                className="flex w-full items-center gap-3 rounded-2xl border border-emerald-200/90 bg-white p-3 text-left shadow-sm active:bg-emerald-50/80"
                 onClick={() => onChatWithField()}
               >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-100 text-violet-700">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-200/80 text-[#064e3b]">
                   <FetchEyesHomeIcon className="h-5 w-5" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[15px] font-bold text-zinc-900">Chat with the field</p>
-                  <p className="text-[12px] text-zinc-500">Bookings, questions, and the home assistant</p>
+                  <p className="text-[15px] font-bold text-emerald-950">Chat with the field</p>
+                  <p className="text-[12px] text-emerald-800/75">Bookings, questions, and the home assistant</p>
                 </div>
               </button>
             </div>
@@ -338,26 +338,26 @@ function HomeShellChatHubPageInner({
           {expandedHub === 'listing' ? (
             <div className="space-y-2" role="region" aria-labelledby="hub-opt-listing">
               {busy && threads.length === 0 ? (
-                <p className="py-6 text-center text-[14px] text-zinc-500">Loading…</p>
+                <p className="py-6 text-center text-[14px] text-emerald-800/70">Loading…</p>
               ) : threads.length === 0 ? (
-                <p className="py-6 text-center text-[14px] text-zinc-500">No listing chats yet.</p>
+                <p className="py-6 text-center text-[14px] text-emerald-800/70">No listing chats yet.</p>
               ) : (
                 <ul className="flex flex-col gap-2">
                   {threads.map((t) => (
                     <li key={t.id}>
                       <button
                         type="button"
-                        className="w-full rounded-2xl border border-zinc-200/90 bg-white p-3 text-left shadow-sm active:bg-zinc-50"
+                        className="w-full rounded-2xl border border-emerald-200/90 bg-white p-3 text-left shadow-sm active:bg-emerald-50/80"
                         onClick={() => {
                           setThreadKind('listing')
                           setActiveThread(t)
                           setScreen('thread')
                         }}
                       >
-                        <p className="line-clamp-2 text-[14px] font-semibold text-zinc-900">
+                        <p className="line-clamp-2 text-[14px] font-semibold text-emerald-950">
                           {t.lastMessagePreview || 'Listing chat'}
                         </p>
-                        <p className="mt-1 text-[12px] text-zinc-500">
+                        <p className="mt-1 text-[12px] text-emerald-800/75">
                           {t.unreadCount > 0 ? `${t.unreadCount} unread · ` : ''}
                           Marketplace
                         </p>
@@ -374,33 +374,33 @@ function HomeShellChatHubPageInner({
               <button
                 type="button"
                 disabled={busy}
-                className="w-full rounded-2xl border border-violet-200 bg-violet-50 p-3 text-left shadow-sm active:bg-violet-100/80 disabled:opacity-50"
+                className="w-full rounded-2xl border border-emerald-300/80 bg-emerald-100/90 p-3 text-left shadow-sm active:bg-emerald-200/70 disabled:opacity-50"
                 onClick={() => void openOrCreateSupport()}
               >
-                <p className="text-[15px] font-bold text-violet-900">New support conversation</p>
-                <p className="text-[12px] text-violet-700/90">Start or reopen your support thread</p>
+                <p className="text-[15px] font-bold text-[#064e3b]">New support conversation</p>
+                <p className="text-[12px] text-emerald-800/90">Start or reopen your support thread</p>
               </button>
               {busy && threads.length === 0 ? (
-                <p className="py-4 text-center text-[14px] text-zinc-500">Loading…</p>
+                <p className="py-4 text-center text-[14px] text-emerald-800/70">Loading…</p>
               ) : threads.length === 0 ? (
-                <p className="py-4 text-center text-[14px] text-zinc-500">No support threads yet.</p>
+                <p className="py-4 text-center text-[14px] text-emerald-800/70">No support threads yet.</p>
               ) : (
                 <ul className="flex flex-col gap-2">
                   {threads.map((t) => (
                     <li key={t.id}>
                       <button
                         type="button"
-                        className="w-full rounded-2xl border border-zinc-200/90 bg-white p-3 text-left shadow-sm active:bg-zinc-50"
+                        className="w-full rounded-2xl border border-emerald-200/90 bg-white p-3 text-left shadow-sm active:bg-emerald-50/80"
                         onClick={() => {
                           setThreadKind('support')
                           setActiveThread(t)
                           setScreen('thread')
                         }}
                       >
-                        <p className="line-clamp-2 text-[14px] font-semibold text-zinc-900">
+                        <p className="line-clamp-2 text-[14px] font-semibold text-emerald-950">
                           {t.lastMessagePreview || 'Support'}
                         </p>
-                        <p className="mt-1 text-[12px] text-zinc-500">
+                        <p className="mt-1 text-[12px] text-emerald-800/75">
                           {t.unreadCount > 0 ? `${t.unreadCount} unread · ` : ''}
                           Live support
                         </p>

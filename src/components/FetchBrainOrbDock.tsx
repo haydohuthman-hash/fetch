@@ -26,7 +26,7 @@ function mindToActivity(mind: FetchBrainMindState, speaking: boolean): number {
 export type FetchBrainOrbDockProps = {
   mind: FetchBrainMindState
   glowRgb: { r: number; g: number; b: number }
-  orbAppearance: 'night' | 'day'
+  orbAppearance: 'night' | 'day' | 'brand'
 }
 
 /**
